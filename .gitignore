@@ -1,23 +1,68 @@
-/uv.lock
-/.venv
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Entornos Virtuales ---
+.venv/
+venv/
+ENV/
+env/
+
+# --- Variables de Entorno y Secretos ---
+.env
+.env.local
+.env.*
+
+# --- IDEs y Editores ---
+# JetBrains (PyCharm, IntelliJ)
+.idea/
+*.iml
+# VS Code
+.vscode/
+*.code-workspace
+
+# --- Logs y Debug ---
+*.log
+scrapy_debug.log
+
+# --- Base de Datos ---
+*.db
+*.sqlite3
 reservations.db
-extract/calendar_latest.html
-extract/calendar_requests.html
-.idea/.gitignore
-.idea/misc.xml
-.idea/modules.xml
-.idea/scraping_otelms_api.iml
-.idea/vcs.xml
-.idea/inspectionProfiles/profiles_settings.xml
-.idea/inspectionProfiles/Project_Default.xml
-src/__pycache__/__init__.cpython-312.pyc
-src/__pycache__/config.cpython-312.pyc
-src/__pycache__/database.cpython-312.pyc
-src/__pycache__/exporter.cpython-312.pyc
-src/__pycache__/extractor.cpython-312.pyc
-src/__pycache__/items.cpython-312.pyc
-src/__pycache__/models.cpython-312.pyc
-src/__pycache__/pipelines.cpython-312.pyc
-src/__pycache__/scraper.cpython-312.pyc
-src/__pycache__/settings.cpython-312.pyc
-src/__pycache__/spiders.cpython-312.pyc
+
+# --- Archivos Generados por el Proyecto ---
+# Carpeta de extracción (HTMLs guardados, JSONs, etc.)
+extract/
+
+# --- Gestores de Paquetes ---
+# uv (si usas uv para gestión de paquetes)
+uv.lock
+# Poetry
+poetry.lock
+# Pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Sistema Operativo ---
+.DS_Store
+Thumbs.db
