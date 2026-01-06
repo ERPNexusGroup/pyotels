@@ -17,12 +17,10 @@ class Config(BaseSettings):
     DEBUG: bool = True
     BASE_DIR: Path = Path(__name__).parent
 
-    DEV_OUTPUT_DIR: Path = os.path.join(BASE_DIR, 'extract')
-
     LOG_LEVEL: Optional[str] = "INFO"
 
     # Configuración de la base de datos
-    DATABASE_URL: str = "sqlite://reservations.db"
+    DATABASE_URL: str = "sqlite://otels.db"
     
     # Configuración del cache
     CACHE_TTL: int = 60 * 5  # 5 minutos
@@ -36,9 +34,6 @@ class Config(BaseSettings):
 
     USER_AGENT: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ACCEPT_REQUEST: str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-
-    if DEBUG and not os.path.exists(DEV_OUTPUT_DIR):
-        os.makedirs(DEV_OUTPUT_DIR)
 
     @staticmethod
     def get_output_path(filename: str) -> str:

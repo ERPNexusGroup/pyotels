@@ -52,7 +52,7 @@ reservations.db
 
 # --- Archivos Generados por el Proyecto ---
 # Carpeta de extracción (HTMLs guardados, JSONs, etc.)
-extract/
+#extract/
 
 # --- Gestores de Paquetes ---
 # uv (si usas uv para gestión de paquetes)

@@ -109,14 +109,36 @@ class OtelMSScraper:
 
         return resp.text
 
+    def get_reservation_details(self, reservation_id: str) -> str:
+        """
+        Obtiene el HTML de la página de detalles de una reserva.
+        URL: /reservation_c2/folio/{reservation_id}/1
+        """
+        url = self.DETAILS_URL % reservation_id
+        print(f"[Scraper] Obteniendo detalles de reserva: {reservation_id}")
+        
+        resp = self.session.get(url, allow_redirects=True, timeout=20)
+
+        if resp.status_code != 200:
+            print(f"[!] Error obteniendo detalles ({reservation_id}): {resp.status_code}")
+            return ""
+
+        if self.debug:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"details_{reservation_id}_{timestamp}.html"
+            output_path = config.get_output_path(filename)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(resp.text)
+            print(f"[DEV] HTML de detalles guardado en: {filename}")
+
+        return resp.text
+
     def _debug(self, context: str, response: requests.Response):
         """Imprime información útil para depurar."""
-        print(f"\n[DEBUG] === {context} ===")
+        print(f"\n=== {context} ===")
         print("URL:", response.url)
         print("Status:", response.status_code)
         print("History:", [r.status_code for r in response.history])
         print("Cookies actuales:", self.session.cookies.get_dict())
         print("-" * 60)
-        text_preview = response.text[:500].replace("\n", " ")
-        print("HTML (preview):", text_preview)
-        print("=" * 60, "\n")
+
