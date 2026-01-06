@@ -1,7 +1,7 @@
 from datetime import datetime
-
+import asyncio
 import requests
-
+from aiocache import cached
 from .config import config
 
 
@@ -64,8 +64,15 @@ class OtelMSScraper:
             print("[!] Login fallido")
             return False
 
-    def get_reservation_calendar(self) -> str:
-        """Obtiene el HTML del calendario autenticado."""
+    @cached(ttl=config.CACHE_TTL)
+    async def get_reservation_calendar(self) -> str:
+        """Obtiene el HTML del calendario autenticado (con caché)."""
+        # Ejecutamos la petición bloqueante en un hilo separado para no bloquear el loop
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_reservation_calendar_sync)
+
+    def _get_reservation_calendar_sync(self) -> str:
+        """Método síncrono real para obtener el calendario."""
         resp = self.session.get(self.CALENDAR_URL, allow_redirects=True, timeout=20)
         print('get_reservation_calendar', resp.status_code)
 
@@ -92,7 +99,7 @@ class OtelMSScraper:
             print(f"[!] Error obteniendo página: {resp.status_code}")
             return ""
 
-        if config.DEV_MODE:
+        if config.DEBUG:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"{save_prefix}_{timestamp}.html"
             output_path = config.get_output_path(filename)

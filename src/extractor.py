@@ -2,13 +2,13 @@ import json
 import logging
 import re
 import html
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from datetime import datetime
+from typing import List, Dict, Any
 
 from bs4 import BeautifulSoup
 
 from .config import config
-from .models import RoomCategory, ReservationData, CalendarData, Reservation, Guest
+from .models import RoomCategory, ReservationData, CalendarData
 
 
 class OtelsExtractor:
@@ -19,7 +19,7 @@ class OtelsExtractor:
         self.logger = logging.getLogger(__name__)
         self.day_id_to_date = {}  # Mapeo crucial que faltaba inicializar
 
-        if config.DEV_MODE:
+        if config.DEBUG:
             output_path = config.get_output_path('calendar_latest.html')
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)

@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
+from tortoise import fields, models
 
 @dataclass
 class RoomCategory:
@@ -28,32 +29,29 @@ class ReservationData:
     balance: Optional[str] = None
 
 @dataclass
-class Guest:
-    """Representa un huésped."""
-    name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    country: Optional[str] = None
-
-@dataclass
-class Reservation:
-    """Representa una reserva completa."""
-    id: str # ID único de la reserva en el sistema
-    room_number: str
-    check_in: str
-    check_out: str
-    status: str
-    total_price: Optional[float] = None
-    currency: Optional[str] = None
-    source: Optional[str] = None # Booking, Expedia, Directo, etc.
-    main_guest: Optional[Guest] = None
-    companions: List[Guest] = field(default_factory=list)
-    raw_data: Dict[str, Any] = field(default_factory=dict) # Para guardar otros datos no estructurados
-
-@dataclass
 class CalendarData:
     """Representa todos los datos extraídos del calendario."""
     categories: List[RoomCategory]
     reservation_data: List[ReservationData]
     date_range: Dict[str, str]
     extracted_at: str
+
+class Reservation(models.Model):
+    """Modelo de base de datos para las reservas."""
+    id = fields.IntField(pk=True)
+    reservation_id = fields.CharField(max_length=50, null=True, index=True)
+    room_number = fields.CharField(max_length=20)
+    guest_name = fields.CharField(max_length=255, null=True)
+    check_in = fields.DateField(null=True)
+    check_out = fields.DateField(null=True)
+    status = fields.CharField(max_length=50)
+    source = fields.CharField(max_length=100, null=True)
+    price = fields.DecimalField(max_digits=10, decimal_places=2, null=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "reservations"
+
+    def __str__(self):
+        return f"Reserva {self.reservation_id} - {self.guest_name}"
