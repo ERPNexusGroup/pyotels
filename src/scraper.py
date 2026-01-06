@@ -1,0 +1,110 @@
+import requests
+import os
+from datetime import datetime
+from .config import Config
+
+class OtelMSScraper:
+    """
+    Scraper para OtelMS (https://118510.otelms.com)
+    Maneja sesión, cookies y acceso autenticado.
+    """
+
+    BASE_URL:str = "https://118510.otelms.com"
+    LOGIN_URL:str = f"{BASE_URL}/login/DoLogIn/"
+    CALENDAR_URL:str = f"{BASE_URL}/reservation_c2/calendar"
+
+    def __init__(self, username: str, password: str, debug: bool = False):
+        self.username = username
+        self.password = password
+        self.debug = debug
+
+        # sesión persistente (mantiene cookies y headers)
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": self.LOGIN_URL,
+            "Origin": self.BASE_URL,
+        })
+
+    def login(self) -> bool:
+        """Intenta hacer login en OtelMS."""
+        payload = {
+            "login": self.username,
+            "password": self.password,
+            "action": "login"
+        }
+
+        resp = self.session.post(self.LOGIN_URL, data=payload, allow_redirects=True, timeout=20)
+
+        if self.debug:
+            self._debug("Login", resp)
+
+        html = resp.text.lower()
+
+        # Login exitoso: detectamos redirección a /reservation_c2/calendar
+        if "url=/reservation_c2/calendar" in html or resp.status_code == 200:
+            print("[+] Login exitoso (meta redirect a calendar)")
+            return True
+        elif "logout" in html:
+            print("[+] Login exitoso")
+            return True
+        elif resp.history and "index" in resp.url.lower():
+            print("[+] Login exitoso (redirigido a dashboard)")
+            return True
+        else:
+            print("[!] Login fallido")
+            return False
+
+    def get_calendar(self) -> str:
+        """Obtiene el HTML del calendario autenticado."""
+        resp = self.session.get(self.CALENDAR_URL, allow_redirects=True, timeout=20)
+
+        if self.debug:
+            self._debug("Calendar", resp)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"No se pudo obtener el calendario. Status: {resp.status_code}")
+
+        return resp.text
+
+    def get_page(self, url: str, save_prefix: str = "page") -> str:
+        """
+        Obtiene cualquier página interna y guarda el HTML si estamos en modo DEV.
+        Útil para obtener detalles de reservas.
+        """
+        if not url.startswith("http"):
+            url = f"{self.BASE_URL}{url}" if url.startswith("/") else f"{self.BASE_URL}/{url}"
+
+        print(f"[Scraper] Obteniendo: {url}")
+        resp = self.session.get(url, allow_redirects=True, timeout=20)
+        
+        if resp.status_code != 200:
+            print(f"[!] Error obteniendo página: {resp.status_code}")
+            return ""
+
+        if Config.DEV_MODE:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{save_prefix}_{timestamp}.html"
+            output_path = Config.get_output_path(filename)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(resp.text)
+            print(f"[DEV] HTML guardado en: {filename}")
+
+        return resp.text
+
+    def _debug(self, context: str, response: requests.Response):
+        """Imprime información útil para depurar."""
+        print(f"\n[DEBUG] === {context} ===")
+        print("URL:", response.url)
+        print("Status:", response.status_code)
+        print("History:", [r.status_code for r in response.history])
+        print("Cookies actuales:", self.session.cookies.get_dict())
+        print("-" * 60)
+        text_preview = response.text[:500].replace("\n", " ")
+        print("HTML (preview):", text_preview)
+        print("=" * 60, "\n")
