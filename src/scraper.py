@@ -60,7 +60,7 @@ class OtelMSScraper:
             print("[!] Login fallido")
             return False
 
-    def get_calendar(self) -> str:
+    def get_reservation_calendar(self) -> str:
         """Obtiene el HTML del calendario autenticado."""
         resp = self.session.get(self.CALENDAR_URL, allow_redirects=True, timeout=20)
 

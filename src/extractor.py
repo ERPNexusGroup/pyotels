@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
 
 from .config import Config
-from .models import RoomCategory, RoomData, CalendarData, Reservation, Guest
+from .models import RoomCategory, ReservationData, CalendarData, Reservation, Guest
 
 
 class CalendarExtractor:
@@ -48,7 +48,7 @@ class CalendarExtractor:
 
             return CalendarData(
                 categories=self.categories,
-                rooms_data=self.rooms_data,
+                reservation_data=self.rooms_data,
                 date_range=self.date_range,
                 extracted_at=datetime.now().isoformat()
             )
@@ -186,7 +186,7 @@ class CalendarExtractor:
                 # Obtener número de habitación usando el mapeo de categorías
                 room_number = self._extract_room_number(room_id, category_id)
 
-                room_data = RoomData(
+                room_data = ReservationData(
                     date=self._convert_day_id_to_date(day_id),
                     room_id=room_id,
                     room_number=room_number,

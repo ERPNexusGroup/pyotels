@@ -30,10 +30,10 @@ class DataExporter:
                 'extracted_at': data.extracted_at,
                 'date_range': data.date_range,
                 'total_categories': len(data.categories),
-                'total_rooms_data': len(data.rooms_data)
+                'total_rooms_data': len(data.reservation_data)
             },
             'categories': categories_clean,
-            'rooms_data': [asdict(room) for room in data.rooms_data]
+            'rooms_data': [asdict(room) for room in data.reservation_data]
         }
 
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -58,7 +58,7 @@ class DataExporter:
             writer.writerow(['Fecha', 'Room_ID', 'Room_Number', 'Category_ID', 'Category_Name', 'Status', 'Availability', 'Day_ID'])
 
             # Escribir datos
-            for room in data.rooms_data:
+            for room in data.reservation_data:
                 writer.writerow([
                     room.date,
                     room.room_id,

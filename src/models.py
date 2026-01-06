@@ -9,7 +9,7 @@ class RoomCategory:
     rooms: List[Dict[str, Any]]
 
 @dataclass
-class RoomData:
+class ReservationData:
     """Representa los datos de una habitación en una fecha específica."""
     date: str
     room_id: str
@@ -54,6 +54,6 @@ class Reservation:
 class CalendarData:
     """Representa todos los datos extraídos del calendario."""
     categories: List[RoomCategory]
-    rooms_data: List[RoomData]
+    reservation_data: List[ReservationData]
     date_range: Dict[str, str]
     extracted_at: str

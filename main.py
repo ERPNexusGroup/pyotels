@@ -18,7 +18,7 @@ def main():
 
     # 3. Obtener Calendario
     try:
-        html_content = scraper.get_calendar()
+        html_content = scraper.get_reservation_calendar()
         
         # Guardar HTML para debug
         if Config.DEV_MODE:
@@ -35,14 +35,14 @@ def main():
 
     print(f"\n[+] Extracción completada:")
     print(f"    - Categorías encontradas: {len(calendar_data.categories)}")
-    print(f"    - Celdas de datos procesadas: {len(calendar_data.rooms_data)}")
+    print(f"    - Celdas de datos procesadas: {len(calendar_data.reservation_data)}")
     
     # 5. Buscar reservas para hoy (Lógica simple de ejemplo)
     target_date = Config.TARGET_DATE
     print(f"\n[+] Buscando reservas para la fecha: {target_date}")
     
     found = False
-    for room in calendar_data.rooms_data:
+    for room in calendar_data.reservation_data:
         if room.date == target_date and room.status == 'occupied':
             found = True
             print(f"    - Habitación {room.room_number}: OCUPADA")
