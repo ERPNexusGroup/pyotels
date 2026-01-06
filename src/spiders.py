@@ -2,7 +2,7 @@ import scrapy
 from urllib.parse import urlencode
 from .config import Config
 from .items import ReservationItem
-from .extractor import CalendarExtractor, ReservationExtractor
+from .extractor import OtelsExtractor, ReservationExtractor
 
 class OtelMSSpider(scrapy.Spider):
     name = "otelms"
@@ -43,7 +43,7 @@ class OtelMSSpider(scrapy.Spider):
             with open(Config.get_output_path("calendar_scrapy.html"), "w", encoding="utf-8") as f:
                 f.write(html_content)
 
-        extractor = CalendarExtractor(html_content)
+        extractor = OtelsExtractor(html_content)
         extractor.extract_calendar_data()
         
         processed_urls = set()

@@ -1,5 +1,5 @@
 from src.scraper import OtelMSScraper
-from src.extractor import CalendarExtractor
+from src.extractor import OtelsExtractor
 from src.config import Config
 
 
@@ -30,7 +30,7 @@ def main():
         return
 
     # 4. Extraer Datos
-    extractor = CalendarExtractor(html_content)
+    extractor = OtelsExtractor(html_content)
     calendar_data = extractor.extract_calendar_data()
 
     print(f"\n[+] Extracción completada:")

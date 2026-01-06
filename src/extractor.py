@@ -11,7 +11,7 @@ from .config import Config
 from .models import RoomCategory, ReservationData, CalendarData, Reservation, Guest
 
 
-class CalendarExtractor:
+class OtelsExtractor:
     """Extrae datos estructurados del calendario HTML de OtelMS."""
 
     def __init__(self, html_content: str):
