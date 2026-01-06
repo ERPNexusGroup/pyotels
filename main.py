@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 from tortoise import Tortoise, run_async
 from src.scraper import OtelMSScraper
 from src.extractor import OtelsExtractor
@@ -16,6 +17,16 @@ def parse_arguments():
 
 async def init_db():
     """Inicializa la base de datos Tortoise ORM."""
+    # En desarrollo, eliminamos la DB para asegurar que el esquema esté actualizado
+    # Esto soluciona el error "table reservations has no column named room_number"
+    db_file = "reservations.db"
+    if os.path.exists(db_file):
+        try:
+            os.remove(db_file)
+            print(f"[+] Base de datos anterior '{db_file}' eliminada para regenerar esquema.")
+        except Exception as e:
+            print(f"[!] No se pudo eliminar la base de datos anterior: {e}")
+
     await Tortoise.init(
         db_url=config.DATABASE_URL,
         modules={'models': ['src.models']}
