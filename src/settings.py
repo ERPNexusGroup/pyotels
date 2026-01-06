@@ -10,7 +10,7 @@ NEWSPIDER_MODULE = 'src.spiders'
 ROBOTSTXT_OBEY = False
 
 # Usar el User-Agent definido en la configuración de negocio
-USER_AGENT = Config.USER_AGENT
+USER_AGENT = Config.HEADERS
 
 # Pipelines
 ITEM_PIPELINES = {

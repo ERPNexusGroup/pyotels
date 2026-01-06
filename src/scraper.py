@@ -1,32 +1,36 @@
-import requests
-import os
 from datetime import datetime
-from .config import Config
+
+import requests
+
+from .config import config
+
 
 class OtelMSScraper:
     """
-    Scraper para OtelMS (https://118510.otelms.com)
+    Scraper para OtelMS (https://{ID-Hotel}.otelms.com)
     Maneja sesión, cookies y acceso autenticado.
     """
 
-    BASE_URL:str = "https://118510.otelms.com"
-    LOGIN_URL:str = f"{BASE_URL}/login/DoLogIn/"
-    CALENDAR_URL:str = f"{BASE_URL}/reservation_c2/calendar"
+    BASE_URL: str = ...
+    LOGIN_URL: str = ...
+    CALENDAR_URL: str = ...
+    DETAILS_URL: str = ...
 
-    def __init__(self, username: str, password: str, debug: bool = False):
+    def __init__(self, id_hotel: str, username: str, password: str, debug: bool = False):
+        self.debug = debug
         self.username = username
         self.password = password
-        self.debug = debug
+
+        self.BASE_URL = f"https://{id_hotel}.{config.BASE_URL}"
+        self.LOGIN_URL = f"{self.BASE_URL}/login/DoLogIn/"
+        self.CALENDAR_URL = f"{self.BASE_URL}/reservation_c2/calendar"
+        self.DETAILS_URL = f"{self.BASE_URL}/reservation_c2/folio/%s/1"
 
         # sesión persistente (mantiene cookies y headers)
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": config.USER_AGENT,
+            "Accept": config.ACCEPT_REQUEST,
             "Referer": self.LOGIN_URL,
             "Origin": self.BASE_URL,
         })
@@ -63,6 +67,7 @@ class OtelMSScraper:
     def get_reservation_calendar(self) -> str:
         """Obtiene el HTML del calendario autenticado."""
         resp = self.session.get(self.CALENDAR_URL, allow_redirects=True, timeout=20)
+        print('get_reservation_calendar', resp.status_code)
 
         if self.debug:
             self._debug("Calendar", resp)
@@ -82,15 +87,15 @@ class OtelMSScraper:
 
         print(f"[Scraper] Obteniendo: {url}")
         resp = self.session.get(url, allow_redirects=True, timeout=20)
-        
+
         if resp.status_code != 200:
             print(f"[!] Error obteniendo página: {resp.status_code}")
             return ""
 
-        if Config.DEV_MODE:
+        if config.DEV_MODE:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"{save_prefix}_{timestamp}.html"
-            output_path = Config.get_output_path(filename)
+            output_path = config.get_output_path(filename)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(resp.text)
             print(f"[DEV] HTML guardado en: {filename}")
