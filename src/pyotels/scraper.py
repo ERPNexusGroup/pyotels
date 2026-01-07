@@ -1,6 +1,6 @@
 from datetime import datetime
 import requests
-from .config import config
+from .settings import config
 from .logger import logger, log_execution
 
 class OtelMSScraper:

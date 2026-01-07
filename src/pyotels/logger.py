@@ -3,8 +3,7 @@ import sys
 import functools
 import inspect
 from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
-from .config import config
+from .settings import config
 
 def setup_logger(name: str = "otelms_scraper"):
     """

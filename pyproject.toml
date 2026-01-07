@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "scraping-otelms-api"
+name = "pyotels"
 version = "0.1.0"
-description = "Add your description here"
+description = "Librería para scraping de OtelMS"
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.14.3",
@@ -12,3 +16,6 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "aiocache>=0.12.2",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]

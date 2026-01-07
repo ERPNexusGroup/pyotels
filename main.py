@@ -1,10 +1,9 @@
 import argparse
-import pprint
 import json
-from src.scraper import OtelMSScraper
-from src.extractor import OtelsExtractor
-from src.config import config
-from src.logger import logger, log_execution
+from src.pyotels.scraper import OtelMSScraper
+from src.pyotels.extractor import OtelsExtractor
+from src.pyotels.settings import config
+from src.pyotels.logger import logger, log_execution
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scraper para OtelMS")

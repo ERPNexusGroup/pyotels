@@ -1,12 +1,13 @@
 import logging
 import re
 import html
+import sys
 from datetime import datetime
 from typing import List, Dict, Any
 
 from bs4 import BeautifulSoup
 
-from .config import config
+from .settings import config
 from .models import RoomCategory, ReservationData, CalendarData, ReservationDetail, Guest, Service, Payment, Note, Car, DailyTariff, ChangeLog, Card
 
 
@@ -274,6 +275,9 @@ class OtelsExtractor:
             month_title_elem = block.select_one('.calendar_month_title')
             if not month_title_elem:
                 continue
+
+            print(month_title_elem)
+            sys.exit(0)
 
             try:
                 month_title = month_title_elem.get_text(strip=True)
