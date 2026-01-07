@@ -13,13 +13,14 @@ from .models import RoomCategory, ReservationData, CalendarData, ReservationDeta
 class OtelsExtractor:
     """Extrae datos estructurados del calendario HTML de OtelMS."""
 
-    def __init__(self, html_content: str):
+    def __init__(self, html_content: str, include_empty_cells: bool = False):
         self.soup = BeautifulSoup(html_content, 'html.parser')
         self.logger = logging.getLogger(__name__)
         self.day_id_to_date = {}
         self.categories = []
         self.rooms_data = []
         self.date_range = {}
+        self.include_empty_cells = include_empty_cells
 
     def extract_calendar_data(self) -> CalendarData:
         """Extrae todos los datos del calendario en el orden correcto."""
@@ -355,8 +356,12 @@ class OtelsExtractor:
         # Selector más preciso para celdas de calendario con datos de day_id y room_id
         calendar_cells = self.soup.select('td.calendar_td[day_id][room_id]')
 
-        for cell in calendar_cells:
+        all_cell = len(calendar_cells)
+
+        for i, cell in enumerate(calendar_cells):
             try:
+                self.logger.debug(f"Processing ... {round(i*100/all_cell, 3)}%")
+
                 room_id = cell.get('room_id')
                 day_id = cell.get('day_id')
                 category_id = cell.get('category_id')
@@ -376,6 +381,10 @@ class OtelsExtractor:
                     status = 'locked'
                 if reservation['id']:
                     status = 'occupied'
+
+                # Si no se deben incluir celdas vacías, saltar las disponibles y bloqueadas
+                if not self.include_empty_cells and status in ['available', 'locked']:
+                    continue
 
                 # Extraer disponibilidad
                 availability = 0

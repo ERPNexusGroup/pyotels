@@ -1,5 +1,6 @@
 import argparse
 import pprint
+import json
 from src.scraper import OtelMSScraper
 from src.extractor import OtelsExtractor
 from src.config import config
@@ -84,7 +85,12 @@ def main():
 
     # 6. Imprimir datos capturados
     logger.info("Imprimiendo datos capturados...")
-    pprint.pprint(calendar_data)
+    # pprint.pprint(calendar_data)
+    with open(config.BASE_DIR / 'calendar_data.json', 'w', encoding='utf-8') as f:
+        # Para guardar el objeto en un archivo, debe ser serializado a JSON.
+        # Se asume que calendar_data es un objeto (como un dataclass o Pydantic model).
+        # json.dump puede usar un 'default' para manejar objetos personalizados.
+        json.dump(calendar_data, f, indent=4, ensure_ascii=False, default=lambda o: o.__dict__)
 
     logger.info("Proceso finalizado exitosamente.")
 
