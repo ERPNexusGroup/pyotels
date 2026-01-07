@@ -66,3 +66,6 @@ pip-delete-this-directory.txt
 # --- Sistema Operativo ---
 .DS_Store
 Thumbs.db
+ia_tools/check_db.py
+ia_tools/verify_details.py
+ia_tools/verify_local.py
