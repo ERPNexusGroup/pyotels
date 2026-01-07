@@ -1,12 +1,7 @@
-import asyncio
-from datetime import datetime, timezone
-
+from datetime import datetime
 import requests
-
 from .config import config
 from .logger import logger, log_execution
-from .models import HtmlCache
-
 
 class OtelMSScraper:
     """
@@ -39,7 +34,7 @@ class OtelMSScraper:
         })
 
     @log_execution
-    async def login(self) -> bool:
+    def login(self) -> bool:
         """Intenta hacer login en OtelMS."""
         payload = {
             "login": self.username,
@@ -48,19 +43,14 @@ class OtelMSScraper:
         }
 
         resp = self.session.post(self.LOGIN_URL, data=payload, allow_redirects=True, timeout=20)
-        html = resp.text.lower() if isinstance(resp, requests.Response) else resp.lower()
+        html = resp.text.lower()
         is_success = False
-        if isinstance(resp, requests.Response):
-            if "url=/reservation_c2/calendar" in html or resp.status_code == 200:
-                is_success = True
-            elif "logout" in html:
-                is_success = True
-            elif resp.history and "index" in resp.url.lower():
-                is_success = True
-        else:
-            # Verificación simplificada para contenido en caché
-            if "url=/reservation_c2/calendar" in html or "logout" in html:
-                is_success = True
+        if "url=/reservation_c2/calendar" in html or resp.status_code == 200:
+            is_success = True
+        elif "logout" in html:
+            is_success = True
+        elif resp.history and "index" in resp.url.lower():
+            is_success = True
 
         if is_success:
             logger.info("Login exitoso.")
@@ -70,36 +60,20 @@ class OtelMSScraper:
             return False
 
     @log_execution
-    async def get_reservation_calendar(self) -> str:
-        """Obtiene el HTML del calendario autenticado (con caché)."""
-        # Ejecutamos la petición bloqueante en un hilo separado para no bloquear el loop
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_reservation_calendar)
-
-    @log_execution
-    async def _get_reservation_calendar(self) -> str:
+    def get_reservation_calendar(self) -> str:
+        """Obtiene el HTML del calendario autenticado."""
         logger.info(f"Solicitando calendario: {self.CALENDAR_URL}")
 
-        now = datetime.utcnow()
-
-        html_cache = await HtmlCache.filter(
-            expires_at__gt=now
-        ).order_by('-created_at').first()
-
-        if html_cache:
-            html = html_cache.raw_html
-            status_code = 200
-        else:
-            response = self.session.get(
-                self.CALENDAR_URL,
-                allow_redirects=True,
-                timeout=20
-            )
-            status_code = response.status_code
-            html = response.text
+        response = self.session.get(
+            self.CALENDAR_URL,
+            allow_redirects=True,
+            timeout=20
+        )
+        status_code = response.status_code
+        html = response.text
 
         if self.debug:
-            self._debug("Calendar HTML", html)
+            self._debug("Calendar HTML", response)
 
         if status_code != 200:
             logger.error(f"Error obteniendo calendario. Status: {status_code}")
@@ -110,9 +84,9 @@ class OtelMSScraper:
         return html
 
     @log_execution
-    def get_page(self, url: str, save_prefix: str = "page") -> str:
+    def get_page(self, url: str) -> str:
         """
-        Obtiene cualquier página interna y guarda el HTML si estamos en modo DEV.
+        Obtiene cualquier página interna.
         Útil para obtener detalles de reservas.
         """
         if not url.startswith("http"):
@@ -124,14 +98,6 @@ class OtelMSScraper:
         if resp.status_code != 200:
             logger.error(f"Error obteniendo página: {resp.status_code}")
             return ""
-
-        if config.DEBUG:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{save_prefix}_{timestamp}.html"
-            output_path = config.get_output_path(filename)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(resp.text)
-            logger.debug(f"HTML guardado en: {filename}")
 
         return resp.text
 
@@ -149,14 +115,6 @@ class OtelMSScraper:
         if resp.status_code != 200:
             logger.error(f"Error obteniendo detalles ({reservation_id}): {resp.status_code}")
             return ""
-
-        if self.debug:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"details_{reservation_id}_{timestamp}.html"
-            output_path = config.get_output_path(filename)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(resp.text)
-            logger.debug(f"HTML de detalles guardado en: {filename}")
 
         return resp.text
 

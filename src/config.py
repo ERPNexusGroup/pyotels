@@ -24,12 +24,6 @@ class Config(BaseSettings):
     LOG_LEVEL: Optional[str] = "INFO"
     LOG_BACKUP_COUNT: int = 10 # Cantidad de días/archivos a mantener
 
-    # Configuración de la base de datos
-    DATABASE_URL: str = "sqlite://otels.db"
-    
-    # Configuración del cache
-    CACHE_TTL: int = 60 * 5
-
     # Configuración de Scraping
     # Por defecto extrae las reservas de la fecha actual
     TARGET_DATE: str = datetime.now().strftime('%Y-%m-%d')

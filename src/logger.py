@@ -83,33 +83,4 @@ def log_execution(func):
             logger.error(f"❌ ERROR en {module_name}.{func_name}: {str(e)}", exc_info=True)
             raise e
 
-    @functools.wraps(func)
-    async def async_wrapper(*args, **kwargs):
-        func_name = func.__name__
-        module_name = func.__module__
-        
-        if config.VERBOSE:
-            try:
-                sig = inspect.signature(func)
-                bound_args = sig.bind(*args, **kwargs)
-                bound_args.apply_defaults()
-                args_str = ", ".join([f"{k}={repr(v)[:100]}" for k, v in bound_args.arguments.items()])
-            except:
-                args_str = "..."
-
-            logger.debug(f"➡️  ENTRANDO (Async): {module_name}.{func_name}({args_str})")
-        
-        try:
-            result = await func(*args, **kwargs)
-            if config.VERBOSE:
-                logger.debug(f"⬅️  SALIENDO (Async): {module_name}.{func_name} -> Retorno: {type(result).__name__}")
-            return result
-        except Exception as e:
-            logger.error(f"❌ ERROR en {module_name}.{func_name}: {str(e)}", exc_info=True)
-            raise e
-
-    if asyncio.iscoroutinefunction(func):
-        return async_wrapper
     return wrapper
-
-import asyncio
