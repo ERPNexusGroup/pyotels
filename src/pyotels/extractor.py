@@ -1,45 +1,49 @@
-import logging
-import re
 import html
-import sys
+from src.pyotels.logger import logger
+import re
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from bs4 import BeautifulSoup
 
+from .models import RoomCategory, ReservationData, CalendarData, ReservationDetail, Guest, Service, Payment, Note, \
+    DailyTariff, ChangeLog
 from .settings import config
-from .models import RoomCategory, ReservationData, CalendarData, ReservationDetail, Guest, Service, Payment, Note, Car, DailyTariff, ChangeLog, Card
 
 
 class OtelsExtractor:
     """Extrae datos estructurados del calendario HTML de OtelMS."""
 
     def __init__(self, html_content: str, include_empty_cells: bool = False):
+        logger.info("Inicializando OtelsExtractor...")
         self.soup = BeautifulSoup(html_content, 'html.parser')
-        self.logger = logging.getLogger(__name__)
         self.day_id_to_date = {}
         self.categories = []
         self.rooms_data = []
         self.date_range = {}
         self.include_empty_cells = include_empty_cells
+        self.room_id_to_category = {}
+        logger.debug(f"HTML cargado. Longitud: {len(html_content)} caracteres. Include empty cells: {include_empty_cells}")
 
     def extract_calendar_data(self) -> CalendarData:
         """Extrae todos los datos del calendario en el orden correcto."""
+        logger.info("Inicio del proceso de extracción de datos del calendario.")
         try:
             # 1. Primero construir el mapeo day_id → fecha
             self._build_date_mapping()
 
             # 2. Extraer categorías y habitaciones
             self._extract_categories()
-            self.logger.info(f"✅ Categorías extraídas: {len(self.categories)}")
+            logger.info(f"✅ Categorías extraídas: {len(self.categories)}")
+            logger.debug(f"Detalle de categorías: {[c.name for c in self.categories]}")
 
             # 3. Extraer datos de habitaciones con fechas correctas
             self._extract_rooms_data()
-            self.logger.info(f"✅ Datos de habitaciones extraídos: {len(self.rooms_data)} celdas")
+            logger.info(f"✅ Datos de habitaciones extraídos: {len(self.rooms_data)} celdas procesadas.")
 
             # 4. Extraer rango de fechas
             self._extract_date_range()
-            self.logger.info(f"✅ Rango de fechas extraído: {self.date_range}")
+            logger.info(f"✅ Rango de fechas extraído: {self.date_range}")
 
             return CalendarData(
                 categories=self.categories,
@@ -48,15 +52,21 @@ class OtelsExtractor:
                 extracted_at=datetime.now().isoformat()
             )
         except Exception as e:
-            self.logger.error(f"❌ Error extrayendo datos del calendario: {e}")
+            logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
-    def extract_reservation_details(self, html_content: str, reservation_id: str) -> ReservationDetail:
+    def extract_reservation_details(self, html_content: str, reservation_id: str, include_raw_html: bool = False) -> ReservationDetail:
         """
         Extrae los detalles de la reserva desde el HTML.
+        :param html_content: Contenido HTML de la página de detalles.
+        :param reservation_id: ID de la reserva.
+        :param include_raw_html: Si es True, incluye el HTML crudo en el objeto de retorno.
         """
-        soup = BeautifulSoup(html_content, 'html.parser')
+        logger.info(f"Extrayendo detalles para la reserva ID: {reservation_id}")
+        logger.debug(f"Longitud del HTML de detalles: {len(html_content)}")
         
+        soup = BeautifulSoup(html_content, 'html.parser')
+
         # 1. Extract Guests
         guests = []
         guest_rows = soup.select('#anchors_info_residents table tbody tr')
@@ -66,47 +76,50 @@ class OtelsExtractor:
                 name = cols[0].get_text(strip=True)
                 email = cols[2].get_text(strip=True)
                 guests.append(Guest(
-                   name=name,
-                   email=email if "@" in email else None
+                    name=name,
+                    email=email if "@" in email else None
                 ))
-        
+        logger.info(f"Huéspedes encontrados: {len(guests)}")
+        logger.debug(f"Lista de huéspedes: {guests}")
+
         # 2. Extract Services
         services = []
         total_price = 0.0
         services_panel = soup.find('div', id='anchors_services')
         if services_panel and "Servicios" in services_panel.get_text():
-             service_rows = services_panel.select('table tbody tr')
-             for row in service_rows:
-                 cols = row.find_all('td')
-                 if len(cols) >= 8:
-                     try:
-                         date = cols[0].get_text(strip=True)
-                         title = cols[2].get_text(strip=True)
-                         desc = cols[4].get_text(strip=True)
-                         qty = int(cols[5].get_text(strip=True) or 0)
-                         price_str = cols[6].get_text(strip=True).replace(',', '.')
-                         total_str = cols[7].get_text(strip=True).replace(',', '.')
-                         price = float(price_str) if price_str else 0.0
-                         total_item = float(total_str) if total_str else 0.0
-                         
-                         services.append(Service(
-                             date=date,
-                             title=title,
-                             description=desc,
-                             quantity=qty,
-                             price=price,
-                             total=total_item
-                         ))
-                     except Exception as e:
-                         self.logger.warning(f"Error parsing service row: {e}")
+            service_rows = services_panel.select('table tbody tr')
+            for row in service_rows:
+                cols = row.find_all('td')
+                if len(cols) >= 8:
+                    try:
+                        date = cols[0].get_text(strip=True)
+                        title = cols[2].get_text(strip=True)
+                        desc = cols[4].get_text(strip=True)
+                        qty = int(cols[5].get_text(strip=True) or 0)
+                        price_str = cols[6].get_text(strip=True).replace(',', '.')
+                        total_str = cols[7].get_text(strip=True).replace(',', '.')
+                        price = float(price_str) if price_str else 0.0
+                        total_item = float(total_str) if total_str else 0.0
 
-             # Extract Footer Total
-             footer_total = services_panel.select_one('tfoot th:nth-last-child(2)')
-             if footer_total:
-                 try:
-                     total_price = float(footer_total.get_text(strip=True).replace(',', '.'))
-                 except:
-                     pass
+                        services.append(Service(
+                            date=date,
+                            title=title,
+                            description=desc,
+                            quantity=qty,
+                            price=price,
+                            total=total_item
+                        ))
+                    except Exception as e:
+                        logger.warning(f"Error parsing service row: {e}")
+
+            # Extract Footer Total
+            footer_total = services_panel.select_one('tfoot th:nth-last-child(2)')
+            if footer_total:
+                try:
+                    total_price = float(footer_total.get_text(strip=True).replace(',', '.'))
+                except:
+                    pass
+        logger.info(f"Servicios encontrados: {len(services)}. Precio total calculado: {total_price}")
 
         # 3. Extract Payments
         payments = []
@@ -122,7 +135,7 @@ class OtelsExtractor:
                         amount = float(amount_str) if amount_str else 0.0
                         pay_type = cols[5].get_text(strip=True)
                         method = cols[7].get_text(strip=True) if len(cols) > 7 else ""
-                        
+
                         payments.append(Payment(
                             date=date,
                             amount=amount,
@@ -130,8 +143,9 @@ class OtelsExtractor:
                             method=method
                         ))
                     except Exception as e:
-                         self.logger.warning(f"Error parsing payment row: {e}")
-        
+                        logger.warning(f"Error parsing payment row: {e}")
+        logger.info(f"Pagos encontrados: {len(payments)}")
+
         # 4. Extract Channel Info / Meta
         channel_info = {}
         channel_div = soup.find('div', id='anchors_info_dc_channel')
@@ -148,10 +162,11 @@ class OtelsExtractor:
                     elif curr.name == 'a':
                         value += curr.get_text(strip=True)
                     else:
-                         value += curr.get_text(strip=True)
+                        value += curr.get_text(strip=True)
                     curr = curr.next_sibling
-                
+
                 channel_info[label] = value.strip()
+        logger.debug(f"Channel Info extraído: {channel_info}")
 
         # Update balance calc
         total_payments = sum(p.amount for p in payments)
@@ -166,7 +181,7 @@ class OtelsExtractor:
             if h2 and "Información básica" in h2.get_text():
                 basic_panel = p
                 break
-        
+
         # 5. Cards
         cards = []
         card_panel = None
@@ -175,7 +190,7 @@ class OtelsExtractor:
             if h2 and "Lista de tarjetas de pago" in h2.get_text():
                 card_panel = p
                 break
-        
+
         # 6. Cars
         cars = []
         car_panel = None
@@ -184,7 +199,7 @@ class OtelsExtractor:
             if h2 and "Coche" in h2.get_text():
                 car_panel = p
                 break
-        
+
         # 7. Notes
         notes = []
         note_panel = None
@@ -193,22 +208,23 @@ class OtelsExtractor:
             if h2 and "Notas" in h2.get_text() and p.find('table'):
                 note_panel = p
                 break
-        
+
         if note_panel:
             note_rows = note_panel.select('table tbody tr')
             for row in note_rows:
-                 cols = row.find_all('td')
-                 if len(cols) >= 3:
-                     n_date = cols[0].get_text(strip=True)
-                     n_user = cols[1].get_text(strip=True)
-                     n_msg = cols[2].get_text(strip=True)
-                     notes.append(Note(date=n_date, author=n_user, message=n_msg))
+                cols = row.find_all('td')
+                if len(cols) >= 3:
+                    n_date = cols[0].get_text(strip=True)
+                    n_user = cols[1].get_text(strip=True)
+                    n_msg = cols[2].get_text(strip=True)
+                    notes.append(Note(date=n_date, author=n_user, message=n_msg))
+        logger.debug(f"Notas encontradas: {len(notes)}")
 
         # 8. Daily Tariffs
         daily_tariffs = []
         tariff_panel = soup.find('div', id='anchors_billing_days')
         if tariff_panel:
-            t_rows = tariff_panel.select('table tr') # Headers + data
+            t_rows = tariff_panel.select('table tr')  # Headers + data
             for row in t_rows:
                 cols = row.find_all('td')
                 if len(cols) >= 3:
@@ -218,7 +234,8 @@ class OtelsExtractor:
                     try:
                         t_price = float(t_price_str)
                         daily_tariffs.append(DailyTariff(date=t_date, rate_type=t_type, price=t_price))
-                    except: pass
+                    except:
+                        pass
 
         # 9. Change Log / History
         logs = []
@@ -235,7 +252,7 @@ class OtelsExtractor:
                     l_action = cols[4].get_text(strip=True)
                     l_amount = cols[5].get_text(strip=True)
                     l_desc = cols[6].get_text(strip=True)
-                    
+
                     logs.append(ChangeLog(
                         date=l_date,
                         log_id=l_id,
@@ -245,6 +262,18 @@ class OtelsExtractor:
                         amount=l_amount,
                         description=l_desc
                     ))
+        logger.debug(f"Logs de cambios encontrados: {len(logs)}")
+
+        # Determine if we should include raw_html
+        # Default behavior was: if config.DEBUG else None
+        # New behavior: if include_raw_html is True, include it.
+        # If include_raw_html is False, check config.DEBUG as fallback or just None?
+        # The request says "optional parameter", implying explicit control.
+        # Let's use the parameter as the primary control, defaulting to False.
+        # But we can keep the old behavior as a default if not specified?
+        # The user asked for "optional parameter", so let's respect the parameter.
+        
+        final_raw_html = html_content if (include_raw_html or config.DEBUG) else None
 
         return ReservationDetail(
             reservation_id=reservation_id,
@@ -260,24 +289,24 @@ class OtelsExtractor:
             total_price=total_price,
             channel_info=channel_info,
             basic_info=basic_info,
-            raw_html=html_content if config.DEBUG else None
+            raw_html=final_raw_html
         )
 
     def _build_date_mapping(self):
         """Construye el mapeo day_id → fecha ISO analizando la estructura del calendario."""
+        logger.info("Construyendo mapeo de fechas (day_id -> fecha)...")
         self.day_id_to_date = {}
         current_date_index = 0
 
         # Recorrer cada bloque de mes en el calendario
         month_blocks = self.soup.select('.calendar_month')
+        logger.debug(f"Bloques de mes encontrados: {len(month_blocks)}")
+        
         for block in month_blocks:
             # Extraer mes y año del título
             month_title_elem = block.select_one('.calendar_month_title')
             if not month_title_elem:
                 continue
-
-            print(month_title_elem)
-            sys.exit(0)
 
             try:
                 month_title = month_title_elem.get_text(strip=True)
@@ -291,7 +320,8 @@ class OtelsExtractor:
                     'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
                 }
 
-                month = spanish_months.get(month_name.strip(), 1)  # default a enero
+                month = spanish_months.get(month_name.strip())
+                logger.debug(f"Procesando mes: {month_name} ({month}) {year}")
 
                 # Procesar cada día en este bloque de mes
                 date_cells = block.select('.calendar_dates')
@@ -316,14 +346,16 @@ class OtelsExtractor:
                                         self.day_id_to_date[day_id] = date_str
                             current_date_index += 1
                         except (ValueError, TypeError) as e:
-                            self.logger.warning(f"⚠️ Error parseando día: {e}")
+                            logger.warning(f"⚠️ Error parseando día: {e}")
                             continue
             except Exception as e:
-                self.logger.warning(f"⚠️ Error procesando bloque de mes '{month_title}': {e}")
+                logger.warning(f"⚠️ Error procesando bloque de mes '{month_title}': {e}")
                 continue
+        logger.info(f"Mapeo de fechas completado. Total días mapeados: {len(self.day_id_to_date)}")
 
     def _extract_categories(self):
         """Extrae las categorías de habitaciones."""
+        logger.info("Extrayendo categorías de habitaciones...")
         category_elements = self.soup.find_all('div', {'class': 'calendar_rooms',
                                                        'id': lambda x: x and x.startswith('btn_close')})
 
@@ -336,6 +368,7 @@ class OtelsExtractor:
             rooms = self._extract_rooms_for_category(category_id)
 
             self.categories.append(RoomCategory(id=category_id, name=category_name, rooms=rooms))
+        logger.debug(f"Categorías encontradas: {len(self.categories)}")
 
     def _extract_rooms_for_category(self, category_id: str) -> List[Dict[str, Any]]:
         rooms = []
@@ -348,27 +381,48 @@ class OtelsExtractor:
                 # Extraer solo el número de habitación (ignorar otros textos)
                 room_text = room_text_elem.get_text(strip=True)
                 room_number = room_text.split()[0] if room_text else f"room_{category_id}"
-                rooms.append({'room_number': room_number})
+                
+                # Obtener el room_id del atributo 'room_id' del elemento padre si existe
+                current_room_id = room_elem.get('room_id')
+                
+                rooms.append({'room_number': room_number, 'room_id': current_room_id})
+                
+                # Guardar mapeo para uso posterior si tenemos room_id
+                if current_room_id:
+                    self.room_id_to_category[current_room_id] = {'category_id': category_id, 'category_name': '', 'room_number': room_number}
+        
+        logger.debug(f"Categoría {category_id}: {len(rooms)} habitaciones encontradas.")
         return rooms
 
     def _extract_rooms_data(self):
         """
         Extrae los datos diarios de todas las habitaciones, incluyendo reservas activas.
         """
+        logger.info("Iniciando extracción de datos de celdas (habitaciones/días)...")
+        
+        # Reconstruir el mapa de categorías para búsqueda rápida
         category_map = {cat.id: cat.name for cat in self.categories}
+        
+        # Mapa inverso: room_number -> category_id
+        room_number_to_cat = {}
+        for cat in self.categories:
+            for room in cat.rooms:
+                room_number_to_cat[room['room_number']] = cat.id
 
-        # Selector más preciso para celdas de calendario con datos de day_id y room_id
         calendar_cells = self.soup.select('td.calendar_td[day_id][room_id]')
-
         all_cell = len(calendar_cells)
+        logger.info(f"Total de celdas a procesar: {all_cell}")
 
         for i, cell in enumerate(calendar_cells):
             try:
-                self.logger.debug(f"Processing ... {round(i*100/all_cell, 3)}%")
+                # Log de progreso cada 10%
+                if all_cell > 0 and i % (all_cell // 10 + 1) == 0:
+                    logger.debug(f"Procesando celdas... {round(i * 100 / all_cell, 1)}%")
 
                 room_id = cell.get('room_id')
                 day_id = cell.get('day_id')
-                category_id = cell.get('category_id')
+                # category_id en la celda a veces no está o es incorrecto, mejor deducirlo
+                cell_category_id = cell.get('category_id')
 
                 # Saltar celdas de resumen de categoría
                 if room_id == '0' or not day_id:
@@ -377,14 +431,34 @@ class OtelsExtractor:
                 # Inicializar variables de reserva
                 reservation = self._extract_reservation_from_cell(cell)
 
-                # Determinar status basado en clases y presencia de reserva
+                # Determinar status
                 status = 'available'
+                reservation_status = None
+                
                 classes = cell.get('class', [])
 
                 if 'bg_padlock' in classes:
                     status = 'locked'
+                    reservation_status = 'locked'
+                
+                # Check-in / Check-out logic based on classes or content
+                if 'calendar_td_start' in classes:
+                     reservation_status = 'check-in'
+                elif 'calendar_td_end' in classes:
+                     reservation_status = 'check-out'
+
                 if reservation['id']:
                     status = 'occupied'
+                    # Si ya tenemos un estado de reserva (check-in/out), lo mantenemos.
+                    # Si no, intentamos extraerlo del tooltip o usar 'reservation' por defecto.
+                    if not reservation_status:
+                        # Intentar extraer del tooltip si está disponible
+                        if reservation.get('reservation_type'):
+                             reservation_status = reservation.get('reservation_type')
+                        else:
+                             reservation_status = 'reservation'
+                    
+                    logger.debug(f"Reserva detectada en celda (Room: {room_id}, Day: {day_id}): ID={reservation['id']}, Status={reservation_status}")
 
                 # Si no se deben incluir celdas vacías, saltar las disponibles y bloqueadas
                 if not self.include_empty_cells and status in ['available', 'locked']:
@@ -392,26 +466,69 @@ class OtelsExtractor:
 
                 # Extraer disponibilidad
                 availability = 0
-                availability_elem = self.soup.find('div', id=f'availability_{category_id}_{day_id}')
-                if availability_elem:
-                    try:
-                        availability = int(availability_elem.get_text(strip=True))
-                    except (ValueError, TypeError):
-                        availability = 0
+                # Intentar obtener category_id si no vino en la celda
+                category_id = cell_category_id
+                
+                # Lógica para vincular room_id con room_number y category
+                room_number = f"Unknown_{room_id}"
+                real_category_id = category_id
+                
+                found_room = False
+                # Buscar en el cache primero
+                if room_id in self.room_id_to_category:
+                    info = self.room_id_to_category[room_id]
+                    room_number = info['room_number']
+                    real_category_id = info['category_id']
+                    found_room = True
+                else:
+                    # Buscar en el DOM
+                    room_div = self.soup.find('div', attrs={'room_id': room_id})
+                    if room_div:
+                        classes = room_div.get('class', [])
+                        for cls in classes:
+                            if cls.startswith('btn_close_box'):
+                                real_category_id = cls.replace('btn_close_box', '')
+                                break
+                        
+                        room_text_div = room_div.find('div', class_='calendar_number_room')
+                        if room_text_div:
+                            room_number = room_text_div.get_text(strip=True).split()[0]
+                            
+                        # Guardar en cache
+                        self.room_id_to_category[room_id] = {
+                            'category_id': real_category_id,
+                            'room_number': room_number,
+                            'category_name': ''
+                        }
+                        found_room = True
+                
+                if not found_room:
+                    room_number = self._extract_room_number(room_id, category_id)
+                    if not real_category_id and room_number in room_number_to_cat:
+                        real_category_id = room_number_to_cat[room_number]
 
-                # Obtener número de habitación usando el mapeo de categorías
-                room_number = self._extract_room_number(room_id, category_id)
+                category_name = category_map.get(real_category_id, f'Category_{real_category_id}')
+
+                # Availability logic
+                if real_category_id:
+                    availability_elem = self.soup.find('div', id=f'availability_{real_category_id}_{day_id}')
+                    if availability_elem:
+                        try:
+                            availability = int(availability_elem.get_text(strip=True))
+                        except (ValueError, TypeError):
+                            availability = 0
 
                 room_data = ReservationData(
                     date=self._convert_day_id_to_date(day_id),
                     room_id=room_id,
                     room_number=room_number,
-                    category_id=category_id,
-                    category_name=category_map.get(category_id, f'Category_{category_id}'),
+                    category_id=real_category_id,
+                    category_name=category_name,
                     status=status,
                     availability=availability,
                     day_id=day_id,
-                    detail_url=None,
+                    reservation_status=reservation_status,
+                    details_reservation={}, # Empty for now as requested
                     reservation_id=reservation['id'],
                     guest_name=reservation['guest_name'],
                     source=reservation['source'],
@@ -422,8 +539,9 @@ class OtelsExtractor:
                 self.rooms_data.append(room_data)
 
             except Exception as e:
-                self.logger.error(f"❌ Error procesando celda (room_id={room_id}, day_id={day_id}): {e}")
+                logger.error(f"❌ Error procesando celda (room_id={room_id}, day_id={day_id}): {e}")
                 continue
+        logger.info("Extracción de datos de celdas finalizada.")
 
     def _extract_reservation_from_cell(self, cell):
         """
@@ -438,7 +556,8 @@ class OtelsExtractor:
             'source': None,
             'check_in': None,
             'check_out': None,
-            'balance': None
+            'balance': None,
+            'reservation_type': None
         }
 
         # Estrategia 1: Buscar elementos con atributo resid
@@ -451,8 +570,20 @@ class OtelsExtractor:
             if tooltip_html:
                 # Decodificar entidades HTML primero
                 decoded_html = html.unescape(tooltip_html)
+                
+                # Log del tooltip solo en debug si es necesario (puede ser verboso)
+                # logger.debug(f"Tooltip encontrado para reserva {reservation_data['id']}: {decoded_html[:50]}...")
 
                 try:
+                    # Buscar tipo de reserva en el título (ej: Reserva №22781 (Reservación))
+                    type_match = re.search(r'Reserva №\d+\s*\(([^)]+)\)', decoded_html)
+                    if type_match:
+                        # Mapear el texto encontrado a los estados deseados
+                        raw_type = type_match.group(1).lower()
+                        if 'reservación' in raw_type or 'reserva' in raw_type:
+                            reservation_data['reservation_type'] = 'reservation'
+                        # Se pueden agregar más mapeos aquí si aparecen otros textos como 'bloqueo', etc.
+                    
                     # Buscar nombre del huésped
                     guest_match = re.search(r'Huésped:\s*([^<]+)</div>', decoded_html)
                     if guest_match:
@@ -477,7 +608,7 @@ class OtelsExtractor:
                     if source_match:
                         reservation_data['source'] = source_match.group(1).strip()
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Error extrayendo datos del tooltip: {e}")
+                    logger.warning(f"⚠️ Error extrayendo datos del tooltip: {e}")
 
         # Estrategia 2: Si no hay tooltip, intentar obtener información directamente del elemento
         if not reservation_data['guest_name'] and res_block:
@@ -500,12 +631,16 @@ class OtelsExtractor:
         for category in self.categories:
             if category.id == category_id:
                 for room in category.rooms:
+                    if room.get('room_id') == room_id:
+                        return room['room_number']
+                    # Fallback to old check if room_id was not captured in categories
                     if room['room_number'] == room_id:
                         return room_id
         return room_id
 
     def _extract_date_range(self):
         """Extrae el rango de fechas real basado en el mapeo generado"""
+        logger.info("Calculando rango de fechas...")
         if self.day_id_to_date:
             sorted_dates = sorted(self.day_id_to_date.values())
             self.date_range = {
@@ -521,6 +656,7 @@ class OtelsExtractor:
                 'end_date': "Unknown",
                 'total_days': len(date_elements) if date_elements else 0
             }
+        logger.debug(f"Rango calculado: {self.date_range}")
 
     def _convert_day_id_to_date(self, day_id: str) -> str:
         """Método robusto para convertir day_id a fecha"""

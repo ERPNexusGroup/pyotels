@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 
 @dataclass
@@ -19,7 +19,8 @@ class ReservationData:
     status: str  # 'available', 'occupied', 'locked'
     availability: int
     day_id: str
-    detail_url: Optional[str] = None
+    reservation_status: Optional[str] = None
+    details_reservation: Dict[str, Any] = field(default_factory=dict)
     reservation_id: Optional[str] = None
     guest_name: Optional[str] = None
     source: Optional[str] = None  # Booking, Venta directa, etc.
