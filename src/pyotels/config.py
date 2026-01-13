@@ -55,3 +55,8 @@ class Config(BaseSettings):
         log_dir = self.BASE_DIR / "logs"
         log_dir.mkdir(exist_ok=True)
         return log_dir
+
+    def get_html_path(self) -> Path:
+        html_dir = self.BASE_DIR / "html"
+        html_dir.mkdir(exist_ok=True)
+        return html_dir

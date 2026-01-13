@@ -69,3 +69,7 @@ Thumbs.db
 ia_tools/check_db.py
 ia_tools/verify_details.py
 ia_tools/verify_local.py
+/ia_tools/analyze_site.py
+/ia_tools/test_actions.py
+/html/calendar_2026-01-13.html
+/html/reservation_22628.html

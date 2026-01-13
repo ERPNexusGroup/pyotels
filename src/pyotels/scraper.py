@@ -175,6 +175,87 @@ class OtelMSScraper:
             logger.error(f"Excepción obteniendo detalles ({reservation_id}): {e}")
             return ""
 
+
+    @log_execution
+    def perform_action(self, method: str, url: str, **kwargs) -> bool:
+        """
+        Método genérico para ejecutar acciones en OtelMS.
+        
+        Args:
+            method: 'POST' o 'GET'
+            url: URL parcial o completa del endpoint
+            **kwargs: Argumentos para requests (data, json, params, etc.)
+        """
+        if not url.startswith("http"):
+            url = f"{self.BASE_URL}{url}" if url.startswith("/") else f"{self.BASE_URL}/{url}"
+            
+        logger.info(f"Ejecutando acción {method} en: {url}")
+        
+        try:
+            resp = self.session.request(method, url, timeout=30, **kwargs)
+            
+            if config.DEBUG and config.DEBUG_REQUESTS:
+                self._debug(f"Action {method}", resp)
+                
+            if resp.status_code == 200:
+                # A veces el éxito se indica con un redirect o un JSON específico.
+                # Aquí asumimos 200 OK como éxito básico.
+                # Se podría analizar resp.text en busca de errores específicos "Success": false
+                logger.info("Acción ejecutada correctamente (Status 200).")
+                return True
+            else:
+                logger.warning(f"La acción falló con status {resp.status_code}")
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error de conexión ejecutando acción: {e}")
+            return False
+
+
+    def set_room_checkin(self, reservation_id: str) -> bool:
+        """
+        Realiza el Check-in de una reserva.
+        Endpoint: /reservation_c2/set_checkin/{id}/status
+        """
+        endpoint = f"/reservation_c2/set_checkin/{reservation_id}/status"
+        logger.info(f"Intentando Check-in para reserva {reservation_id}...")
+        return self.perform_action("POST", endpoint)
+
+    def set_room_checkout(self, reservation_id: str) -> bool:
+        """
+        Realiza el Checkout de una reserva.
+        Endpoint: /reservation_c2/set_checkout/{id}/status
+        """
+        endpoint = f"/reservation_c2/set_checkout/{reservation_id}/status"
+        logger.info(f"Intentando Checkout para reserva {reservation_id}...")
+        return self.perform_action("POST", endpoint)
+
+    # Alias para compatibilidad hacia atrás si es necesario, o mantener consistencia
+    perform_checkout = set_room_checkout
+
+    def update_room_availability(self, action: str, params: dict) -> bool:
+        """
+        Abre o cierra fechas para una habitación.
+        
+        Args:
+            action: "open" o "close"
+            params: Diccionario con los parámetros requeridos (ej. {'room_id': '...', 'dates': [...]})
+        """
+        if action == "open":
+            endpoint = "/reservation_c2/days_open_save"
+        elif action == "close":
+            endpoint = "/reservation_c2/days_close_save"
+        else:
+            logger.error(f"Acción de disponibilidad desconocida: {action}")
+            return False
+        
+        # Log del intento
+        room_id = params.get('room_id', 'Unknown')
+        dates = params.get('dates', [])
+        logger.info(f"Actualizando disponibilidad ({action.upper()}) para habitación {room_id} en fechas {dates}")
+        
+        return self.perform_action("POST", endpoint, data=params)
+
     def _debug(self, context: str, response: requests.Response):
         """Imprime información útil para depurar."""
         if config.DEBUG and config.DEBUG_REQUESTS:
@@ -185,3 +266,4 @@ class OtelMSScraper:
             print("History:", [r.status_code for r in response.history])
             print("Cookies actuales:", self.session.cookies.get_dict())
             print("-" * 100)
+

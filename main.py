@@ -8,10 +8,14 @@ from src.pyotels.logger import logger, log_execution
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scraper para OtelMS")
+    parser.add_argument("command", nargs="?", default="scrape", choices=["scrape", "checkout", "checkin", "close_room"], help="Acción a realizar")
     parser.add_argument("--user", type=str, help="Usuario de OtelMS")
     parser.add_argument("--password", type=str, help="Contraseña de OtelMS")
     parser.add_argument("--date", type=str, help="Fecha objetivo (YYYY-MM-DD)")
     parser.add_argument("--id_hotel", type=str, help="ID del Hotel")
+    parser.add_argument("--reservation_id", type=str, help="ID de reserva para acciones")
+    parser.add_argument("--room_id", type=str, help="ID de habitación para acciones")
+    parser.add_argument("--dates", nargs="+", help="Fechas (YYYY-MM-DD) para acciones de disponibilidad")
     parser.add_argument("--verbose", action="store_true", help="Activar logs detallados")
     return parser.parse_args()
 
@@ -53,11 +57,47 @@ def main():
         logger.critical("No se pudo iniciar sesión. Abortando.")
         return
 
+    # -----------------------
+    # Manejo de Comandos
+    # -----------------------
+    if args.command == "checkout":
+        if not args.reservation_id:
+            logger.error("Debe especificar --reservation_id para checkout.")
+            return
+        scraper.set_room_checkout(args.reservation_id)
+        return
+
+    elif args.command == "checkin":
+        if not args.reservation_id:
+            logger.error("Debe especificar --reservation_id para checkin.")
+            return
+        scraper.set_room_checkin(args.reservation_id)
+        return
+
+    elif args.command == "close_room":
+        if not args.room_id or not args.dates:
+            logger.error("Debe especificar --room_id y --dates para cerrar habitación.")
+            return
+        params = {"room_id": args.room_id, "dates": args.dates}
+        scraper.update_room_availability("close", params)
+        return
+
+    # Si no es nunguno de los anteriores, asumimos "scrape" (default)
+    if args.command != "scrape":
+        logger.error(f"Comando desconocido: {args.command}")
+        return
+
     # 4. Obtener Calendario
     try:
         logger.info("Obteniendo calendario de reservas...")
         html_content = scraper.get_reservation_calendar()
         logger.debug(f"Calendario obtenido. Tamaño HTML: {len(html_content)} caracteres")
+        
+        # Guardar HTML del calendario
+        html_path = config.get_html_path() / f"calendar_{target_date}.html"
+        with open(html_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        logger.info(f"HTML del calendario guardado en: {html_path}")
                 
     except Exception as e:
         logger.error(f"Error obteniendo calendario: {e}", exc_info=True)
@@ -93,27 +133,21 @@ def main():
             details_html = scraper.get_reservation_details(res_id)
             
             if details_html:
-                # Extraer objeto ReservationDetail
+                # Guardar HTML de detalles
+                html_path = config.get_html_path() / f"reservation_{res_id}.html"
+                with open(html_path, 'w', encoding='utf-8') as f:
+                    f.write(details_html)
+                
+                # Extraer objeto ReservationDetail (sin raw_html)
                 details_obj = extractor.extract_reservation_details(details_html, res_id, include_raw_html=False)
                 
                 # Convertir a diccionario para almacenar en el JSON final
-                # Usamos __dict__ o asdict si es dataclass, pero aquí lo haremos manual o con vars()
-                # Para simplificar y asegurar serialización, convertimos a dict
-                # Nota: ReservationDetail es un dataclass, así que podemos usar asdict si importamos dataclasses
-                # O simplemente dejar que el json.dump final lo maneje con default=lambda o: o.__dict__
-                # Pero necesitamos asignarlo al campo details_reservation de ReservationData que espera un Dict
-                
-                # Convertir dataclass a dict recursivamente sería ideal, pero por ahora usaremos vars() superficial
-                # o dejaremos el objeto si el modelo lo permite. 
-                # El modelo ReservationData define details_reservation: Dict[str, Any]
-                # Así que mejor convertimos el objeto ReservationDetail a diccionario.
-                
                 from dataclasses import asdict
                 details_dict = asdict(details_obj)
                 
-                # Limpiar raw_html si no es debug para ahorrar espacio
-                if not config.DEBUG and 'raw_html' in details_dict:
-                    details_dict['raw_html'] = None
+                # Asegurar que raw_html no esté en el diccionario final
+                if 'raw_html' in details_dict:
+                    del details_dict['raw_html']
                 
                 details_cache[res_id] = details_dict
                 
