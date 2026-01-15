@@ -1,28 +1,29 @@
-from dataclasses import dataclass, field, Field
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
+# --- Shared / Common Models ---
 
-@dataclass
-class RoomCategory:
-    """Representa una categoría de habitaciones."""
+class RoomCategory(BaseModel):
     id: str
     name: str
     rooms: List[Dict[str, Any]]
 
-@dataclass
-class ReservationData:
-    date: str
+# --- Calendar Grid Models ---
+
+class ReservationData(BaseModel):
+    """Datos de una celda específica en el calendario (Grid)"""
+    date: str 
     room_id: str
     room_number: str
-    category_id: str
-    category_name: str
+    category_id: Optional[str] = None
+    category_name: Optional[str] = None
     status: str
     availability: int
     day_id: str
     reservation_status: Optional[str] = None
-    details_reservation: Dict[str, Any] = field(default_factory=dict)
+    details_reservation: Dict[str, Any] = Field(default_factory=dict)
     reservation_id: Optional[str] = None
     guest_name: Optional[str] = None
     source: Optional[str] = None
@@ -30,51 +31,63 @@ class ReservationData:
     check_out: Optional[str] = None
     balance: Optional[str] = None
 
-@dataclass
-class GuestInfo:
+class CalendarGrid(BaseModel):
+    """Respuesta para la petición de Reservaciones/Grid"""
+    reservation_data: List[ReservationData]
+    date_range: Dict[str, Any]
+    extracted_at: str # Changed to str to avoid serialization errors
+    day_id_to_date: Dict[str, str] = Field(default_factory=dict)
+
+class CalendarCategories(BaseModel):
+    """Respuesta para la petición de Categorías"""
+    categories: List[RoomCategory]
+    extracted_at: str
+
+# --- Folio / Detail Models ---
+
+class Guest(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
     country: Optional[str] = None
     id: Optional[str] = None
+    dob: Optional[str] = None
 
-@dataclass
-class Service:
-    date: str
+class Service(BaseModel):
+    date: Optional[str] = None
+    id: Optional[str] = None
     title: str
-    description: str
+    description: Optional[str] = None
     price: float
-    quantity: int
-    total: float
+    quantity: float
+    total: Optional[float] = None
+    entity: Optional[str] = None
 
-class PaymentInfo(BaseModel):
-    balance: str = Field(default="0.00")
-    total_paid: str = Field(default="0.00")
-    source: str # Ej: "Booking", "Venta directa"
-    payment_status: str
+class PaymentTransaction(BaseModel):
+    date: str
+    created: str
+    id: str
+    amount: str
+    method: str
 
-@dataclass
-class Note:
+class Note(BaseModel):
     date: str
     author: str
     message: str
     type: str = "note"
 
-@dataclass
-class Car:
+class Car(BaseModel):
     brand: str
     model: str
     color: str
     plate: str
 
-@dataclass
-class DailyTariff:
+class DailyTariff(BaseModel):
     date: str
     rate_type: str
     price: float
 
-@dataclass
-class ChangeLog:
+class ChangeLog(BaseModel):
     date: str
     log_id: str
     user: str
@@ -83,36 +96,44 @@ class ChangeLog:
     amount: str
     description: str
 
-@dataclass
-class Card:
+class Card(BaseModel):
     number: str
     holder: str
     expiration: str
 
-@dataclass
-class ReservationDetail:
-    """Representa los detalles completos de una reserva."""
+class ReservationDetail(BaseModel):
+    """Respuesta para la petición de Detalle de Reserva"""
     reservation_id: str
-    guests: List[Guest]
-    services: List[Service]
-    payments: List[Payment]
-    cars: List[Car]
-    notes: List[Note]
-    daily_tariffs: List[DailyTariff]
-    logs: List[ChangeLog]
-    cards: List[Card]
-    balance: float
-    total_price: float
-    channel_info: Dict[str, Any]
-    # Basic info fields for the main Reservation model
-    basic_info: Dict[str, Any]
+    guests: List[Guest] = Field(default_factory=list)
+    services: List[Service] = Field(default_factory=list)
+    payments: List[PaymentTransaction] = Field(default_factory=list)
+    cars: List[Car] = Field(default_factory=list)
+    notes: List[Note] = Field(default_factory=list)
+    daily_tariffs: List[DailyTariff] = Field(default_factory=list)
+    logs: List[ChangeLog] = Field(default_factory=list)
+    cards: List[Card] = Field(default_factory=list)
+    
+    balance: float = 0.0
+    total_price: float = 0.0
+    
+    channel_info: Dict[str, Any] = Field(default_factory=dict)
+    basic_info: Dict[str, Any] = Field(default_factory=dict)
+    
     raw_html: Optional[str] = None
+    
+    # Compatibility fields
+    room_number: Optional[str] = None
+    room_id: Optional[str] = None
+    check_in: Optional[date] = None
+    check_out: Optional[date] = None
+    status: Optional[str] = None
+    raw_form_data: Dict[str, Any] = Field(default_factory=dict)
 
-@dataclass
-class CalendarData:
-    """Representa todos los datos extraídos del calendario."""
+# --- Legacy / Internal ---
+class CalendarData(BaseModel):
+    """Modelo interno completo (opcional, si se necesita todo junto)"""
     categories: List[RoomCategory]
     reservation_data: List[ReservationData]
-    date_range: Dict[str, str]
+    date_range: Dict[str, Any]
     extracted_at: str
-    day_id_to_date: Dict[str, str] = field(default_factory=dict)
+    day_id_to_date: Dict[str, str] = Field(default_factory=dict)

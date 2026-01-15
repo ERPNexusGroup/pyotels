@@ -3,7 +3,6 @@ import json
 import time
 
 from .scraper import OtelMSScraper
-from .extractor import OtelsExtractor
 from .settings import config
 from .logger import logger, log_execution
 
@@ -25,15 +24,13 @@ def main():
     # 1. Procesar argumentos
     args = parse_arguments()
     
-    # Sobreescribir configuración si se pasa por argumento
     if args.verbose:
         config.VERBOSE = True
-        # Reconfigurar nivel de log si es necesario
         logger.setLevel("DEBUG")
 
-    username = args.user if args.user else 'gerencia@harmonyhotelgroup.com'
-    password = args.password if args.password else 'Majestic2'
-    id_hotel = args.id_hotel if args.id_hotel else '118510'
+    username = args.user if args.user else None
+    password = args.password if args.password else None
+    id_hotel = args.id_hotel if args.id_hotel else None
     target_date = args.date if args.date else config.TARGET_DATE
 
     if not username or not password:
@@ -41,9 +38,7 @@ def main():
         return
 
     logger.info(f"Iniciando scraper para Hotel ID: {id_hotel}")
-    logger.info(f"Usuario: {username}")
-    logger.info(f"Fecha objetivo: {target_date}")
-
+    
     # 2. Inicializar Scraper
     scraper = OtelMSScraper(
         id_hotel=id_hotel,
@@ -53,7 +48,6 @@ def main():
     )
 
     # 3. Login
-    logger.info("Intentando iniciar sesión...")
     if not scraper.login():
         logger.critical("No se pudo iniciar sesión. Abortando.")
         return
@@ -65,124 +59,79 @@ def main():
         if not args.reservation_id:
             logger.error("Debe especificar --reservation_id para checkout.")
             return
-        scraper.set_room_checkout(args.reservation_id)
+        scraper.set_room_checkout_playwright(args.reservation_id)
         return
 
     elif args.command == "checkin":
         if not args.reservation_id:
             logger.error("Debe especificar --reservation_id para checkin.")
             return
-        scraper.set_room_checkin(args.reservation_id)
+        scraper.set_room_checkin_playwright(args.reservation_id)
         return
 
     elif args.command == "close_room":
         if not args.room_id or not args.dates:
             logger.error("Debe especificar --room_id y --dates para cerrar habitación.")
             return
-        params = {"room_id": args.room_id, "dates": args.dates}
-        scraper.update_room_availability("close", params)
+        scraper.update_room_availability_playwright(args.room_id, args.dates, "close")
         return
 
-    # Si no es nunguno de los anteriores, asumimos "scrape" (default)
+    # Default: scrape
     if args.command != "scrape":
         logger.error(f"Comando desconocido: {args.command}")
         return
 
-    # 4. Obtener Calendario
+    # 4. Obtener Datos (Modular)
     try:
-        logger.info("Obteniendo calendario de reservas...")
-        html_content = scraper.get_reservation_calendar()
-        logger.debug(f"Calendario obtenido. Tamaño HTML: {len(html_content)} caracteres")
-                
+        # --- Categorías ---
+        logger.info("Obteniendo categorías...")
+        categories = scraper.get_categories(target_date)
+        
+        # --- Grilla / Reservaciones ---
+        logger.info("Obteniendo grilla de reservas...")
+        grid = scraper.get_grid(target_date)
+        
+        # --- Detalles ---
+        # Identificar reservas únicas para detalle
+        unique_ids = set()
+        for r in grid.reservation_data:
+            if r.reservation_id:
+                unique_ids.add(r.reservation_id)
+        
+        logger.info(f"Encontradas {len(unique_ids)} reservas únicas. Obteniendo detalles...")
+        
+        details = []
+        for res_id in unique_ids:
+            det = scraper.get_reservation_detail(res_id)
+            if det:
+                details.append(det)
+                time.sleep(0.2) # Pausa leve
+        
+        # 5. Guardar resultados separados (Solo debug o si se requiere)
+        if config.DEBUG:
+            # Guardar Categorías
+            cat_file = config.BASE_DIR / 'categories.json'
+            with open(cat_file, 'w', encoding='utf-8') as f:
+                json.dump(categories.model_dump(), f, indent=4, ensure_ascii=False, default=str)
+            logger.info(f"Categorías guardadas en: {cat_file}")
+
+            # Guardar Reservaciones (Grid)
+            res_file = config.BASE_DIR / 'reservations.json'
+            with open(res_file, 'w', encoding='utf-8') as f:
+                json.dump(grid.model_dump(), f, indent=4, ensure_ascii=False, default=str)
+            logger.info(f"Reservaciones guardadas en: {res_file}")
+
+            # Guardar Detalles Individuales
+            for det in details:
+                det_file = config.BASE_DIR / f'details_{det.reservation_id}.json'
+                with open(det_file, 'w', encoding='utf-8') as f:
+                    json.dump(det.model_dump(), f, indent=4, ensure_ascii=False, default=str)
+            
+            logger.info(f"Detalles guardados ({len(details)} archivos).")
+
     except Exception as e:
-        logger.error(f"Error obteniendo calendario: {e}", exc_info=True)
-        return
-
-    # 5. Extraer Datos del Calendario
-    logger.info("Procesando datos del calendario...")
-    extractor = OtelsExtractor(html_content)
-    calendar_data = extractor.extract_calendar_data()
-
-    logger.info(f"Extracción inicial completada:")
-    logger.info(f"  - Categorías encontradas: {len(calendar_data.categories)}")
-    logger.info(f"  - Celdas de datos procesadas: {len(calendar_data.reservation_data)}")
-    
-    # 6. Extraer Detalles de Reservas
-    # Identificar IDs de reservas únicos para no hacer peticiones repetidas
-    unique_reservation_ids = set()
-    for r in calendar_data.reservation_data:
-        if r.reservation_id:
-            unique_reservation_ids.add(r.reservation_id)
-    
-    logger.info(f"Se encontraron {len(unique_reservation_ids)} reservas únicas para extraer detalles.")
-    
-    # Diccionario temporal para almacenar detalles y evitar múltiples peticiones
-    details_cache = {}
-    
-    # Procesar cada reserva única
-    for i, res_id in enumerate(unique_reservation_ids):
-        try:
-            logger.info(f"[{i+1}/{len(unique_reservation_ids)}] Obteniendo detalles para reserva {res_id}...")
-            
-            # Obtener HTML de detalles
-            details_html = scraper.get_reservation_details(res_id)
-            
-            if details_html:
-                # Extraer objeto ReservationDetail
-                details_obj = extractor.extract_reservation_details(details_html, res_id, include_raw_html=False)
-                
-                # Convertir a diccionario para almacenar en el JSON final
-                from dataclasses import asdict
-                details_dict = asdict(details_obj)
-                
-                # Limpiar raw_html si no es debug para ahorrar espacio
-                if not config.DEBUG and 'raw_html' in details_dict:
-                    details_dict['raw_html'] = None
-                
-                details_cache[res_id] = details_dict
-                
-                # Pequeña pausa para no saturar el servidor
-                time.sleep(0.5)
-            else:
-                logger.warning(f"No se pudo obtener HTML para reserva {res_id}")
-                
-        except Exception as e:
-            logger.error(f"Error procesando detalles de reserva {res_id}: {e}")
-            continue
-
-    # 7. Asignar detalles a los datos del calendario
-    logger.info("Asignando detalles a las reservas en el calendario...")
-    count_assigned = 0
-    for r in calendar_data.reservation_data:
-        if r.reservation_id and r.reservation_id in details_cache:
-            r.details_reservation = details_cache[r.reservation_id]
-            count_assigned += 1
-            
-    logger.info(f"Detalles asignados a {count_assigned} celdas de reserva.")
-
-    # Análisis de datos extraídos
-    occupied_count = sum(1 for r in calendar_data.reservation_data if r.status == 'occupied')
-    with_id_count = sum(1 for r in calendar_data.reservation_data if r.reservation_id)
-    available_count = sum(1 for r in calendar_data.reservation_data if r.status == 'available')
-    locked_count = sum(1 for r in calendar_data.reservation_data if r.status == 'locked')
-    
-    logger.info(f"Resumen final:")
-    logger.info(f"  - Ocupadas: {occupied_count}")
-    logger.info(f"  - Con ID: {with_id_count}")
-    logger.info(f"  - Disponibles: {available_count}")
-    logger.info(f"  - Bloqueadas: {locked_count}")
-
-    # 8. Imprimir datos capturados
-    logger.info("Guardando datos capturados...")
-    
-    output_file = config.BASE_DIR / 'calendar_data.json'
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(calendar_data, f, indent=4, ensure_ascii=False, default=lambda o: o.__dict__)
-        logger.info(f"Datos guardados en: {output_file}")
-    except Exception as e:
-        logger.error(f"Error guardando datos: {e}")
+        logger.error(f"Error en proceso de scraping: {e}", exc_info=True)
+    finally:
+        scraper.close()
 
     logger.info("Proceso finalizado exitosamente.")
-
-

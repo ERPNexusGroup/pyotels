@@ -7,54 +7,52 @@ from .settings import config
 
 def setup_logger(name: str = "otelms_scraper"):
     """
-    Configura el logger principal con rotación diaria y salida a consola.
+    Configura el logger principal.
     """
     logger = logging.getLogger(name)
     
-    # Evitar duplicar handlers si se llama varias veces
     if logger.hasHandlers():
         return logger
 
-    # Nivel base
     level = logging.DEBUG if config.VERBOSE or config.DEBUG else logging.INFO
     logger.setLevel(level)
 
-    # Formato
     formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] [%(name)s] %(message)s',
+        '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    # 1. Handler de Archivo (Rotación diaria, max 10 archivos)
-    log_dir = config.get_log_path()
-    log_file = log_dir / "app.log"
-    
-    file_handler = TimedRotatingFileHandler(
-        filename=log_file,
-        when="midnight",
-        interval=1,
-        backupCount=config.LOG_BACKUP_COUNT,
-        encoding="utf-8"
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.suffix = "%Y-%m-%d" # app.log.2023-10-27
-    
-    # 2. Handler de Consola
+    # 1. Handler de Consola (Siempre activo)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-
-    logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+    # 2. Handler de Archivo (Opcional y seguro)
+    try:
+        log_dir = config.get_log_path()
+        log_file = log_dir / "app.log"
+
+        file_handler = TimedRotatingFileHandler(
+            filename=log_file,
+            when="midnight",
+            interval=1,
+            backupCount=config.LOG_BACKUP_COUNT,
+            encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.suffix = "%Y-%m-%d"
+        logger.addHandler(file_handler)
+    except (PermissionError, OSError) as e:
+        # Si falla (ej. entorno serverless o sin permisos), solo avisamos por consola
+        sys.stderr.write(f"⚠️ No se pudo configurar log a archivo: {e}\n")
 
     return logger
 
-# Instancia global del logger
 logger = setup_logger()
 
 def log_execution(func):
     """
-    Decorador para registrar la entrada, salida y argumentos de una función.
-    Solo registra detalles si VERBOSE es True.
+    Decorador para registrar ejecución.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -62,7 +60,6 @@ def log_execution(func):
         module_name = func.__module__
         
         if config.VERBOSE:
-            # Intentar obtener los nombres de los argumentos
             try:
                 sig = inspect.signature(func)
                 bound_args = sig.bind(*args, **kwargs)
