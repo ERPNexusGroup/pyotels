@@ -18,8 +18,7 @@ def main():
     scraper = OtelMSScraper(
         id_hotel=id_hotel,
         username=username,
-        password=password,
-        debug=True # Forzar debug para ver logs y guardar archivos
+        password=password
     )
 
     try:

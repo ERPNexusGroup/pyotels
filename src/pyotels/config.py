@@ -18,7 +18,7 @@ class Config(BaseSettings):
     # -----------------------
     # Flags generales
     # -----------------------
-    DEBUG: bool = True
+    DEBUG: bool = False
     DEBUG_REQUESTS: bool = False
     VERBOSE: bool = False
 
