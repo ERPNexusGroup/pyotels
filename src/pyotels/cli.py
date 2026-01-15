@@ -1,11 +1,7 @@
 import argparse
 import json
 import time
-import sys
-from pathlib import Path
 
-# Relative imports within the package using . notation
-# Since this script is inside src/pyotels/, these refer to sibling modules.
 from .scraper import OtelMSScraper
 from .extractor import OtelsExtractor
 from .settings import config
@@ -189,5 +185,4 @@ def main():
 
     logger.info("Proceso finalizado exitosamente.")
 
-if __name__ == "__main__":
-    main()
+

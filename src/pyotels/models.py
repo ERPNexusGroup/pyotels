@@ -1,5 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, Field
 from typing import List, Dict, Any, Optional
+
+from pydantic import BaseModel
+
 
 @dataclass
 class RoomCategory:
@@ -10,26 +13,25 @@ class RoomCategory:
 
 @dataclass
 class ReservationData:
-    """Representa los datos de una habitación en una fecha específica."""
     date: str
     room_id: str
     room_number: str
     category_id: str
     category_name: str
-    status: str  # 'available', 'occupied', 'locked'
+    status: str
     availability: int
     day_id: str
     reservation_status: Optional[str] = None
     details_reservation: Dict[str, Any] = field(default_factory=dict)
     reservation_id: Optional[str] = None
     guest_name: Optional[str] = None
-    source: Optional[str] = None  # Booking, Venta directa, etc.
-    check_in: Optional[str] = None  # Fecha de llegada
-    check_out: Optional[str] = None  # Fecha de salida
+    source: Optional[str] = None
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
     balance: Optional[str] = None
 
 @dataclass
-class Guest:
+class GuestInfo:
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -45,13 +47,11 @@ class Service:
     quantity: int
     total: float
 
-@dataclass
-class Payment:
-    date: str
-    amount: float
-    type: str
-    method: str
-    description: Optional[str] = None
+class PaymentInfo(BaseModel):
+    balance: str = Field(default="0.00")
+    total_paid: str = Field(default="0.00")
+    source: str # Ej: "Booking", "Venta directa"
+    payment_status: str
 
 @dataclass
 class Note:
@@ -115,3 +115,4 @@ class CalendarData:
     reservation_data: List[ReservationData]
     date_range: Dict[str, str]
     extracted_at: str
+    day_id_to_date: Dict[str, str] = field(default_factory=dict)
