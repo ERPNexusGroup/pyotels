@@ -1,7 +1,7 @@
 # src/pyotels/extractor.py
 import time
 import requests
-from typing import Optional
+from typing import Optional, List, Dict
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -225,6 +225,113 @@ class OtelsExtractor:
         except Exception as e:
             if isinstance(e, AuthenticationError): raise
             raise NetworkError(f"Error al obtener HTML de detalle: {e}")
+
+    def get_visible_reservation_ids(self) -> List[str]:
+        """
+        Escanea la página actual del calendario y retorna una lista de todos los IDs de reserva visibles.
+        """
+        self.start()
+        # Asegurar que estamos en el calendario
+        if not self.page.url.startswith(self.CALENDAR_URL):
+            self.get_calendar_html()
+            
+        try:
+            # Seleccionar todos los elementos que tengan el atributo 'resid'
+            # Usamos JS eval para obtener los atributos rápidamente
+            ids = self.page.evaluate("""() => {
+                const elements = document.querySelectorAll('div.calendar_item[resid]');
+                return Array.from(elements).map(el => el.getAttribute('resid')).filter(id => id);
+            }""")
+            
+            # Eliminar duplicados
+            unique_ids = list(set(ids))
+            self.logger.info(f"Encontrados {len(unique_ids)} IDs de reserva visibles en el calendario.")
+            return unique_ids
+        except Exception as e:
+            self.logger.error(f"Error obteniendo IDs de reservas: {e}")
+            return []
+
+    def get_reservation_modal_html(self, reservation_id: str) -> str:
+        """
+        Navega al calendario (si no está ya ahí), busca la reserva por ID,
+        hace clic para abrir el modal y extrae el HTML del modal.
+        """
+        self.start()
+        self.logger.info(f"Intentando abrir modal para reserva ID: {reservation_id}")
+
+        # Asegurar que estamos en el calendario
+        if not self.page.url.startswith(self.CALENDAR_URL):
+            self.logger.info("No estamos en el calendario, navegando...")
+            self.get_calendar_html()
+
+        try:
+            # Selector para el bloque de reserva
+            res_selector = f"div[resid='{reservation_id}']"
+            
+            # Esperar a que la reserva sea visible
+            try:
+                self.page.wait_for_selector(res_selector, state="visible", timeout=5000)
+            except PlaywrightTimeoutError:
+                self.logger.warning(f"Reserva {reservation_id} no encontrada visible en la vista actual.")
+                raise NetworkError(f"Reserva {reservation_id} no encontrada en el calendario actual.")
+
+            # Hacer clic en la reserva
+            # force=True ayuda si el elemento está parcialmente cubierto
+            self.page.click(res_selector, force=True)
+
+            # Esperar a que aparezca el modal
+            modal_selector = "div.modal-content" 
+            self.page.wait_for_selector(modal_selector, state="visible", timeout=5000)
+            
+            time.sleep(0.5) # Pequeña espera para renderizado
+
+            # Extraer el HTML del modal
+            modal_element = self.page.query_selector(modal_selector)
+            if modal_element:
+                modal_html = modal_element.inner_html()
+                
+                # Cerrar el modal para limpiar
+                self.page.keyboard.press("Escape")
+                # Esperar a que el modal desaparezca para no interferir con el siguiente clic
+                try:
+                    self.page.wait_for_selector(modal_selector, state="hidden", timeout=3000)
+                except:
+                    pass # Si no desaparece rápido, seguimos igual
+                
+                return modal_html
+            else:
+                raise NetworkError("El modal se abrió pero no se pudo obtener su contenido.")
+
+        except Exception as e:
+            self.logger.error(f"Error interactuando con el modal de reserva {reservation_id}: {e}")
+            # Intentar cerrar modal por si acaso quedó abierto tras error
+            self.page.keyboard.press("Escape")
+            raise NetworkError(f"Error obteniendo modal de reserva: {e}")
+
+    def collect_all_reservation_modals(self) -> Dict[str, str]:
+        """
+        Itera sobre todas las reservas visibles en el calendario actual,
+        abre sus modales y recolecta el HTML de cada uno.
+        Retorna un diccionario {reservation_id: html_modal}.
+        """
+        results = {}
+        ids = self.get_visible_reservation_ids()
+        
+        self.logger.info(f"Iniciando extracción masiva de modales para {len(ids)} reservas...")
+        
+        for i, res_id in enumerate(ids):
+            try:
+                self.logger.debug(f"Procesando reserva {i+1}/{len(ids)}: {res_id}")
+                html = self.get_reservation_modal_html(res_id)
+                results[res_id] = html
+                # Pequeña pausa para no saturar la UI del navegador
+                time.sleep(0.2)
+            except Exception as e:
+                self.logger.error(f"Saltando reserva {res_id} debido a error: {e}")
+                continue
+                
+        self.logger.info(f"Extracción masiva completada. {len(results)} modales obtenidos.")
+        return results
 
     def close(self):
         """Cierra todos los recursos."""

@@ -1,5 +1,5 @@
 # src/pyotels/scarper.py
-from typing import Optional
+from typing import Optional, List
 
 from .data_processor import OtelsProcessadorData
 from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNotFoundError
@@ -65,6 +65,26 @@ class OtelMSScraper:
         except Exception as e:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
+
+    def get_reservations_ids(self, target_date_str:str=None)-> List[int]:
+        try:
+            ids_list = self.extractor.get_visible_reservation_ids(target_date_str)
+            # save_html_debug(html_content, f"calendar_{target_date_str or 'default'}.html")
+            # processor = OtelsProcessadorData(html_content)
+            # return processor.extract_reservations()
+            return ids_list
+        except Exception as e:
+            if isinstance(e, (NetworkError, AuthenticationError)): raise
+            raise ParsingError(f"Error al extraer grilla: {e}")
+
+    def get_all_reservation_modals(self) -> dict:
+        try:
+            html_content = self.extractor.collect_all_reservation_modals()
+            processor = OtelsProcessadorData(html_content)
+            return processor.extract_all_reservation_modals()
+        except Exception as e:
+            if isinstance(e, (NetworkError, AuthenticationError)): raise
+            raise ParsingError("Error al extraer modales: {e}")
 
     def get_reservation_detail(self, reservation_id: str) -> Optional[ReservationDetail]:
         self.logger.info(f"Fetching details for reservation {reservation_id}")

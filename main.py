@@ -1,20 +1,34 @@
 import json
 import time
+from typing import List
 
 from src.pyotels.logger import logger
 from src.pyotels.scraper import OtelMSScraper
 from src.pyotels.settings import config
 
+# --- CONFIGURACIÓN DE PRUEBAS ---
+# Lista de métodos a ejecutar:
+# 1: get_categories
+# 2: get_reservations (Grilla)
+# 3: get_reservations_ids (Solo IDs visibles)
+# 4: get_all_reservation_modals (Todos los modales visibles)
+# 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
+# 0: Ejecutar TODOS (en orden lógico)
+
+TEST_METHODS = [1]  # Ejemplo: [1, 2] o [0] o [4]
+
+# ID de reserva específico para probar el método 5 (si se selecciona)
+TEST_RESERVATION_ID = '22802' 
 
 def main():
     # Configuración manual para pruebas
-    # Puedes modificar estos valores directamente aquí o asegurarte de que config.py los tenga
     id_hotel = '118510'
     username = 'gerencia@harmonyhotelgroup.com'
     password = 'Majestic2'
-    target_date = config.TARGET_DATE  # O una fecha específica '2026-01-15'
+    target_date = config.TARGET_DATE  # O '2026-01-15'
 
     logger.info(f"Iniciando prueba manual de scraper para Hotel ID: {id_hotel}")
+    logger.info(f"Métodos seleccionados: {TEST_METHODS}")
 
     # Inicializar Scraper
     scraper = OtelMSScraper(
@@ -24,68 +38,56 @@ def main():
     )
 
     try:
-        # 1. Login
+        # Siempre hacemos Login primero
         if not scraper.login():
             logger.critical("Fallo en el login. Verifica credenciales.")
             return
 
-        # 2. Obtener Categorías
-        # logger.info("--- Obteniendo Categorías ---")
-        # categories = scraper.get_categories(target_date)
-        #
-        # # Guardar categories.json
-        # if config.DEBUG:
-        #     cat_file = config.BASE_DIR / 'data' / 'categories.json'
-        #     # CORRECCIÓN: Crear el directorio padre, no el archivo como directorio
-        #     cat_file.parent.mkdir(parents=True, exist_ok=True)
-        #
-        #     with open(cat_file, 'w', encoding='utf-8') as f:
-        #         json.dump(categories.model_dump(), f, indent=4, ensure_ascii=False, default=str)
-        #     logger.info(f"Categorías guardadas en: {cat_file}")
+        # Determinar qué ejecutar
+        run_all = 0 in TEST_METHODS
 
-        # 3. Obtener Grilla de Reservas
-        logger.info("--- Obteniendo Grilla de Reservas ---")
-        grid = scraper.get_reservations(target_date)
+        # 1. Obtener Categorías
+        if run_all or 1 in TEST_METHODS:
+            logger.info("\n--- [1] Obteniendo Categorías ---")
+            categories = scraper.get_categories(target_date)
+            save_json(categories.model_dump(), 'categories.json')
 
-        # Guardar reservations.json
-        if config.DEBUG:
-            res_file = config.BASE_DIR / 'data' / 'reservations.json'
-            # CORRECCIÓN: Crear el directorio padre
-            res_file.parent.mkdir(parents=True, exist_ok=True)
+        # 2. Obtener Grilla de Reservas
+        if run_all or 2 in TEST_METHODS:
+            logger.info("\n--- [2] Obteniendo Grilla de Reservas ---")
+            grid = scraper.get_reservations(target_date)
+            save_json(grid.model_dump(), 'reservations.json')
 
-            with open(res_file, 'w', encoding='utf-8') as f:
-                json.dump(grid.model_dump(), f, indent=4, ensure_ascii=False, default=str)
-            logger.info(f"Grilla guardada en: {res_file}")
+        # 3. Obtener IDs de Reservas Visibles
+        if run_all or 3 in TEST_METHODS:
+            logger.info("\n--- [3] Obteniendo IDs de Reservas Visibles ---")
+            ids = scraper.get_reservations_ids(target_date)
+            logger.info(f"IDs encontrados: {ids}")
+            save_json(ids, 'visible_ids.json')
 
-        # # 4. Obtener Detalles de Reservas Únicas
-        # logger.info("--- Obteniendo Detalles de Reservas ---")
-        #
-        # # Identificar IDs únicos
-        # unique_ids = set()
-        # for r in grid.reservation_data:
-        #     if r.reservation_id:
-        #         unique_ids.add(r.reservation_id)
-        #
-        # logger.info(f"Reservas únicas encontradas: {len(unique_ids)}")
-        #
-        # for res_id in unique_ids:
-        #     logger.info(f"Procesando reserva: {res_id}")
-        #     detail = scraper.get_reservation_detail(res_id)
-        #
-        #     if detail and config.DEBUG:
-        #         # Guardar details_[ID].json
-        #         det_file = config.BASE_DIR / 'data' / f'details_{res_id}.json'
-        #         # CORRECCIÓN: Crear el directorio padre
-        #         det_file.parent.mkdir(parents=True, exist_ok=True)
-        #
-        #         with open(det_file, 'w', encoding='utf-8') as f:
-        #             json.dump(detail.model_dump(), f, indent=4, ensure_ascii=False, default=str)
-        #         logger.info(f"Detalle guardado: {det_file}")
-        #
-        #         # Pausa para ser amable con el servidor
-        #         time.sleep(0.5)
-        #     else:
-        #         logger.warning(f"No se pudo obtener detalle para {res_id}")
+        # 4. Obtener Todos los Modales Visibles
+        if run_all or 4 in TEST_METHODS:
+            logger.info("\n--- [4] Obteniendo Todos los Modales Visibles ---")
+            # Nota: Este método ya navega y extrae
+            modals_details = scraper.get_all_reservation_modals()
+            
+            # Convertir lista de objetos a lista de dicts para JSON
+            details_data = [d.model_dump() for d in modals_details]
+            save_json(details_data, 'all_modals_details.json')
+            
+            logger.info(f"Se extrajeron {len(details_data)} detalles de modales.")
+
+        # 5. Obtener Detalle de Reserva Específica
+        if 5 in TEST_METHODS: # No incluido en run_all por defecto para no saturar si no hay ID
+            logger.info(f"\n--- [5] Obteniendo Detalle para Reserva {TEST_RESERVATION_ID} ---")
+            if TEST_RESERVATION_ID:
+                detail = scraper.get_reservation_detail(TEST_RESERVATION_ID)
+                if detail:
+                    save_json(detail.model_dump(), f'detail_{TEST_RESERVATION_ID}.json')
+                else:
+                    logger.warning(f"No se encontró detalle para {TEST_RESERVATION_ID}")
+            else:
+                logger.warning("No se definió TEST_RESERVATION_ID para la prueba 5.")
 
     except Exception as e:
         logger.error(f"Error durante la ejecución manual: {e}", exc_info=True)
@@ -93,6 +95,15 @@ def main():
         scraper.close()
         logger.info("Prueba manual finalizada.")
 
+def save_json(data, filename):
+    """Helper para guardar JSON en la carpeta data/"""
+    if config.DEBUG:
+        file_path = config.BASE_DIR / 'data' / filename
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False, default=str)
+        logger.info(f"Datos guardados en: {file_path}")
 
 if __name__ == "__main__":
     main()
