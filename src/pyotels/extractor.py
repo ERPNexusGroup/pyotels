@@ -1,15 +1,17 @@
 # src/pyotels/extractor.py
 import time
 import requests
-from typing import Optional, Dict, List
+from typing import Optional
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError
+import diskcache as dc
 
-from .logger import logger
+from .logger import get_logger
 from .exceptions import NetworkError, AuthenticationError
 from .settings import config
+from .utils.cache import get_cache_key
 
 class OtelsExtractor:
     """
@@ -18,6 +20,7 @@ class OtelsExtractor:
     """
 
     def __init__(self, base_url: str, headless: bool = True):
+        self.logger = get_logger(classname='OtelsExtractor')
         self.headless = headless
         self.base_url = base_url
         self.playwright = None
@@ -28,7 +31,19 @@ class OtelsExtractor:
         self.LOGIN_URL = f"{self.base_url}/login/DoLogIn/"
         self.CALENDAR_URL = f"{self.base_url}/reservation_c2/calendar"
         self.DETAILS_URL = f"{self.base_url}/reservation_c2/folio/%s/1"
-        
+
+        # Configuración de caché
+        self._cache_enabled = config.DEBUG
+        self._cache_duration = 60 * 60
+        if self._cache_enabled:
+            cache_dir = config.BASE_DIR / "cache"
+            cache_dir.mkdir(exist_ok=True)
+            self.cache = dc.Cache(str(cache_dir), timeout=self._cache_duration)
+            self.logger.info(f"Cache de HTML habilitada en: {cache_dir}")
+        else:
+            self.cache = None
+            self.logger.info("Cache de HTML deshabilitada.")
+
         # Sesión de requests para login inicial (estrategia híbrida)
         self.session = requests.Session()
         retries = Retry(
@@ -48,7 +63,7 @@ class OtelsExtractor:
         """Inicializa los recursos de Playwright si no están activos."""
         if self.playwright: return
         
-        logger.info("Iniciando Playwright...")
+        self.logger.info("Iniciando Playwright...")
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(headless=self.headless)
         
@@ -65,7 +80,7 @@ class OtelsExtractor:
         Utiliza requests para la autenticación POST y transfiere cookies a Playwright.
         """
         self.start()
-        logger.info(f"Iniciando login para {username} en {self.base_url}")
+        self.logger.info(f"Iniciando login para {username} en {self.base_url}")
         
         payload = {"login": username, "password": password, "action": "login"}
         
@@ -81,7 +96,7 @@ class OtelsExtractor:
 
             # Verificar éxito del login
             if "login" not in resp.url:
-                logger.info("✅ Login exitoso (Requests). Sincronizando cookies...")
+                self.logger.info("✅ Login exitoso (Requests). Sincronizando cookies...")
                 self._sync_cookies()
                 return True
 
@@ -91,7 +106,7 @@ class OtelsExtractor:
             if any(k in lower_text for k in error_keywords):
                 raise AuthenticationError("Credenciales incorrectas o error en login.")
 
-            logger.warning("⚠️ URL sigue siendo login, intentando sincronizar cookies de todos modos...")
+            self.logger.warning("⚠️ URL sigue siendo login, intentando sincronizar cookies de todos modos...")
             self._sync_cookies()
             
             # Verificación opcional: Navegar a una página protegida para confirmar
@@ -117,14 +132,28 @@ class OtelsExtractor:
                     "path": "/"
                 })
             self.context.add_cookies(pw_cookies)
-            logger.debug(f"Cookies sincronizadas: {len(pw_cookies)}")
+            self.logger.debug(f"Cookies sincronizadas: {len(pw_cookies)}")
 
     def get_calendar_html(self, target_date_str: str = None) -> str:
         """
         Navega a la URL del calendario y extrae el HTML completo.
         """
+        params = {}
+
+        if target_date_str: params['date'] = target_date_str
+        # 1. Caché
+        cache_key = None
+        if self._cache_enabled and self.cache is not None:
+            # Nota: Usamos la URL del extractor para generar la key de caché
+            # para mantener consistencia, aunque la URL es interna del extractor ahora.
+            cache_key = get_cache_key(self.CALENDAR_URL, params)
+            cached_html = self.cache.get(cache_key)
+            if cached_html:
+                self.logger.info(f"✅ HTML recuperado de caché (key={cache_key[:8]}...)")
+                return cached_html
+
         self.start()
-        logger.info(f"Navegando al calendario: {self.CALENDAR_URL} (fecha: {target_date_str})")
+        self.logger.info(f"Navegando al calendario: {self.CALENDAR_URL} (fecha: {target_date_str})")
         
         full_url = self.CALENDAR_URL
         if target_date_str:
@@ -141,11 +170,17 @@ class OtelsExtractor:
             try:
                 self.page.wait_for_selector("table.calendar_table", timeout=15000)
             except PlaywrightTimeoutError:
-                logger.warning("Timeout esperando tabla del calendario, intentando continuar con el HTML actual.")
+                self.logger.warning("Timeout esperando tabla del calendario, intentando continuar con el HTML actual.")
 
             time.sleep(1) # Pequeña espera para scripts dinámicos
-            return self.page.content()
 
+            html_content = self.page.content()
+
+            # 3. Guardar en caché y debug
+            if self._cache_enabled and self.cache is not None and cache_key:
+                self.cache.set(cache_key, html_content)
+
+            return html_content
         except PlaywrightTimeoutError:
             raise NetworkError("Timeout al cargar el calendario con Playwright.")
         except Exception as e:
@@ -158,7 +193,7 @@ class OtelsExtractor:
         """
         self.start()
         url = self.DETAILS_URL % reservation_id
-        logger.info(f"Navegando a detalle de reserva: {url}")
+        self.logger.info(f"Navegando a detalle de reserva: {url}")
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
             
@@ -170,7 +205,17 @@ class OtelsExtractor:
             except PlaywrightTimeoutError:
                 pass
 
-            return self.page.content()
+            html_content =  self.page.content()
+            if self._cache_enabled and self.cache is not None:
+                # Nota: Usamos la URL del extractor para generar la key de caché
+                # para mantener consistencia, aunque la URL es interna del extractor ahora.
+                cache_key = get_cache_key(url)
+                cached_html = self.cache.get(cache_key)
+                if cached_html:
+                    self.logger.info(f"✅ HTML recuperado de caché (key={cache_key[:8]}...)")
+                    return cached_html
+
+            return html_content
         except Exception as e:
             if isinstance(e, AuthenticationError): raise
             raise NetworkError(f"Error al obtener HTML de detalle: {e}")
@@ -187,4 +232,4 @@ class OtelsExtractor:
         self.context = None
         self.browser = None
         self.playwright = None
-        logger.info("Recursos de Extractor cerrados.")
+        self.logger.info("Recursos de Extractor cerrados.")

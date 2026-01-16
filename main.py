@@ -39,7 +39,7 @@ def main():
 
         # 3. Obtener Grilla de Reservas
         logger.info("--- Obteniendo Grilla de Reservas ---")
-        grid = scraper.get_grid(target_date)
+        grid = scraper.get_reservations(target_date)
         
         # Guardar reservations.json
         res_file = config.BASE_DIR / 'reservations.json'

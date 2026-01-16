@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 
 from bs4 import BeautifulSoup
 
-from .logger import logger
+from .logger import get_logger
 from .models import (
     RoomCategory, ReservationData, CalendarData, ReservationDetail,
     CalendarGrid, CalendarCategories,
@@ -18,7 +18,8 @@ class OtelsProcessadorData:
     """Procesa datos estructurados del calendario HTML de OtelMS."""
 
     def __init__(self, html_content: str, include_empty_cells: bool = False):
-        logger.info("Inicializando OtelsProcessadorData...")
+        self.logger = get_logger(classname="OtelsProcessadorData")
+        self.logger.info("Inicializando OtelsProcessadorData...")
         self.soup = BeautifulSoup(html_content, 'html.parser')
         self.day_id_to_date = {}
         self.categories = []
@@ -30,12 +31,12 @@ class OtelsProcessadorData:
         # Construir mapeo de fechas al inicializar, ya que es necesario para casi todo
         self._build_date_mapping()
         
-        logger.debug(
+        self.logger.debug(
             f"HTML cargado. Longitud: {len(html_content)} caracteres. Include empty cells: {include_empty_cells}")
 
     def extract_categories(self) -> CalendarCategories:
         """Extrae solo las categorías y habitaciones."""
-        logger.info("Extrayendo categorías...")
+        self.logger.info("Extrayendo categorías...")
         self._extract_categories_internal()
         
         return CalendarCategories(
@@ -45,7 +46,7 @@ class OtelsProcessadorData:
 
     def extract_grid(self) -> CalendarGrid:
         """Extrae solo la grilla de reservaciones (celdas)."""
-        logger.info("Extrayendo grilla de reservaciones...")
+        self.logger.info("Extrayendo grilla de reservaciones...")
         
         # Necesitamos las categorías para mapear room_id -> category
         if not self.categories:
@@ -63,7 +64,7 @@ class OtelsProcessadorData:
 
     def extract_calendar_data(self) -> CalendarData:
         """Extrae TODOS los datos del calendario (Legacy/Completo)."""
-        logger.info("Inicio del proceso de extracción COMPLETA de datos del calendario.")
+        self.logger.info("Inicio del proceso de extracción COMPLETA de datos del calendario.")
         try:
             self._extract_categories_internal()
             self._extract_rooms_data()
@@ -77,7 +78,7 @@ class OtelsProcessadorData:
                 day_id_to_date=self.day_id_to_date
             )
         except Exception as e:
-            logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
+            self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
     def extract_reservation_details(self, html_content: str, reservation_id: str,
@@ -85,7 +86,7 @@ class OtelsProcessadorData:
         """
         Extrae los detalles de la reserva desde el HTML de un folio.
         """
-        logger.info(f"Extrayendo detalles para la reserva ID: {reservation_id}")
+        self.logger.info(f"Extrayendo detalles para la reserva ID: {reservation_id}")
         soup = BeautifulSoup(html_content, 'html.parser')
 
         # Extraer información general de la reserva
@@ -131,7 +132,7 @@ class OtelsProcessadorData:
             basic_info=general_info,
             raw_html=html_content if include_raw_html else None
         )
-        logger.info(f"✅ Detalles de reserva {detail.reservation_id} extraídos.")
+        self.logger.info(f"✅ Detalles de reserva {detail.reservation_id} extraídos.")
         return detail
 
     # --- Métodos Internos ---
@@ -140,7 +141,7 @@ class OtelsProcessadorData:
         """Lógica interna para extraer categorías."""
         if self.categories: return # Ya extraído
 
-        logger.debug("Procesando DOM para categorías...")
+        self.logger.debug("Procesando DOM para categorías...")
         category_elements = self.soup.find_all('div', {'class': 'calendar_rooms',
                                                        'id': lambda x: x and x.startswith('btn_close')})
 
@@ -153,7 +154,7 @@ class OtelsProcessadorData:
             rooms = self._extract_rooms_for_category(category_id)
 
             self.categories.append(RoomCategory(id=category_id, name=category_name, rooms=rooms))
-        logger.debug(f"Categorías encontradas: {len(self.categories)}")
+        self.logger.debug(f"Categorías encontradas: {len(self.categories)}")
 
     def _extract_rooms_for_category(self, category_id: str) -> List[Dict[str, Any]]:
         rooms = []
@@ -177,14 +178,14 @@ class OtelsProcessadorData:
 
     def _extract_rooms_data(self):
         """Extrae los datos diarios de todas las habitaciones."""
-        logger.info("Iniciando extracción de datos de celdas (habitaciones/días)...")
+        self.logger.info("Iniciando extracción de datos de celdas (habitaciones/días)...")
         
         # Mapa auxiliar para nombres de categorías
         category_map = {cat.id: cat.name for cat in self.categories}
 
         calendar_cells = self.soup.select('td.calendar_td[day_id][room_id]')
         all_cell = len(calendar_cells)
-        logger.info(f"Total de celdas a procesar: {all_cell}")
+        self.logger.info(f"Total de celdas a procesar: {all_cell}")
 
         for i, cell in enumerate(calendar_cells):
             try:
@@ -237,7 +238,7 @@ class OtelsProcessadorData:
                 ))
 
             except Exception as e:
-                logger.error(f"❌ Error procesando celda (room_id={room_id}, day_id={day_id}): {e}")
+                self.logger.error(f"❌ Error procesando celda (room_id={room_id}, day_id={day_id}): {e}")
                 continue
 
     @staticmethod
@@ -350,7 +351,7 @@ class OtelsProcessadorData:
             elif 'fuente' in label_text: info['source'] = value
             elif 'noches' in label_text: 
                 try: info['nights'] = int(value)
-                except: pass
+                except Exception: pass
             elif 'habitación' in label_text: info['room'] = value
 
         return info
@@ -444,7 +445,8 @@ class OtelsProcessadorData:
                 cars.append(Car(brand=cols[0].get_text(strip=True), color=cols[1].get_text(strip=True), plate=cols[2].get_text(strip=True), model=""))
         return cars
 
-    def _extract_notes(self, soup: BeautifulSoup) -> List[Note]:
+    @staticmethod
+    def _extract_notes(soup: BeautifulSoup) -> List[Note]:
         notes = []
         panels = soup.find_all('div', class_='panel')
         notes_section = None
