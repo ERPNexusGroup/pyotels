@@ -25,7 +25,6 @@ class OtelsProcessadorData:
         
         if isinstance(html_content, dict):
             self.modals_data = html_content
-            # Inicializar soup con vacío para evitar errores si se llaman otros métodos
             self.soup = BeautifulSoup("", 'html.parser')
             self.logger.debug(f"Inicializado con {len(self.modals_data)} modales.")
         else:
@@ -39,21 +38,21 @@ class OtelsProcessadorData:
         self.include_empty_cells = include_empty_cells
         self.room_id_to_category = {}
 
-        # Construir mapeo de fechas al inicializar (solo si hay soup válido)
         if self.soup and self.soup.text:
             self._build_date_mapping()
 
-    def extract_categories(self) -> CalendarCategories:
+    def extract_categories(self, as_dict: bool = False) -> Union[CalendarCategories, Dict[str, Any]]:
         """Extrae solo las categorías y habitaciones."""
         self.logger.info("Extrayendo categorías...")
         self._extract_categories_internal()
 
-        return CalendarCategories(
+        result = CalendarCategories(
             categories=self.categories,
             extracted_at=datetime.now().isoformat()
         )
+        return result.model_dump() if as_dict else result
 
-    def extract_reservations(self) -> CalendarReservation:
+    def extract_reservations(self, as_dict: bool = False) -> Union[CalendarReservation, Dict[str, Any]]:
         """Extrae solo la grilla de reservaciones (celdas)."""
         self.logger.info("Extrayendo grilla de reservaciones...")
 
@@ -63,25 +62,26 @@ class OtelsProcessadorData:
         self._extract_rooms_data()
         self._extract_date_range()
 
-        return CalendarReservation(
+        result = CalendarReservation(
             reservation_data=self.rooms_data,
             date_range=self.date_range,
             extracted_at=datetime.now().isoformat(),
             day_id_to_date=self.day_id_to_date
         )
+        return result.model_dump() if as_dict else result
 
-    def extract_all_reservation_modals(self) -> List[ReservationDetail]:
+    def extract_all_reservation_modals(self, as_dict: bool = False) -> Union[List[ReservationDetail], List[Dict[str, Any]]]:
         """
-        Procesa todos los modales almacenados y retorna una lista de ReservationDetail.
+        Procesa todos los modales almacenados y retorna una lista de ReservationDetail o Dicts.
         """
         self.logger.info(f"Procesando {len(self.modals_data)} modales de reserva...")
         details = []
         
         for res_id, modal_html in self.modals_data.items():
             try:
-                # Reutilizamos la lógica de extracción de detalles
-                # Pasamos el HTML del modal directamente
-                detail = self.extract_reservation_details(modal_html, res_id)
+                # Pasamos as_dict=False aquí para acumular objetos primero, o True si queremos dicts directos
+                # Para consistencia, extraemos objeto y convertimos al final o en el loop
+                detail = self.extract_reservation_details(modal_html, res_id, as_dict=as_dict)
                 details.append(detail)
             except Exception as e:
                 self.logger.error(f"Error procesando modal para reserva {res_id}: {e}")
@@ -90,7 +90,7 @@ class OtelsProcessadorData:
         self.logger.info(f"✅ Procesados {len(details)} detalles de reserva exitosamente.")
         return details
     
-    def extract_calendar_data(self) -> CalendarData:
+    def extract_calendar_data(self, as_dict: bool = False) -> Union[CalendarData, Dict[str, Any]]:
         """Extrae TODOS los datos del calendario (Legacy/Completo)."""
         self.logger.info("Inicio del proceso de extracción COMPLETA de datos del calendario.")
         try:
@@ -98,23 +98,24 @@ class OtelsProcessadorData:
             self._extract_rooms_data()
             self._extract_date_range()
 
-            return CalendarData(
+            result = CalendarData(
                 categories=self.categories,
                 reservation_data=self.rooms_data,
                 date_range=self.date_range,
                 extracted_at=datetime.now().isoformat(),
                 day_id_to_date=self.day_id_to_date
             )
+            return result.model_dump() if as_dict else result
         except Exception as e:
             self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
     def extract_reservation_details(self, html_content: str, reservation_id: str,
-                                    include_raw_html: bool = False) -> ReservationDetail:
+                                    include_raw_html: bool = False,
+                                    as_dict: bool = False) -> Union[ReservationDetail, Dict[str, Any]]:
         """
         Extrae los detalles de la reserva desde el HTML de un folio (Modal).
         """
-        # self.logger.debug(f"Extrayendo detalles para la reserva ID: {reservation_id}")
         soup = BeautifulSoup(html_content, 'html.parser')
 
         # Extraer información general de la reserva
@@ -125,7 +126,7 @@ class OtelsProcessadorData:
             guest_name=info.get('guest_name'),
             check_in=info.get('check_in'),
             check_out=info.get('check_out'),
-            created_at=info.get('created_at'),  # No siempre disponible en el modal
+            created_at=info.get('created_at'),
             guest_count=info.get('guest_count'),
             balance=info.get('balance'),
             total=info.get('total'),
@@ -141,21 +142,17 @@ class OtelsProcessadorData:
             reservation_status=info.get('reservation_status'),
             raw_html=html_content if include_raw_html else None
         )
-        return detail
+        return detail.model_dump() if as_dict else detail
 
     # --- Métodos Internos ---
 
     def _extract_room_id_mapping(self) -> Dict[str, List[str]]:
-        """
-        Extrae el mapeo de category_id a una lista de room_id's desde la tabla 'desk'
-        """
         if not self.soup: return {}
         
-        self.logger.debug("Extrayendo mapeo de room_id desde la tabla 'desk'...")
+        # self.logger.debug("Extrayendo mapeo de room_id desde la tabla 'desk'...")
         mapping = {}
         desk_table = self.soup.find('table', id='desk')
         if not desk_table:
-            # self.logger.warning("No se encontró la tabla 'desk'. No se pudo mapear room_id.")
             return mapping
 
         tbodies = desk_table.find_all('tbody')
@@ -187,7 +184,6 @@ class OtelsProcessadorData:
         return mapping
 
     def _extract_categories_internal(self):
-        """Lógica interna para extraer categorías."""
         if self.categories or not self.soup: return
 
         self.logger.debug("Procesando DOM para categorías...")
@@ -232,7 +228,6 @@ class OtelsProcessadorData:
         return rooms
 
     def _extract_rooms_data(self):
-        """Extrae los datos diarios de todas las habitaciones."""
         if not self.soup: return
         
         self.logger.info("Iniciando extracción de datos de celdas (habitaciones/días)...")
@@ -258,14 +253,11 @@ class OtelsProcessadorData:
                 if not self.include_empty_cells and cell_status in ['available', 'locked']:
                     continue
 
-                # Resolver info de habitación si no viene en la reserva
                 room_number = f"Unknown_{room_id}"
-                room_type = None
-
+                
                 if room_id in self.room_id_to_category:
                     info = self.room_id_to_category[room_id]
                     room_number = info['room_number']
-                    # room_type podría venir de la categoría si se mapeara
 
                 self.rooms_data.append(ReservationData(
                     reservation_number=reservation.get('reservation_number'),
@@ -281,7 +273,7 @@ class OtelsProcessadorData:
                     email=reservation.get('email'),
                     user=reservation.get('user'),
                     comments=reservation.get('comments'),
-                    room_type=reservation.get('room_type'),  # Si está en el tooltip
+                    room_type=reservation.get('room_type'),
                     room=reservation.get('room') or room_number,
                     rate=reservation.get('rate'),
                     reservation_status=reservation.get('reservation_status'),
@@ -303,7 +295,6 @@ class OtelsProcessadorData:
         if res_block:
             data['reservation_number'] = res_block.get('resid')
 
-            # Extraer status de la reserva
             status_val = res_block.get('status')
             if status_val:
                 try:
@@ -315,7 +306,6 @@ class OtelsProcessadorData:
             if tooltip_html:
                 decoded_html = html.unescape(tooltip_html)
 
-                # Extracciones
                 guest_match = re.search(r'Huésped:\s*([^<]+)', decoded_html)
                 if guest_match: data['guest_name'] = guest_match.group(1).strip()
 
@@ -358,8 +348,6 @@ class OtelsProcessadorData:
         return data
 
     def _build_date_mapping(self):
-        """Construye el mapeo day_id -> fecha ISO."""
-        # Implementación placeholder si no hay lógica específica de mapeo en el snippet
         pass
 
     def _extract_date_range(self):
@@ -380,7 +368,6 @@ class OtelsProcessadorData:
     def _extract_general_reservation_info(soup: BeautifulSoup) -> Dict[str, Any]:
         info = {}
 
-        # 1. Reservation ID
         h2 = soup.find('h2', class_='nameofgroup')
         if h2:
             text = h2.get_text(strip=True)
@@ -388,7 +375,6 @@ class OtelsProcessadorData:
             if match:
                 info['reservation_number'] = match.group(1)
 
-        # 2. Balance (Top header)
         header_div = soup.find('div', class_='text-right vertical_wrapper')
         if header_div:
             text = header_div.get_text(strip=True)
@@ -399,7 +385,6 @@ class OtelsProcessadorData:
                 except:
                     info['balance'] = 0.0
 
-        # 3. Key-Value pairs in panel-body
         panel_body = soup.find('div', class_='panel-body')
         if panel_body:
             labels = panel_body.find_all('span', class_='incolor')

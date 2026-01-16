@@ -13,7 +13,7 @@ from src.pyotels.settings import config
 # 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
 # 0: Ejecutar TODOS (en orden lógico)
 
-TEST_METHODS = [0]  # Ejemplo: [1, 2] o [0] o [4]
+TEST_METHODS = [1]  # Ejemplo: [1, 2] o [0] o [4]
 
 # ID de reserva específico para probar el método 5 (si se selecciona)
 TEST_RESERVATION_ID = '22802'
@@ -24,7 +24,7 @@ def main():
     id_hotel = '118510'
     username = 'gerencia@harmonyhotelgroup.com'
     password = 'Majestic2'
-    target_date = config.TARGET_DATE  # O '2026-01-15'
+    target_date = config.TARGET_DATE  # O '2026-01-16'
 
     logger.info(f"Iniciando prueba manual de scraper para Hotel ID: {id_hotel}")
     logger.info(f"Métodos seleccionados: {TEST_METHODS}")
@@ -34,7 +34,8 @@ def main():
         id_hotel=id_hotel,
         username=username,
         password=password,
-        use_cache=False
+        use_cache=False,
+        return_dict=True
     )
 
     try:
@@ -50,7 +51,7 @@ def main():
         if run_all or 1 in TEST_METHODS:
             logger.info("\n--- [1] Obteniendo Categorías ---")
             categories = scraper.get_categories(target_date)
-            save_json(categories.model_dump(), 'categories.json')
+            save_json(categories, 'categories.json')
 
         # 2. Obtener Grilla de Reservas
         if run_all or 2 in TEST_METHODS:
