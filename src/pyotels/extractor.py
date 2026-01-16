@@ -19,7 +19,7 @@ class OtelsExtractor:
     Maneja la sesión, autenticación y navegación.
     """
 
-    def __init__(self, base_url: str, headless: bool = True):
+    def __init__(self, base_url: str, headless: bool = True, use_cache: bool = False):
         self.logger = get_logger(classname='OtelsExtractor')
         self.headless = headless
         self.base_url = base_url
@@ -33,8 +33,10 @@ class OtelsExtractor:
         self.DETAILS_URL = f"{self.base_url}/reservation_c2/folio/%s/1"
 
         # Configuración de caché
-        self._cache_enabled = config.DEBUG
+        # La caché se habilita si config.DEBUG es True Y use_cache es True
+        self._cache_enabled = config.DEBUG and use_cache
         self._cache_duration = 60 * 60
+
         if self._cache_enabled:
             cache_dir = config.BASE_DIR / "cache"
             cache_dir.mkdir(exist_ok=True)

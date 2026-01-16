@@ -1,6 +1,4 @@
 import json
-import time
-from typing import List
 
 from src.pyotels.logger import logger
 from src.pyotels.scraper import OtelMSScraper
@@ -15,10 +13,11 @@ from src.pyotels.settings import config
 # 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
 # 0: Ejecutar TODOS (en orden lógico)
 
-TEST_METHODS = [1]  # Ejemplo: [1, 2] o [0] o [4]
+TEST_METHODS = [0]  # Ejemplo: [1, 2] o [0] o [4]
 
 # ID de reserva específico para probar el método 5 (si se selecciona)
-TEST_RESERVATION_ID = '22802' 
+TEST_RESERVATION_ID = '22802'
+
 
 def main():
     # Configuración manual para pruebas
@@ -34,7 +33,8 @@ def main():
     scraper = OtelMSScraper(
         id_hotel=id_hotel,
         username=username,
-        password=password
+        password=password,
+        use_cache=False
     )
 
     try:
@@ -70,15 +70,15 @@ def main():
             logger.info("\n--- [4] Obteniendo Todos los Modales Visibles ---")
             # Nota: Este método ya navega y extrae
             modals_details = scraper.get_all_reservation_modals()
-            
+
             # Convertir lista de objetos a lista de dicts para JSON
             details_data = [d.model_dump() for d in modals_details]
             save_json(details_data, 'all_modals_details.json')
-            
+
             logger.info(f"Se extrajeron {len(details_data)} detalles de modales.")
 
         # 5. Obtener Detalle de Reserva Específica
-        if 5 in TEST_METHODS: # No incluido en run_all por defecto para no saturar si no hay ID
+        if 5 in TEST_METHODS:  # No incluido en run_all por defecto para no saturar si no hay ID
             logger.info(f"\n--- [5] Obteniendo Detalle para Reserva {TEST_RESERVATION_ID} ---")
             if TEST_RESERVATION_ID:
                 detail = scraper.get_reservation_detail(TEST_RESERVATION_ID)
@@ -95,15 +95,17 @@ def main():
         scraper.close()
         logger.info("Prueba manual finalizada.")
 
+
 def save_json(data, filename):
     """Helper para guardar JSON en la carpeta data/"""
     if config.DEBUG:
         file_path = config.BASE_DIR / 'data' / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False, default=str)
         logger.info(f"Datos guardados en: {file_path}")
+
 
 if __name__ == "__main__":
     main()

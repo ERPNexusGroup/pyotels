@@ -18,7 +18,7 @@ class OtelMSScraper:
     Orquesta la extracción (OtelsExtractor) y el procesamiento (OtelsProcessadorData).
     """
 
-    def __init__(self, id_hotel: str, username: str, password: str):
+    def __init__(self, id_hotel: str, username: str, password: str, use_cache: bool = False):
         self.logger = get_logger(classname="OtelMSScraper")
         self.debug = config.DEBUG
         self.username = username
@@ -29,7 +29,7 @@ class OtelMSScraper:
         self.BASE_URL = f"https://{self.id_hotel}.{self.domain}"
 
         # Inicializar Extractor (Maneja Playwright y Sesión)
-        self.extractor = OtelsExtractor(self.BASE_URL, headless=not self.debug)
+        self.extractor = OtelsExtractor(self.BASE_URL, headless=not self.debug, use_cache=use_cache)
 
     def login(self) -> bool:
         """
@@ -68,10 +68,7 @@ class OtelMSScraper:
 
     def get_reservations_ids(self, target_date_str:str=None)-> List[int]:
         try:
-            ids_list = self.extractor.get_visible_reservation_ids(target_date_str)
-            # save_html_debug(html_content, f"calendar_{target_date_str or 'default'}.html")
-            # processor = OtelsProcessadorData(html_content)
-            # return processor.extract_reservations()
+            ids_list = self.extractor.get_visible_reservation_ids()
             return ids_list
         except Exception as e:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
@@ -84,7 +81,7 @@ class OtelMSScraper:
             return processor.extract_all_reservation_modals()
         except Exception as e:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
-            raise ParsingError("Error al extraer modales: {e}")
+            raise ParsingError(f"Error al extraer modales: {e}")
 
     def get_reservation_detail(self, reservation_id: str) -> Optional[ReservationDetail]:
         self.logger.info(f"Fetching details for reservation {reservation_id}")
