@@ -137,11 +137,58 @@ class OtelsProcessadorData:
 
     # --- Métodos Internos ---
 
+    def _extract_room_id_mapping(self) -> Dict[str, List[str]]:
+        """
+        Extrae el mapeo de category_id a una lista de room_id's desde la tabla 'desk'
+        iterando a través de los tbody.
+        """
+        self.logger.debug("Extrayendo mapeo de room_id desde la tabla 'desk'...")
+        mapping = {}
+        desk_table = self.soup.find('table', id='desk')
+        if not desk_table:
+            self.logger.warning("No se encontró la tabla 'desk'. No se pudo mapear room_id.")
+            return mapping
+
+        tbodies = desk_table.find_all('tbody')
+        current_category_id = None
+
+        for tbody in tbodies:
+            is_category_header = 'my_category' in tbody.get('class', [])
+            
+            first_td = tbody.find('td')
+            if not first_td:
+                continue
+
+            if is_category_header:
+                category_id = first_td.get('category_id')
+                if category_id:
+                    current_category_id = category_id
+                    if current_category_id not in mapping:
+                        mapping[current_category_id] = []
+            else:
+                # This is a room row
+                if current_category_id:
+                    room_id = first_td.get('room_id')
+                    if room_id and room_id != '0':
+                        # Evitar duplicados si el mismo room_id aparece en varias celdas de la fila
+                        if room_id not in mapping[current_category_id]:
+                             mapping[current_category_id].append(room_id)
+
+        # Ordenar los room_ids para asegurar consistencia
+        for cat_id in mapping:
+            mapping[cat_id].sort(key=int)
+
+        self.logger.debug(f"Mapeo de room_id extraído: {mapping}")
+        return mapping
+
     def _extract_categories_internal(self):
         """Lógica interna para extraer categorías."""
-        if self.categories: return # Ya extraído
+        if self.categories: return
 
         self.logger.debug("Procesando DOM para categorías...")
+        
+        room_id_map = self._extract_room_id_mapping()
+
         category_elements = self.soup.find_all('div', {'class': 'calendar_rooms',
                                                        'id': lambda x: x and x.startswith('btn_close')})
 
@@ -151,23 +198,27 @@ class OtelsProcessadorData:
 
             category_name_elem = cat_elem.find('div', class_='calendar_rooms_dott')
             category_name = category_name_elem.get_text(strip=True) if category_name_elem else f"Category_{category_id}"
-            rooms = self._extract_rooms_for_category(category_id)
+            
+            # Pasar el mapa de room_ids específico para esta categoría
+            category_room_ids = room_id_map.get(category_id, [])
+            rooms = self._extract_rooms_for_category(category_id, category_room_ids)
 
             self.categories.append(RoomCategory(id=category_id, name=category_name, rooms=rooms))
         self.logger.debug(f"Categorías encontradas: {len(self.categories)}")
 
-    def _extract_rooms_for_category(self, category_id: str) -> List[Dict[str, Any]]:
+    def _extract_rooms_for_category(self, category_id: str, room_ids: List[str]) -> List[Dict[str, Any]]:
         rooms = []
         selector = f'div.calendar_num_room.btn_close_box{category_id}'
         room_elements = self.soup.select(selector)
 
-        for room_elem in room_elements:
+        for i, room_elem in enumerate(room_elements):
             room_text_elem = room_elem.find('div', class_='calendar_number_room')
             if room_text_elem:
                 room_text = room_text_elem.get_text(strip=True)
                 room_number = room_text.split()[0] if room_text else f"room_{category_id}"
 
-                current_room_id = room_elem.get('room_id')
+                # Asignar room_id desde la lista ordenada
+                current_room_id = room_ids[i] if i < len(room_ids) else None
 
                 rooms.append({'room_number': room_number, 'room_id': current_room_id})
 
@@ -175,6 +226,7 @@ class OtelsProcessadorData:
                     self.room_id_to_category[current_room_id] = {'category_id': category_id, 'category_name': '',
                                                                  'room_number': room_number}
         return rooms
+
 
     def _extract_rooms_data(self):
         """Extrae los datos diarios de todas las habitaciones."""

@@ -30,33 +30,33 @@ def main():
             return
 
         # 2. Obtener Categorías
-        logger.info("--- Obteniendo Categorías ---")
-        categories = scraper.get_categories(target_date)
-
-        # Guardar categories.json
-        if config.DEBUG:
-            cat_file = config.BASE_DIR / 'data' / 'categories.json'
-            # CORRECCIÓN: Crear el directorio padre, no el archivo como directorio
-            cat_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(cat_file, 'w', encoding='utf-8') as f:
-                json.dump(categories.model_dump(), f, indent=4, ensure_ascii=False, default=str)
-            logger.info(f"Categorías guardadas en: {cat_file}")
-
-        # # 3. Obtener Grilla de Reservas
-        # logger.info("--- Obteniendo Grilla de Reservas ---")
-        # grid = scraper.get_reservations(target_date)
+        # logger.info("--- Obteniendo Categorías ---")
+        # categories = scraper.get_categories(target_date)
         #
-        # # Guardar reservations.json
+        # # Guardar categories.json
         # if config.DEBUG:
-        #     res_file = config.BASE_DIR / 'data' / 'reservations.json'
-        #     # CORRECCIÓN: Crear el directorio padre
-        #     res_file.parent.mkdir(parents=True, exist_ok=True)
+        #     cat_file = config.BASE_DIR / 'data' / 'categories.json'
+        #     # CORRECCIÓN: Crear el directorio padre, no el archivo como directorio
+        #     cat_file.parent.mkdir(parents=True, exist_ok=True)
         #
-        #     with open(res_file, 'w', encoding='utf-8') as f:
-        #         json.dump(grid.model_dump(), f, indent=4, ensure_ascii=False, default=str)
-        #     logger.info(f"Grilla guardada en: {res_file}")
-        #
+        #     with open(cat_file, 'w', encoding='utf-8') as f:
+        #         json.dump(categories.model_dump(), f, indent=4, ensure_ascii=False, default=str)
+        #     logger.info(f"Categorías guardadas en: {cat_file}")
+
+        # 3. Obtener Grilla de Reservas
+        logger.info("--- Obteniendo Grilla de Reservas ---")
+        grid = scraper.get_reservations(target_date)
+
+        # Guardar reservations.json
+        if config.DEBUG:
+            res_file = config.BASE_DIR / 'data' / 'reservations.json'
+            # CORRECCIÓN: Crear el directorio padre
+            res_file.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(res_file, 'w', encoding='utf-8') as f:
+                json.dump(grid.model_dump(), f, indent=4, ensure_ascii=False, default=str)
+            logger.info(f"Grilla guardada en: {res_file}")
+
         # # 4. Obtener Detalles de Reservas Únicas
         # logger.info("--- Obteniendo Detalles de Reservas ---")
         #
