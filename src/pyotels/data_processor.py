@@ -2,14 +2,15 @@
 import html
 import re
 from datetime import datetime
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 
 from bs4 import BeautifulSoup
 
 from .logger import get_logger
 from .models import (
     RoomCategory, ReservationData, CalendarData, ReservationDetail,
-    CalendarReservation, CalendarCategories
+    CalendarReservation, CalendarCategories, Guest, Service, PaymentTransaction,
+    DailyTariff
 )
 
 
@@ -79,8 +80,6 @@ class OtelsProcessadorData:
         
         for res_id, modal_html in self.modals_data.items():
             try:
-                # Pasamos as_dict=False aquí para acumular objetos primero, o True si queremos dicts directos
-                # Para consistencia, extraemos objeto y convertimos al final o en el loop
                 detail = self.extract_reservation_details(modal_html, res_id, as_dict=as_dict)
                 details.append(detail)
             except Exception as e:
@@ -111,45 +110,165 @@ class OtelsProcessadorData:
             raise
 
     def extract_reservation_details(self, html_content: str, reservation_id: str,
-                                    include_raw_html: bool = False,
                                     as_dict: bool = False) -> Union[ReservationDetail, Dict[str, Any]]:
         """
-        Extrae los detalles de la reserva desde el HTML de un folio (Modal).
+        Extrae los detalles de la reserva desde el HTML de un folio (Modal/Página).
         """
         soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Recolectar datos en un diccionario
+        data = {'reservation_number': reservation_id}
+        
+        # 1. Información General (Basic Info)
+        basic_info = self._extract_basic_info_from_detail(soup, reservation_id)
+        data.update(basic_info)
+        
+        # 2. Alojamiento (Accommodation)
+        accommodation = self._extract_accommodation_info(soup)
+        data.update(accommodation)
+        
+        # 3. Listas detalladas
+        guests = self._extract_guests_list(soup)
+        services = self._extract_services_list(soup)
+        payments = self._extract_payments_list(soup)
+        tariffs = self._extract_daily_tariffs_list(soup)
 
-        # Extraer información general de la reserva
-        info = self._extract_general_reservation_info(soup)
-
+        # Construir objeto usando desempaquetado
         detail = ReservationDetail(
-            reservation_number=info.get('reservation_number', reservation_id),
-            guest_name=info.get('guest_name'),
-            check_in=info.get('check_in'),
-            check_out=info.get('check_out'),
-            created_at=info.get('created_at'),
-            guest_count=info.get('guest_count'),
-            balance=info.get('balance'),
-            total=info.get('total'),
-            paid=info.get('paid'),
-            phone=info.get('phone'),
-            email=info.get('email'),
-            user=info.get('user'),
-            comments=info.get('comments'),
-            room_type=info.get('room_type'),
-            room=info.get('room'),
-            rate=info.get('rate'),
-            source=info.get('source'),
-            reservation_status=info.get('reservation_status'),
-            raw_html=html_content if include_raw_html else None
+            **data,
+            guests=guests,
+            services=services,
+            payments=payments,
+            daily_tariffs=tariffs,
+            # raw_html=html_content # Opcional, desactivado por defecto para ahorrar memoria
         )
+        
         return detail.model_dump() if as_dict else detail
 
-    # --- Métodos Internos ---
+    # --- Métodos de Extracción de Detalles ---
+
+    def _extract_basic_info_from_detail(self, soup: BeautifulSoup, default_id: str) -> Dict[str, Any]:
+        info = {}
+        
+        # Panel de Información Básica
+        basic_panel = None
+        for panel in soup.find_all('div', class_='panel'):
+            heading = panel.find('div', class_='panel-heading')
+            if heading and 'Información básica' in heading.get_text():
+                basic_panel = panel
+                break
+        
+        if basic_panel:
+            body = basic_panel.find('div', class_='panel-body')
+            if body:
+                # Cliente
+                client_div = body.find('div', class_='col-md-3')
+                if client_div:
+                    a_tag = client_div.find('a')
+                    if a_tag: info['guest_name'] = a_tag.get_text(strip=True)
+                
+                for col in body.find_all('div', class_='col-md-3'):
+                    text = col.get_text(" ", strip=True)
+                    if 'Teléfono:' in text:
+                        info['phone'] = text.replace('Teléfono:', '').strip()
+                    elif 'Email:' in text:
+                        info['email'] = text.replace('Email:', '').strip()
+                    elif 'Fuente:' in text:
+                        info['source'] = text.replace('Fuente:', '').strip()
+                    elif 'Usuario:' in text:
+                        info['user'] = text.replace('Usuario:', '').strip()
+
+        # Notas
+        notes_panel = None
+        for panel in soup.find_all('div', class_='panel'):
+            heading = panel.find('div', class_='panel-heading')
+            if heading and 'Notas' in heading.get_text():
+                notes_panel = panel
+                break
+        
+        if notes_panel:
+            body = notes_panel.find('div', class_='panel-body')
+            if body:
+                col = body.find('div', class_='col-md-12')
+                if col:
+                    text = col.get_text(" ", strip=True)
+                    if 'Notas:' in text:
+                        info['comments'] = text.replace('Notas:', '').strip()
+
+        # Balance
+        header_title = soup.find('div', class_='blocktitle')
+        if header_title:
+            balance_span = header_title.find_next_sibling('span')
+            if not balance_span:
+                 text = header_title.get_text()
+                 if 'Saldo:' in text:
+                     match = re.search(r'Saldo:\s*([+-]?\d+\.?\d*)', text)
+                     if match: info['balance'] = float(match.group(1))
+            elif balance_span:
+                text = balance_span.get_text()
+                match = re.search(r'Saldo:\s*([+-]?\d+\.?\d*)', text)
+                if match: info['balance'] = float(match.group(1))
+
+        return info
+
+    def _extract_accommodation_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        info = {}
+        acc_panel = None
+        for panel in soup.find_all('div', class_='panel'):
+            heading = panel.find('div', class_='panel-heading')
+            if heading and 'Alojamiento' in heading.get_text():
+                acc_panel = panel
+                break
+        
+        if acc_panel:
+            body = acc_panel.find('div', class_='panel-body')
+            if body:
+                cols = body.find_all('div', class_='col-md-2')
+                for col in cols:
+                    text = col.get_text(" ", strip=True)
+                    if 'Período de estancia:' in text:
+                        dates = re.findall(r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}', text)
+                        if len(dates) >= 1: info['check_in'] = dates[0]
+                        if len(dates) >= 2: info['check_out'] = dates[1]
+                    elif 'Habitación:' in text:
+                        clean_text = text.replace('Habitación:', '').strip()
+                        parts = clean_text.split()
+                        if parts:
+                            info['room'] = parts[0]
+                            if len(parts) > 1:
+                                info['room_type'] = " ".join(parts[1:])
+                    elif 'Huéspedes:' in text:
+                        match = re.search(r'(\d+)', text.replace('Huéspedes:', ''))
+                        if match: info['guest_count'] = int(match.group(1))
+                    elif 'Tarifa:' in text:
+                        info['rate'] = text.replace('Tarifa:', '').strip()
+        return info
+
+    def _extract_guests_list(self, soup: BeautifulSoup) -> List[Guest]:
+        guests = []
+        # Implementar si se requiere lista detallada
+        return guests
+
+    def _extract_services_list(self, soup: BeautifulSoup) -> List[Service]:
+        services = []
+        # Implementar si se requiere lista detallada
+        return services
+
+    def _extract_payments_list(self, soup: BeautifulSoup) -> List[PaymentTransaction]:
+        payments = []
+        # Implementar si se requiere lista detallada
+        return payments
+
+    def _extract_daily_tariffs_list(self, soup: BeautifulSoup) -> List[DailyTariff]:
+        tariffs = []
+        # Implementar si se requiere lista detallada
+        return tariffs
+
+    # --- Métodos Internos del Calendario (Legacy) ---
 
     def _extract_room_id_mapping(self) -> Dict[str, List[str]]:
         if not self.soup: return {}
         
-        # self.logger.debug("Extrayendo mapeo de room_id desde la tabla 'desk'...")
         mapping = {}
         desk_table = self.soup.find('table', id='desk')
         if not desk_table:
@@ -259,30 +378,18 @@ class OtelsProcessadorData:
                     info = self.room_id_to_category[room_id]
                     room_number = info['room_number']
 
-                self.rooms_data.append(ReservationData(
-                    reservation_number=reservation.get('reservation_number'),
-                    guest_name=reservation.get('guest_name'),
-                    check_in=reservation.get('check_in'),
-                    check_out=reservation.get('check_out'),
-                    created_at=reservation.get('created_at'),
-                    guest_count=reservation.get('guest_count'),
-                    balance=reservation.get('balance'),
-                    total=reservation.get('total'),
-                    paid=reservation.get('paid'),
-                    phone=reservation.get('phone'),
-                    email=reservation.get('email'),
-                    user=reservation.get('user'),
-                    comments=reservation.get('comments'),
-                    room_type=reservation.get('room_type'),
-                    room=reservation.get('room') or room_number,
-                    rate=reservation.get('rate'),
-                    reservation_status=reservation.get('reservation_status'),
+                # Construir datos para ReservationData
+                res_data = {
+                    'room_id': room_id,
+                    'day_id': day_id,
+                    'date': self._convert_day_id_to_date(day_id),
+                    'cell_status': cell_status,
+                    'room': reservation.get('room') or room_number,
+                }
+                # Mezclar con datos extraídos de la celda
+                res_data.update(reservation)
 
-                    room_id=room_id,
-                    day_id=day_id,
-                    date=self._convert_day_id_to_date(day_id),
-                    cell_status=cell_status
-                ))
+                self.rooms_data.append(ReservationData(**res_data))
 
             except Exception as e:
                 self.logger.error(f"❌ Error procesando celda (room_id={room_id}, day_id={day_id}): {e}")
@@ -366,78 +473,4 @@ class OtelsProcessadorData:
 
     @staticmethod
     def _extract_general_reservation_info(soup: BeautifulSoup) -> Dict[str, Any]:
-        info = {}
-
-        h2 = soup.find('h2', class_='nameofgroup')
-        if h2:
-            text = h2.get_text(strip=True)
-            match = re.search(r'#(\d+)', text)
-            if match:
-                info['reservation_number'] = match.group(1)
-
-        header_div = soup.find('div', class_='text-right vertical_wrapper')
-        if header_div:
-            text = header_div.get_text(strip=True)
-            match = re.search(r'Saldo:\s*([+-]?\d+\.?\d*)', text)
-            if match:
-                try:
-                    info['balance'] = float(match.group(1))
-                except:
-                    info['balance'] = 0.0
-
-        panel_body = soup.find('div', class_='panel-body')
-        if panel_body:
-            labels = panel_body.find_all('span', class_='incolor')
-            for label_span in labels:
-                key = label_span.get_text(strip=True).lower().replace(':', '')
-
-                key_div = label_span.parent
-                value_div = key_div.find_next_sibling('div')
-
-                if not value_div: continue
-
-                value_text = value_div.get_text(strip=True)
-
-                if 'fuente' in key:
-                    info['source'] = value_text
-                elif 'llegada' in key:
-                    match = re.search(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', value_text)
-                    if match: info['check_in'] = match.group(1)
-                elif 'salida' in key:
-                    match = re.search(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', value_text)
-                    if match: info['check_out'] = match.group(1)
-                elif 'huésped' in key and 'número' not in key:
-                    info['guest_name'] = value_text
-                elif 'número de huéspedes' in key:
-                    try:
-                        numbers = re.findall(r'\d+', value_text)
-                        if numbers:
-                            info['guest_count'] = int(numbers[0])
-                    except:
-                        info['guest_count'] = 1
-                elif 'teléfono' in key:
-                    info['phone'] = value_text
-                elif 'e-mail' in key or 'email' in key:
-                    info['email'] = value_text
-                elif 'tipo de habitación' in key:
-                    info['room_type'] = value_text
-                elif 'habitación' in key and 'tipo' not in key:
-                    info['room'] = value_text
-                elif 'tarifa' in key:
-                    info['rate'] = value_text
-                elif 'total' in key:
-                    try:
-                        info['total'] = float(value_text.replace(',', ''))
-                    except:
-                        info['total'] = 0.0
-                elif 'pagado' in key:
-                    try:
-                        info['paid'] = float(value_text.replace(',', ''))
-                    except:
-                        info['paid'] = 0.0
-                elif 'notas' in key:
-                    info['comments'] = value_text
-                elif 'usuario' in key:
-                    info['user'] = value_text
-
-        return info
+        return {}

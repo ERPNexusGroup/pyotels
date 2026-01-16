@@ -10,10 +10,31 @@ class RoomCategory(BaseModel):
     name: str
     rooms: List[Dict[str, Any]]
 
-# --- Calendar Grid Models ---
+class Guest(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    dob: Optional[str] = None
 
-class ReservationData(BaseModel):
-    """Datos de una celda específica en el calendario (Grid)"""
+class Service(BaseModel):
+    title: str
+    price: float
+    quantity: float
+
+class PaymentTransaction(BaseModel):
+    date: str
+    amount: str
+    method: str
+
+class DailyTariff(BaseModel):
+    date: str
+    rate_type: str
+    price: float
+
+# --- Base Model ---
+
+class BaseReservation(BaseModel):
+    """Modelo base con campos comunes para reservas (Grid y Modal)"""
     reservation_number: Optional[str] = None
     guest_name: Optional[str] = None
     check_in: Optional[str] = None
@@ -30,9 +51,14 @@ class ReservationData(BaseModel):
     room_type: Optional[str] = None
     room: Optional[str] = None
     rate: Optional[str] = None
+    source: Optional[str] = None
     reservation_status: Optional[int] = None # 1: Reservación, 2: Check-in, 3: Check-out
-    
-    # Campos de contexto del calendario
+
+# --- Calendar Grid Models ---
+
+class ReservationData(BaseReservation):
+    """Datos de una celda específica en el calendario (Grid)"""
+    # Campos específicos del contexto del calendario
     room_id: str
     day_id: str
     date: str
@@ -52,32 +78,19 @@ class CalendarCategories(BaseModel):
 
 # --- Folio / Detail Models ---
 
-class ReservationDetail(BaseModel):
-    """Respuesta para la petición de Detalle de Reserva"""
-    reservation_number: Optional[str] = None
-    guest_name: Optional[str] = None
-    check_in: Optional[str] = None
-    check_out: Optional[str] = None
-    created_at: Optional[str] = None
-    guest_count: Optional[int] = None
-    balance: Optional[float] = None
-    total: Optional[float] = None
-    paid: Optional[float] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    user: Optional[str] = None
-    comments: Optional[str] = None
-    room_type: Optional[str] = None
-    room: Optional[str] = None
-    rate: Optional[str] = None
-    source: Optional[str] = None
-    reservation_status: Optional[int] = None # 1: Reservación, 2: Check-in, 3: Check-out
+class ReservationDetail(BaseReservation):
+    """Respuesta para la petición de Detalle de Reserva (Modal)"""
+    # Listas detalladas
+    guests: List[Guest] = Field(default_factory=list)
+    services: List[Service] = Field(default_factory=list)
+    payments: List[PaymentTransaction] = Field(default_factory=list)
+    daily_tariffs: List[DailyTariff] = Field(default_factory=list)
     
     raw_html: Optional[str] = None
 
 # --- Legacy / Internal ---
 class CalendarData(BaseModel):
-    """Modelo interno completo (opcional, si se necesita todo junto)"""
+    """Modelo interno completo"""
     categories: List[RoomCategory]
     reservation_data: List[ReservationData]
     date_range: Dict[str, Any]

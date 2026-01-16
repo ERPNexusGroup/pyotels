@@ -35,7 +35,8 @@ def main():
         username=username,
         password=password,
         use_cache=False,
-        return_dict=True
+        return_dict=True,
+        headless=False
     )
 
     try:
@@ -73,7 +74,7 @@ def main():
             modals_details = scraper.get_all_reservation_modals()
 
             # Convertir lista de objetos a lista de dicts para JSON
-            details_data = [d.model_dump() for d in modals_details]
+            details_data = [d for d in modals_details]
             save_json(details_data, 'all_modals_details.json')
 
             logger.info(f"Se extrajeron {len(details_data)} detalles de modales.")
@@ -84,7 +85,7 @@ def main():
             if TEST_RESERVATION_ID:
                 detail = scraper.get_reservation_detail(TEST_RESERVATION_ID)
                 if detail:
-                    save_json(detail.model_dump(), f'detail_{TEST_RESERVATION_ID}.json')
+                    save_json(detail, f'detail_{TEST_RESERVATION_ID}.json')
                 else:
                     logger.warning(f"No se encontró detalle para {TEST_RESERVATION_ID}")
             else:

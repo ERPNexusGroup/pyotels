@@ -18,7 +18,11 @@ class OtelMSScraper:
     Orquesta la extracción (OtelsExtractor) y el procesamiento (OtelsProcessadorData).
     """
 
-    def __init__(self, id_hotel: str, username: str, password: str, use_cache: bool = False, return_dict: bool = False):
+    def __init__(self, id_hotel: str, username: str, password: str, 
+                 use_cache: bool = False, 
+                 return_dict: bool = False,
+                 headless: Optional[bool] = None):
+        
         self.logger = get_logger(classname="OtelMSScraper")
         self.debug = config.DEBUG
         self.username = username
@@ -29,8 +33,11 @@ class OtelMSScraper:
         self.domain = config.BASE_URL or "otelms.com"
         self.BASE_URL = f"https://{self.id_hotel}.{self.domain}"
 
+        # Resolver headless: si es None, depende del modo debug (Debug=True -> Headless=False)
+        is_headless = headless if headless is not None else not self.debug
+
         # Inicializar Extractor (Maneja Playwright y Sesión)
-        self.extractor = OtelsExtractor(self.BASE_URL, headless=not self.debug, use_cache=use_cache)
+        self.extractor = OtelsExtractor(self.BASE_URL, headless=is_headless, use_cache=use_cache)
 
     def login(self) -> bool:
         """
