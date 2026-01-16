@@ -191,8 +191,18 @@ class OtelsExtractor:
         """
         Navega a la URL de detalle de reserva y extrae el HTML.
         """
-        self.start()
         url = self.DETAILS_URL % reservation_id
+
+        # 1. Verificar caché antes de navegar
+        cache_key = None
+        if self._cache_enabled and self.cache is not None:
+            cache_key = get_cache_key(url)
+            cached_html = self.cache.get(cache_key)
+            if cached_html:
+                self.logger.info(f"✅ HTML recuperado de caché (key={cache_key[:8]}...)")
+                return cached_html
+
+        self.start()
         self.logger.info(f"Navegando a detalle de reserva: {url}")
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
@@ -205,15 +215,11 @@ class OtelsExtractor:
             except PlaywrightTimeoutError:
                 pass
 
-            html_content =  self.page.content()
-            if self._cache_enabled and self.cache is not None:
-                # Nota: Usamos la URL del extractor para generar la key de caché
-                # para mantener consistencia, aunque la URL es interna del extractor ahora.
-                cache_key = get_cache_key(url)
-                cached_html = self.cache.get(cache_key)
-                if cached_html:
-                    self.logger.info(f"✅ HTML recuperado de caché (key={cache_key[:8]}...)")
-                    return cached_html
+            html_content = self.page.content()
+
+            # 2. Guardar en caché
+            if self._cache_enabled and self.cache is not None and cache_key:
+                self.cache.set(cache_key, html_content)
 
             return html_content
         except Exception as e:

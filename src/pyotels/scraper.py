@@ -1,15 +1,14 @@
 # src/pyotels/scarper.py
 from typing import Optional
 
-from .extractor import OtelsExtractor
 from .data_processor import OtelsProcessadorData
-from .logger import get_logger, log_execution
+from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNotFoundError
+from .extractor import OtelsExtractor
+from .logger import get_logger
 from .models import (
     CalendarGrid, CalendarCategories, ReservationDetail
 )
 from .settings import config
-from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNotFoundError
-
 from .utils.dev import save_html_debug
 
 
@@ -28,15 +27,10 @@ class OtelMSScraper:
 
         self.domain = config.BASE_URL or "otelms.com"
         self.BASE_URL = f"https://{self.id_hotel}.{self.domain}"
-        
+
         # Inicializar Extractor (Maneja Playwright y Sesión)
         self.extractor = OtelsExtractor(self.BASE_URL, headless=not self.debug)
 
-    # ---------------------------------------------------
-    # Métodos Privado
-    # ---------------------------------------------------
-
-    @log_execution
     def login(self) -> bool:
         """
         Delega el login al extractor.
@@ -74,7 +68,7 @@ class OtelMSScraper:
 
     def get_reservation_detail(self, reservation_id: str) -> Optional[ReservationDetail]:
         self.logger.info(f"Fetching details for reservation {reservation_id}")
-        
+
         try:
             html_content = self.extractor.get_reservation_detail_html(reservation_id)
 

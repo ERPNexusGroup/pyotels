@@ -32,10 +32,11 @@ def main():
         categories = scraper.get_categories(target_date)
         
         # Guardar categories.json
-        cat_file = config.BASE_DIR / 'categories.json'
-        with open(cat_file, 'w', encoding='utf-8') as f:
-            json.dump(categories.model_dump(), f, indent=4, ensure_ascii=False, default=str)
-        logger.info(f"Categorías guardadas en: {cat_file}")
+        if config.DEBUG:
+            cat_file = config.BASE_DIR / 'categories.json'
+            with open(cat_file, 'w', encoding='utf-8') as f:
+                json.dump(categories.model_dump(), f, indent=4, ensure_ascii=False, default=str)
+            logger.info(f"Categorías guardadas en: {cat_file}")
 
         # 3. Obtener Grilla de Reservas
         logger.info("--- Obteniendo Grilla de Reservas ---")

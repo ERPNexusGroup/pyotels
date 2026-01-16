@@ -1,7 +1,5 @@
 import logging
 import sys
-import functools
-import inspect
 from logging.handlers import TimedRotatingFileHandler
 from .settings import config
 
@@ -29,7 +27,7 @@ def get_logger(name: str = "otelms_scraper", classname: str = None):
 
 def _configure_logger(logger):
     """Configuración interna del logger."""
-    level = logging.DEBUG if config.VERBOSE or config.DEBUG else logging.INFO
+    level = logging.DEBUG if config.DEBUG else logging.INFO
     logger.setLevel(level)
 
     formatter = logging.Formatter(
@@ -63,41 +61,3 @@ def _configure_logger(logger):
 # Instancia global por defecto para compatibilidad
 logger = get_logger()
 
-def log_execution(func):
-    """
-    Decorador para registrar ejecución.
-    Intenta obtener el logger de la instancia (self.logger) si existe,
-    de lo contrario usa el logger global.
-    """
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        func_name = func.__name__
-        module_name = func.__module__
-        
-        # Intentar obtener logger de la instancia (self)
-        current_logger = logger
-        if args and hasattr(args[0], 'logger'):
-            current_logger = args[0].logger
-        
-        if config.VERBOSE:
-            try:
-                sig = inspect.signature(func)
-                bound_args = sig.bind(*args, **kwargs)
-                bound_args.apply_defaults()
-                # Filtrar argumentos sensibles si fuera necesario
-                args_str = ", ".join([f"{k}={repr(v)[:100]}" for k, v in bound_args.arguments.items()])
-            except:
-                args_str = "..."
-            
-            current_logger.debug(f"➡️  ENTRANDO: {func_name}({args_str})")
-        
-        try:
-            result = func(*args, **kwargs)
-            if config.VERBOSE:
-                current_logger.debug(f"⬅️  SALIENDO: {func_name} -> Retorno: {type(result).__name__}")
-            return result
-        except Exception as e:
-            current_logger.error(f"❌ ERROR en {func_name}: {str(e)}", exc_info=True)
-            raise e
-
-    return wrapper

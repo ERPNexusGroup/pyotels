@@ -19,8 +19,8 @@ class Config(BaseSettings):
     # Flags generales
     # -----------------------
     DEBUG: bool = False
-    DEBUG_REQUESTS: bool = False
-    VERBOSE: bool = False
+    # DEBUG_REQUESTS: bool = False
+    # VERBOSE: bool = False
 
     LOG_LEVEL: Optional[str] = "INFO"
     LOG_BACKUP_COUNT: int = 10
