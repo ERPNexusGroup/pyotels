@@ -47,7 +47,7 @@ class TestOtelMSScraper(unittest.TestCase):
 
         self.mock_extractor_instance.get_calendar_html.assert_called_once_with("2023-01-01")
         MockOtelsProcessadorData.assert_called_once_with("<html></html>")
-        mock_processor_instance.extract_grid.assert_called_once()
+        mock_processor_instance.extract_reservations.assert_called_once()
 
     @patch('src.pyotels.scraper.OtelsProcessadorData')
     def test_get_reservation_detail(self, MockOtelsProcessadorData):

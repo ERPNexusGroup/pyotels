@@ -31,7 +31,7 @@ class ReservationData(BaseModel):
     check_out: Optional[str] = None
     balance: Optional[str] = None
 
-class CalendarGrid(BaseModel):
+class CalendarReservation(BaseModel):
     """Respuesta para la petición de Reservaciones/Grid"""
     reservation_data: List[ReservationData]
     date_range: Dict[str, Any]

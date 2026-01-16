@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from .logger import get_logger
 from .models import (
     RoomCategory, ReservationData, CalendarData, ReservationDetail,
-    CalendarGrid, CalendarCategories,
+    CalendarReservation, CalendarCategories,
     Guest, Service, PaymentTransaction,
     Note, Car, DailyTariff, ChangeLog, Card
 )
@@ -44,7 +44,7 @@ class OtelsProcessadorData:
             extracted_at=datetime.now().isoformat()
         )
 
-    def extract_grid(self) -> CalendarGrid:
+    def extract_reservations(self) -> CalendarReservation:
         """Extrae solo la grilla de reservaciones (celdas)."""
         self.logger.info("Extrayendo grilla de reservaciones...")
         
@@ -55,7 +55,7 @@ class OtelsProcessadorData:
         self._extract_rooms_data()
         self._extract_date_range()
 
-        return CalendarGrid(
+        return CalendarReservation(
             reservation_data=self.rooms_data,
             date_range=self.date_range,
             extracted_at=datetime.now().isoformat(),

@@ -6,7 +6,7 @@ from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNot
 from .extractor import OtelsExtractor
 from .logger import get_logger
 from .models import (
-    CalendarGrid, CalendarCategories, ReservationDetail
+    CalendarReservation, CalendarCategories, ReservationDetail
 )
 from .settings import config
 from .utils.dev import save_html_debug
@@ -56,12 +56,12 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer categorías: {e}")
 
-    def get_reservations(self, target_date_str: str = None) -> CalendarGrid:
+    def get_reservations(self, target_date_str: str = None) -> CalendarReservation:
         try:
             html_content = self.extractor.get_calendar_html(target_date_str)
             save_html_debug(html_content, f"calendar_{target_date_str or 'default'}.html")
             processor = OtelsProcessadorData(html_content)
-            return processor.extract_grid()
+            return processor.extract_reservations()
         except Exception as e:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
