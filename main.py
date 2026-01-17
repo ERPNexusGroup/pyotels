@@ -13,9 +13,9 @@ from src.pyotels.settings import config
 # 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
 # 0: Ejecutar TODOS (en orden lógico)
 
-TEST_METHODS = [1]  # Ejemplo: [1, 2] o [0] o [4]
+TEST_METHODS = [1, 2, 3, 4, 5]  # Ejemplo: [1, 2] o [0] o [4]
 
-# ID de reserva específico para probar el método 5 (si se selecciona)
+# ID de reserva específico para probar el méto.do 5 (si se selecciona)
 TEST_RESERVATION_ID = '22802'
 
 
@@ -54,11 +54,11 @@ def main():
             categories = scraper.get_categories(target_date)
             save_json(categories, 'categories.json')
 
-        # 2. Obtener Grilla de Reservas
+        # 2. Obtener Reservas (Grilla)
         if run_all or 2 in TEST_METHODS:
             logger.info("\n--- [2] Obteniendo Grilla de Reservas ---")
             grid = scraper.get_reservations(target_date)
-            save_json(grid.model_dump(), 'reservations.json')
+            save_json(grid, 'reservations.json')
 
         # 3. Obtener IDs de Reservas Visibles
         if run_all or 3 in TEST_METHODS:
@@ -70,7 +70,7 @@ def main():
         # 4. Obtener Todos los Modales Visibles
         if run_all or 4 in TEST_METHODS:
             logger.info("\n--- [4] Obteniendo Todos los Modales Visibles ---")
-            # Nota: Este método ya navega y extrae
+            # Nota: Este mét.odo ya navega y extrae
             modals_details = scraper.get_all_reservation_modals()
 
             # Convertir lista de objetos a lista de dicts para JSON
