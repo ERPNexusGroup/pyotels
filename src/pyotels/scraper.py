@@ -148,28 +148,14 @@ class OtelMSScraper:
             html_reservation_details = self.extractor.get_reservation_detail_html(reservation_id)
             save_html_debug(html_reservation_details, f"detail_{reservation_id}.html")
             processor = OtelsProcessadorData(html_reservation_details)
-            result_detail = ReservationDetail()
             
             # Extraer ID de huésped primero para obtener su detalle
             id_guest = processor.extract_guest_id()
             # Raspar la informacion del huesped para guardarla
             guest_html = self.extractor.get_guest_detail_html(id_guest)
-            guest = processor.extract_guest_details(guest_html, as_dict=as_dict)
-            result_detail.guest = guest
-
-            processor.extract_reservation_details()
-
-
-
-            guest_html = None
-            if guest_id:
-                try:
-                    guest_html = self.extractor.get_guest_detail_html(guest_id)
-                    save_html_debug(guest_html, f"guest_{guest_id}.html")
-                except Exception as e:
-                    self.logger.warning(f"No se pudo obtener detalle de huésped {guest_id}: {e}")
-
-            return processor.extract_reservation_details(html_reservation_details, reservation_id, as_dict=as_dict, guest_html_content=guest_html)
+            # guest = processor.extract_guest_details(guest_html, as_dict=as_dict)
+            # result_detail.guest = guest
+            return processor.extract_reservation_details(as_dict=as_dict, guest_html=guest_html, id=reservation_id)
         except DataNotFoundError:
             self.logger.warning(f"Reserva {reservation_id} no encontrada (404/lógica).")
             return None

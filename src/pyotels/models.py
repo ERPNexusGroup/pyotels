@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Final
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,7 @@ class Guest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
+    name: Optional[str] = None
     gender: Optional[str] = None
     dob: Optional[str] = None
     phone: Optional[str] = None
@@ -31,25 +32,76 @@ class Guest(BaseModel):
     issue_date: Optional[str] = None
     expiration_date: Optional[str] = None
     issued_by: Optional[str] = None
-    name: Optional[str] = None # Full name
+    legal_entity: Optional[str] = None
+    source: Optional[str] = None
+    user: Optional[str] = None
 
 
 class Service(BaseModel):
-    title: str
-    price: float
-    quantity: float
+    id: Optional[str] = None
+    date: Optional[str] = None
+    title: Optional[str] = None
+    legal_entity: Optional[str] = None
+    description: Optional[str] = None
+    number: Optional[str] = None
+    price: Optional[float] = None
+    quantity: Optional[float] = None
 
 
 class PaymentTransaction(BaseModel):
-    date: str
-    amount: str
-    method: str
+    date: Optional[str] = None
+    created_at: Optional[str] = None
+    number: Optional[str] = None
+    legal_entity: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None
+    amount: Optional[float] = None
+    method: Optional[str] = None
+    vpos_card_number: Optional[str] = None
+    vpos_status: Optional[str] = None
+    fiscal_check: Optional[str] = None
 
 
 class DailyTariff(BaseModel):
-    date: str
-    rate_type: str
-    price: float
+    date: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+
+
+class AccommodationInfo(BaseModel):
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
+    nights: Optional[int] = None
+    room_number: Optional[str] = None
+    room_type: Optional[str] = None
+    guest_count: Optional[int] = None
+    rate_category: Optional[str] = None
+    rate_name: Optional[str] = None
+    price_type: Optional[str] = None
+    discount: Optional[str] = None
+    discount_reason: Optional[str] = None
+
+
+class CarInfo(BaseModel):
+    brand: Optional[str] = None
+    color: Optional[str] = None
+    plate: Optional[str] = None
+
+
+class NoteInfo(BaseModel):
+    date: Optional[str] = None
+    user: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ChangeLog(BaseModel):
+    date: Optional[str] = None
+    number: Optional[str] = None
+    user: Optional[str] = None
+    type: Optional[str] = None
+    action: Optional[str] = None
+    quantity: Optional[str] = None
+    description: Optional[str] = None
 
 
 class ReservationData(BaseModel):
@@ -74,7 +126,16 @@ class ReservationData(BaseModel):
 
 
 class ReservationDetail(BaseModel):
-    guest: Optional[Guest]
+    id: Final[int] = None
+    guest: Guest = Field(default_factory=Guest)
+    services: List[Service] = Field(default_factory=list)
+    accommodation: List[AccommodationInfo] = Field(default_factory=list)
+    payments: List[PaymentTransaction] = Field(default_factory=list)
+    cars: List[CarInfo] = Field(default_factory=list)
+    notes: List[NoteInfo] = Field(default_factory=list)
+    daily_tariffs: List[DailyTariff] = Field(default_factory=list)
+    change_log: List[ChangeLog] = Field(default_factory=list)
+
 
 # --------------------------------------------------------------------------------------
 
@@ -94,7 +155,7 @@ class CalendarCategories(BaseModel):
 # --- Folio / Detail Models ---
 
 class ReservationModalDetail(BaseModel):
-    """Respuesta para la petición de Detalle de Reserva (Modal)"""
+    """Respuesta para la petición de Detalle de Reserva (Modal) - Legacy/Simple"""
     reservation_number: Optional[str] = None
     guest_name: Optional[str] = None
     check_in: Optional[str] = None
