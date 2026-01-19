@@ -179,7 +179,7 @@ class OtelsProcessadorData:
         # 3. Listas detalladas
         guests = self._extract_guests_list(soup)
         self.logger.debug(f'guests: {guests}')
-        # services = self._extract_services_list(soup)
+        services = self._extract_services_list(soup)
         # payments = self._extract_payments_list(soup)
         # cars = self._extract_cars_list(soup)
         # notes = self._extract_notes_list(soup)
@@ -189,10 +189,9 @@ class OtelsProcessadorData:
         # Construir objeto
         detail = ReservationDetail(
             reservation_number=reservation_id,
-            # **basic_info,
             guests=guest,
-            # accommodation=accommodation,
-            # services=services,
+            accommodation=accommodation,
+            services=services,
             # payments=payments,
             # cars=cars,
             # notes=notes,
@@ -530,82 +529,125 @@ class OtelsProcessadorData:
     @staticmethod
     def _extract_guests_list(soup: BeautifulSoup) -> List[Guest]:
         guests = []
+        
+        # Intentar encontrar la tabla en varios contenedores posibles
+        table = None
+        
+        # 1. Panel de residentes (común en la vista de detalles)
         panel = soup.find('div', id='anchors_info_residents')
-
         if panel:
             table = panel.find('table')
-            if table:
-                tbody = table.find('tbody')
-                if tbody:
-                    rows = tbody.find_all('tr')
-                    for row in rows:
-                        cols = row.find_all('td')
-                        if len(cols) < 4: continue
+            
+        # 2. Formulario de impresión (guest_template_print) - Caso del HTML proporcionado
+        if not table:
+            form = soup.find('form', id='guest_template_print')
+            if form:
+                table = form.find('table', class_='add-line-table')
+                
+        # 3. Búsqueda genérica por clase
+        if not table:
+            table = soup.find('table', class_='add-line-table')
 
-                        g = {}
-                        # Nombre (Link)
-                        name_link = cols[0].find('a')
-                        if name_link:
-                            g['name'] = name_link.get_text(strip=True)
-                            href = name_link.get('href')
-                            match = re.search(r'/guestfolio/(\d+)', href)
-                            if match: g['id'] = match.group(1)
-                        else:
-                            g['name'] = cols[0].get_text(strip=True)
+        if table:
+            rows = []
+            # IMPORTANTE: La tabla puede tener múltiples <tbody> (uno por huésped).
+            # Usamos find_all('tbody') para obtener todos, ya que find() solo devuelve el primero.
+            tbodies = table.find_all('tbody')
+            if tbodies:
+                for tbody in tbodies:
+                    rows.extend(tbody.find_all('tr'))
+            else:
+                # Fallback si no hay tbodies
+                rows = table.find_all('tr')
 
-                        # Email
-                        g['email'] = cols[2].get_text(strip=True)
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) < 4: continue
 
-                        # Fecha nacimiento
-                        g['dob'] = cols[3].get_text(strip=True)
+                g = {}
+                # Nombre (Link)
+                name_link = cols[0].find('a')
+                if name_link:
+                    g['name'] = name_link.get_text(strip=True)
+                    href = name_link.get('href')
+                    match = re.search(r'/guestfolio/(\d+)', href)
+                    if match: g['id'] = match.group(1)
+                else:
+                    g['name'] = cols[0].get_text(strip=True)
 
-                        guests.append(Guest(**g))
+                # Email
+                g['email'] = cols[2].get_text(strip=True)
+
+                # Fecha nacimiento
+                g['dob'] = cols[3].get_text(strip=True)
+
+                guests.append(Guest(**g))
         return guests
 
-    def _extract_services_list(self, soup: BeautifulSoup) -> List[Service]:
+    @staticmethod
+    def _extract_services_list(soup: BeautifulSoup) -> List[Service]:
         services = []
-        # Buscar panel de servicios (wiget3 suele ser servicios, pero a veces hay duplicados de ID en el HTML proporcionado)
-        # Buscamos por título
-        panels = soup.find_all('div', class_='panel')
+        
+        # Estrategia 1: Buscar panel por título
         target_panel = None
-        for p in panels:
+        for p in soup.find_all('div', class_='panel'):
             h2 = p.find('h2')
             if h2 and 'Servicios' in h2.get_text():
                 target_panel = p
                 break
-
+        
+        table = None
         if target_panel:
-            table = target_panel.find('table')
-            if table:
-                tbody = table.find('tbody')
-                if tbody:
-                    rows = tbody.find_all('tr')
-                    for row in rows:
-                        cols = row.find_all('td')
-                        if len(cols) < 8: continue
+            table = target_panel.find('table', class_='add-line-table') or target_panel.find('table')
+        
+        # Estrategia 2: Si no hay panel o tabla en panel, buscar tabla por encabezado característico
+        if not table:
+            for t in soup.find_all('table', class_='add-line-table'):
+                if t.find('th', string=re.compile(r'Fecha y hora')):
+                    table = t
+                    break
 
-                        s = {}
-                        s['date'] = cols[0].get_text(strip=True)
-                        s['id'] = cols[1].get_text(strip=True)
-                        s['title'] = cols[2].get_text(strip=True)
-                        s['legal_entity'] = cols[3].get_text(strip=True)
-                        s['description'] = cols[4].get_text(strip=True)
-                        s['number'] = cols[5].get_text(strip=True)
+        if table:
+            rows = []
+            tbodies = table.find_all('tbody')
+            if tbodies:
+                for tbody in tbodies:
+                    rows.extend(tbody.find_all('tr'))
+            else:
+                rows = table.find_all('tr')
 
-                        try:
-                            s['price'] = float(cols[6].get_text(strip=True).replace(',', ''))
-                        except:
-                            s['price'] = 0.0
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) < 8: continue
 
-                        try:
-                            s['quantity'] = float(cols[7].get_text(strip=True).replace(',', ''))
-                        except:
-                            s['quantity'] = 0.0
+                # Evitar filas de totales o vacías
+                # La columna 1 es el ID (№), si está vacía suele ser fila de totales o separador
+                if not cols[1].get_text(strip=True):
+                    continue
 
-                        services.append(Service(**s))
+                s = {}
+                s['date'] = cols[0].get_text(strip=True)
+                s['id'] = cols[1].get_text(strip=True)
+                s['title'] = cols[2].get_text(strip=True)
+                s['legal_entity'] = cols[3].get_text(strip=True)
+                s['description'] = cols[4].get_text(strip=True)
+                s['number'] = cols[5].get_text(strip=True)
+
+                try:
+                    s['price'] = float(cols[6].get_text(strip=True).replace(',', ''))
+                except:
+                    s['price'] = 0.0
+
+                try:
+                    s['quantity'] = float(cols[7].get_text(strip=True).replace(',', ''))
+                except:
+                    s['quantity'] = 0.0
+
+                services.append(Service(**s))
         return services
 
-    def _extract_payments_list(self, soup: BeautifulSoup) -> List[PaymentTransaction]:
+    @staticmethod
+    def _extract_payments_list(soup: BeautifulSoup) -> List[PaymentTransaction]:
         payments = []
         panel = soup.find('div', id='anchors_list_payments')
         # Nota: En el HTML proporcionado hay dos paneles con id="anchors_list_payments".

@@ -3,9 +3,7 @@ from .data_processor import OtelsProcessadorData
 from .models import CalendarData, ReservationModalDetail, ReservationData
 from .scraper import OtelMSScraper
 from .settings import config, settings
-from .exceptions import (
-    OtelMSError, AuthenticationError, NetworkError, ParsingError, DataNotFoundError
-)
+from .exceptions import ( AuthenticationError, NetworkError, ParsingError, DataNotFoundError)
 
 __all__ = [
     "OtelMSScraper",
@@ -16,7 +14,6 @@ __all__ = [
     "ReservationData",
     "config",
     "settings",
-    "OtelMSError",
     "AuthenticationError",
     "NetworkError",
     "ParsingError",
