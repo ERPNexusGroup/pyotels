@@ -70,7 +70,9 @@ class DailyTariff(BaseModel):
 
 class AccommodationInfo(BaseModel):
     check_in: Optional[str] = None
+    check_in_hour: Optional[str] = None
     check_out: Optional[str] = None
+    check_out_hour: Optional[str] = None
     nights: Optional[int] = None
     room_number: Optional[str] = None
     room_type: Optional[str] = None
@@ -80,6 +82,8 @@ class AccommodationInfo(BaseModel):
     price_type: Optional[str] = None
     discount: Optional[str] = None
     discount_reason: Optional[str] = None
+    total_price: Optional[float] = None
+    taxes_surcharges: Optional[float] = None
 
 
 class CarInfo(BaseModel):

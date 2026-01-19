@@ -229,6 +229,73 @@ class OtelsExtractor:
             if isinstance(e, AuthenticationError): raise
             raise NetworkError(f"Error al obtener HTML de detalle: {e}")
 
+    def get_reservation_accommodation_detail_html(self, reservation_id: str) -> str:
+        """
+        Navega al detalle de la reserva, hace clic en el botón 'Editar' (#edit_reservation)
+        y extrae el HTML del modal cargado con la información de alojamiento.
+        """
+        url = self.DETAILS_URL % reservation_id
+
+        # 1. Verificar caché (usamos un sufijo para diferenciar del detalle normal)
+        cache_key = None
+        if self._cache_enabled and self.cache is not None:
+            cache_key = get_cache_key(url + "#accommodation_modal")
+            cached_html = self.cache.get(cache_key)
+            if cached_html:
+                self.logger.info(f"✅ HTML de modal alojamiento recuperado de caché (key={cache_key[:8]}...)")
+                return cached_html
+
+        self.start()
+        self.logger.info(f"Obteniendo modal de edición de alojamiento para: {reservation_id}")
+        
+        try:
+            # Navegar a la página de detalle
+            self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            
+            if "login" in self.page.url:
+                raise AuthenticationError("La sesión ha expirado.")
+
+            # Esperar y hacer clic en el botón Editar
+            edit_btn_selector = "#edit_reservation"
+            try:
+                self.page.wait_for_selector(edit_btn_selector, state="visible", timeout=10000)
+                self.page.click(edit_btn_selector)
+            except PlaywrightTimeoutError:
+                raise NetworkError(f"No se encontró el botón 'Editar' para la reserva {reservation_id}")
+
+            # Esperar a que el modal y el formulario interno carguen
+            # Usamos :has() para seleccionar el modal específico que contiene el formulario cargado
+            # Esto evita seleccionar el modal incorrecto (hay múltiples .modal-dialog en el DOM)
+            modal_selector = "div.modal-dialog:has(#modalform)"
+            
+            self.page.wait_for_selector(modal_selector, state="visible", timeout=15000)
+            
+            time.sleep(0.5) # Pequeña espera para renderizado final
+
+            # Extraer HTML del modal completo
+            modal_element = self.page.query_selector(modal_selector)
+            if not modal_element:
+                raise NetworkError("El modal se abrió pero no se pudo seleccionar en el DOM.")
+                
+            html_content = modal_element.evaluate("el => el.outerHTML")
+
+            # Cerrar modal para limpiar estado visual
+            self.page.keyboard.press("Escape")
+
+            # 2. Guardar en caché
+            if self._cache_enabled and self.cache is not None and cache_key:
+                self.cache.set(cache_key, html_content)
+
+            return html_content
+
+        except Exception as e:
+            if isinstance(e, AuthenticationError): raise
+            self.logger.error(f"Error interactuando con modal de alojamiento {reservation_id}: {e}")
+            # Intentar cerrar modal por si acaso quedó abierto tras error
+            try: self.page.keyboard.press("Escape")
+            except: pass
+            raise NetworkError(f"Error al obtener modal de alojamiento: {e}")
+
     def get_guest_detail_html(self, guest_id: str) -> str:
         """
         Navega a la URL de detalle del huésped y extrae el HTML.

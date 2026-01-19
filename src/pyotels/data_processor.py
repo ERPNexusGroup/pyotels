@@ -1,7 +1,6 @@
 # src/pyotels/data_processor.py
 import html
 import re
-import sys
 from datetime import datetime
 from typing import List, Dict, Any, Union, Optional
 
@@ -143,7 +142,7 @@ class OtelsProcessadorData:
             self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
-    def extract_reservation_details(self, html_content: Optional[str] = None, guest_html: Optional[str] = None,
+    def extract_reservation_details(self, html_content: Optional[str] = None,
                                     as_dict: bool = False, **kwargs) -> Union[ReservationDetail, Dict[str, Any]]:
         """
         Extrae los detalles de la reserva desde el HTML de un folio (Modal/Página).
@@ -151,27 +150,35 @@ class OtelsProcessadorData:
         self.logger.info("Iniciando extracción de detalles de reserva...")
         reservation_id = kwargs.get('id')
         self.logger.info(f"reservation_id: {reservation_id}")
+        guest_html = kwargs.get('guest_html')
+        self.logger.info(f"guest_html: {len(guest_html)}")
+        accommodation_html = kwargs.get('accommodation_html')
+        self.logger.info(f"accommodation_html: {len(accommodation_html)}")
 
-        guest = self.extract_guest_details(guest_html, as_dict=as_dict)
         soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # 1. Información General (Basic Info)
-        basic_info = self._extract_basic_info_from_detail(soup)
-        if as_dict:
-            guest['legal_entity'] = basic_info.get('legal_entity', None)
-            guest['source'] = basic_info.get('source', None)
-            guest['user'] = basic_info.get('user', None)
-        else:
-            guest.legal_entity = basic_info.get('legal_entity',None)
-            guest.source = basic_info.get('source',None)
-            guest.user = basic_info.get('user',None)
-        self.logger.info(f"guest: {guest}")
 
-        # 2. Alojamiento (Accommodation)
-        accommodation = self._extract_accommodation_info(soup)
-        self.logger.info(f"accommodation: {accommodation}\n Type: {type(accommodation)}")
+        if guest_html:
+            guest = self.extract_guest_details(guest_html, as_dict=as_dict)
+            # 1. Información General (Basic Info)
+            basic_info = self._extract_basic_info_from_detail(soup)
+            if as_dict:
+                guest['legal_entity'] = basic_info.get('legal_entity', None)
+                guest['source'] = basic_info.get('source', None)
+                guest['user'] = basic_info.get('user', None)
+            else:
+                guest.legal_entity = basic_info.get('legal_entity', None)
+                guest.source = basic_info.get('source', None)
+                guest.user = basic_info.get('user', None)
+            self.logger.debug(f"guest: {guest}")
+
+        if accommodation_html:
+            # 2. Alojamiento (Accommodation)
+            accommodation = self.extract_accommodation_details(accommodation_html, as_dict=as_dict)
+            self.logger.debug(f"accommodation: {accommodation}\n Type: {type(accommodation)}")
 
         # 3. Listas detalladas
-        # guests = self._extract_guests_list(soup)
+        guests = self._extract_guests_list(soup)
+        self.logger.debug(f'guests: {guests}')
         # services = self._extract_services_list(soup)
         # payments = self._extract_payments_list(soup)
         # cars = self._extract_cars_list(soup)
@@ -445,7 +452,83 @@ class OtelsProcessadorData:
 
         return AccommodationInfo(**info) if info else None
 
-    def _extract_guests_list(self, soup: BeautifulSoup) -> List[Guest]:
+    @staticmethod
+    def extract_accommodation_details(html_content: str, as_dict: bool = False) -> Optional[AccommodationInfo]:
+        """
+        Extrae información detallada del alojamiento desde el modal de edición (HTML con inputs).
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        info = {}
+
+        def get_val(selector: str) -> Optional[str]:
+            el = soup.select_one(selector)
+            return el.get('value') if el else None
+
+        def get_sel_val(selector: str) -> Optional[str]:
+            el = soup.select_one(f"{selector} option[selected]")
+            return el.get('value') if el else None
+
+        def get_sel_text(selector: str) -> Optional[str]:
+            el = soup.select_one(f"{selector} option[selected]")
+            return el.get_text(strip=True) if el else None
+
+        # Fechas
+        info['check_in'] = get_val('#datein')
+        info['check_in_hour'] = get_sel_val('#checkintime')
+        info['check_out'] = get_val('#dateout')
+        info['check_out_hour'] = get_sel_val('#checkouttime')
+
+        # Duración
+        try:
+            info['nights'] = int(get_val('#duration') or 0)
+        except ValueError:
+            pass
+
+        # Habitación
+        info['room_number'] = get_sel_text('#room_id')
+        info['room_type'] = get_sel_text('#category')
+
+        # Huéspedes
+        try:
+            adults = int(get_sel_val('#adults') or 0)
+            baby1 = int(get_sel_val('#baby_places') or 0)
+            baby2 = int(get_sel_val('#babyplace2') or 0)
+            info['guest_count'] = adults + baby1 + baby2
+        except ValueError:
+            pass
+
+        # Tarifa y Categoría
+        info['rate_name'] = get_sel_text('#price_type').split(' ')[0]
+        
+        rate_cat = get_sel_text('#ud_price_category')
+        if rate_cat and rate_cat != '---':
+            info['rate_category'] = rate_cat
+
+        # Tipo de precio (Por tarifa, Fijo, Diario)
+        price_mode = get_sel_val('#ny_ismanual')
+        price_modes = {'0': 'Por tarifa', '1': 'Fijo', '2': 'Diario'}
+        if price_mode in price_modes:
+            info['price_type'] = price_modes[price_mode]
+
+        # Descuento
+        info['discount'] = get_val('#discount')
+
+        # Total e Impuestos
+        el_total = soup.select_one('#FO_total')
+        if el_total:
+            info['total_price'] = el_total.get_text(strip=True)
+
+        el_taxes = soup.select_one('#TF_total')
+        if el_taxes:
+            info['taxes_surcharges'] = el_taxes.get_text(strip=True)
+
+        # Filtrar None
+        info = {k: v for k, v in info.items() if v is not None}
+
+        return AccommodationInfo(**info)
+
+    @staticmethod
+    def _extract_guests_list(soup: BeautifulSoup) -> List[Guest]:
         guests = []
         panel = soup.find('div', id='anchors_info_residents')
 

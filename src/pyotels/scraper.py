@@ -1,5 +1,4 @@
 # src/pyotels/scarper.py
-import sys
 from typing import Optional, List, Dict, Union, Any
 
 from .data_processor import OtelsProcessadorData
@@ -19,11 +18,11 @@ class OtelMSScraper:
     Orquesta la extracción (OtelsExtractor) y el procesamiento (OtelsProcessadorData).
     """
 
-    def __init__(self, id_hotel: str, username: str, password: str, 
-                 use_cache: bool = False, 
+    def __init__(self, id_hotel: str, username: str, password: str,
+                 use_cache: bool = False,
                  return_dict: bool = False,
                  headless: Optional[bool] = None):
-        
+
         self.logger = get_logger(classname="OtelMSScraper")
         self.debug = config.DEBUG
         self.username = username
@@ -60,7 +59,8 @@ class OtelMSScraper:
         """Resuelve si se debe retornar un diccionario o un objeto."""
         return as_dict if as_dict is not None else self.return_dict
 
-    def get_categories(self, target_date_str: str = None, as_dict: Optional[bool] = None) -> Union[CalendarCategories, Dict[str, Any]]:
+    def get_categories(self, target_date_str: str = None, as_dict: Optional[bool] = None) -> Union[
+        CalendarCategories, Dict[str, Any]]:
         as_dict = self._resolve_as_dict(as_dict)
         try:
             html_content = self.extractor.get_calendar_html(target_date_str)
@@ -70,7 +70,8 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer categorías: {e}")
 
-    def get_reservations(self, target_date_str: str = None, as_dict: Optional[bool] = None) -> Union[CalendarReservation, Dict[str, Any]]:
+    def get_reservations(self, target_date_str: str = None, as_dict: Optional[bool] = None) -> Union[
+        CalendarReservation, Dict[str, Any]]:
         as_dict = self._resolve_as_dict(as_dict)
         try:
             html_content = self.extractor.get_calendar_html(target_date_str)
@@ -81,7 +82,7 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    def get_reservations_ids(self, target_date_str:str=None)-> List[int]:
+    def get_reservations_ids(self, target_date_str: str = None) -> List[int]:
         try:
             ids_list = self.extractor.get_visible_reservation_ids()
             return ids_list
@@ -89,7 +90,8 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> Union[List[ReservationModalDetail], List[Dict[str, Any]]]:
+    def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> Union[
+        List[ReservationModalDetail], List[Dict[str, Any]]]:
         as_dict = self._resolve_as_dict(as_dict)
         try:
             html_content = self.extractor.collect_all_reservation_modals()
@@ -99,14 +101,15 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer modales: {e}")
 
-    def get_reservation_detail(self, reservation_id: Union[str, List[str]], as_dict: Optional[bool] = None) -> Union[ReservationDetail, List[ReservationDetail], Dict[str, Any], List[Dict[str, Any]], None]:
+    def get_reservation_detail(self, reservation_id: Union[str, List[str]], as_dict: Optional[bool] = None) -> Union[
+        ReservationDetail, List[ReservationDetail], Dict[str, Any], List[Dict[str, Any]], None]:
         """
         Obtiene los detalles de una o varias reservas.
         Si reservation_id es una lista, retorna una lista de detalles.
         Si es un solo ID, retorna un solo objeto detalle.
         """
         as_dict = self._resolve_as_dict(as_dict)
-        
+
         # Caso: Lista de IDs
         # if isinstance(reservation_id, list):
         #     self.logger.info(f"Fetching details for {len(reservation_id)} reservations")
@@ -148,14 +151,16 @@ class OtelMSScraper:
             html_reservation_details = self.extractor.get_reservation_detail_html(reservation_id)
             save_html_debug(html_reservation_details, f"detail_{reservation_id}.html")
             processor = OtelsProcessadorData(html_reservation_details)
-            
+
             # Extraer ID de huésped primero para obtener su detalle
             id_guest = processor.extract_guest_id()
             # Raspar la informacion del huesped para guardarla
             guest_html = self.extractor.get_guest_detail_html(id_guest)
-            # guest = processor.extract_guest_details(guest_html, as_dict=as_dict)
-            # result_detail.guest = guest
-            return processor.extract_reservation_details(as_dict=as_dict, guest_html=guest_html, id=reservation_id)
+
+            accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
+
+            return processor.extract_reservation_details(as_dict=as_dict, id=reservation_id, guest_html=guest_html,
+                                                         accommodation_html=accommodation_html)
         except DataNotFoundError:
             self.logger.warning(f"Reserva {reservation_id} no encontrada (404/lógica).")
             return None
