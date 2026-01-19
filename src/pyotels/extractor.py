@@ -31,6 +31,7 @@ class OtelsExtractor:
         self.LOGIN_URL = f"{self.base_url}/login/DoLogIn/"
         self.CALENDAR_URL = f"{self.base_url}/reservation_c2/calendar"
         self.DETAILS_URL = f"{self.base_url}/reservation_c2/folio/%s/1"
+        self.GUEST_DETAILS_URL = f"{self.base_url}/reservation_c2/guestfolio/%s"
 
         # Configuración de caché
         # La caché se habilita si config.DEBUG es True Y use_cache es True
@@ -227,6 +228,26 @@ class OtelsExtractor:
         except Exception as e:
             if isinstance(e, AuthenticationError): raise
             raise NetworkError(f"Error al obtener HTML de detalle: {e}")
+
+    def get_multiple_reservation_details_html(self, reservation_ids: List[str]) -> Dict[str, str]:
+        """
+        Itera sobre una lista de IDs y obtiene el HTML de detalle para cada uno.
+        Retorna un diccionario {reservation_id: html}.
+        """
+        results = {}
+        self.logger.info(f"Iniciando extracción masiva de detalles para {len(reservation_ids)} reservas...")
+        
+        for i, res_id in enumerate(reservation_ids):
+            try:
+                self.logger.debug(f"Procesando reserva {i+1}/{len(reservation_ids)}: {res_id}")
+                html = self.get_reservation_detail_html(res_id)
+                results[res_id] = html
+            except Exception as e:
+                self.logger.error(f"Error obteniendo detalle para reserva {res_id}: {e}")
+                continue
+                
+        self.logger.info(f"Extracción masiva completada. {len(results)} detalles obtenidos.")
+        return results
 
     def get_visible_reservation_ids(self) -> List[str]:
         """

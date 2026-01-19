@@ -98,10 +98,38 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer modales: {e}")
 
-    def get_reservation_detail(self, reservation_id: str, as_dict: Optional[bool] = None) -> Union[ReservationDetail, Dict[str, Any], None]:
+    def get_reservation_detail(self, reservation_id: Union[str, List[str]], as_dict: Optional[bool] = None) -> Union[ReservationDetail, List[ReservationDetail], Dict[str, Any], List[Dict[str, Any]], None]:
+        """
+        Obtiene los detalles de una o varias reservas.
+        Si reservation_id es una lista, retorna una lista de detalles.
+        Si es un solo ID, retorna un solo objeto detalle.
+        """
         as_dict = self._resolve_as_dict(as_dict)
-        self.logger.info(f"Fetching details for reservation {reservation_id}")
+        
+        # Caso: Lista de IDs
+        if isinstance(reservation_id, list):
+            self.logger.info(f"Fetching details for {len(reservation_id)} reservations")
+            try:
+                # Usar método optimizado del extractor para múltiples IDs
+                html_map = self.extractor.get_multiple_reservation_details_html(reservation_id)
+                
+                results = []
+                for res_id, html_content in html_map.items():
+                    try:
+                        save_html_debug(html_content, f"detail_{res_id}.html")
+                        processor = OtelsProcessadorData(html_content)
+                        detail = processor.extract_reservation_details(html_content, res_id, as_dict=as_dict)
+                        results.append(detail)
+                    except Exception as e:
+                        self.logger.error(f"Error processing detail for {res_id}: {e}")
+                        continue
+                return results
+            except Exception as e:
+                self.logger.error(f"Failed to fetch multiple details: {e}")
+                return []
 
+        # Caso: ID único (comportamiento original)
+        self.logger.info(f"Fetching details for reservation {reservation_id}")
         try:
             html_content = self.extractor.get_reservation_detail_html(reservation_id)
 

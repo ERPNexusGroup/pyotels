@@ -13,10 +13,10 @@ from src.pyotels.settings import config
 # 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
 # 0: Ejecutar TODOS (en orden lógico)
 
-TEST_METHODS = [1, 2, 3, 4, 5]  # Ejemplo: [1, 2] o [0] o [4]
+TEST_METHODS = [5]  # Ejemplo: [1, 2] o [0] o [4]
 
 # ID de reserva específico para probar el méto.do 5 (si se selecciona)
-TEST_RESERVATION_ID = '22802'
+TEST_RESERVATION_ID = '22804'
 
 
 def main():
