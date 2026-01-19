@@ -42,6 +42,39 @@ class OtelsProcessadorData:
         if self.soup and self.soup.text:
             self._build_date_mapping()
 
+    @property
+    def html_content(self) -> Union[BeautifulSoup, Dict[str, str]]:
+        """
+        Propiedad para obtener o actualizar el contenido HTML (o modales).
+        Al setear un nuevo valor, se reinicia el estado del procesador.
+        """
+        return self.modals_data if self.modals_data else self.soup
+
+    @html_content.setter
+    def html_content(self, content: Union[str, Dict[str, str]]):
+        self.logger.info("Actualizando contenido HTML vía propiedad...")
+        
+        self.modals_data = {}
+        self.soup = None
+        
+        if isinstance(content, dict):
+            self.modals_data = content
+            self.soup = BeautifulSoup("", 'html.parser')
+            self.logger.debug(f"Actualizado con {len(self.modals_data)} modales.")
+        else:
+            self.soup = BeautifulSoup(content, 'html.parser')
+            self.logger.debug(f"HTML actualizado. Longitud: {len(content)} caracteres.")
+
+        # Reiniciar estado interno
+        self.categories = []
+        self.rooms_data = []
+        self.date_range = {}
+        self.room_id_to_category = {}
+        self.day_id_to_date = {}
+        
+        if self.soup and self.soup.text:
+            self._build_date_mapping()
+
     def extract_categories(self, as_dict: bool = False) -> Union[CalendarCategories, Dict[str, Any]]:
         """Extrae solo las categorías y habitaciones."""
         self.logger.info("Extrayendo categorías...")
@@ -145,6 +178,20 @@ class OtelsProcessadorData:
         return detail.model_dump() if as_dict else detail
 
     @staticmethod
+    def extract_guest_id(html_content: Optional[str]) -> Optional[int]:
+        """
+        Extrae el ID del huésped desde el HTML de información básica.
+        Busca un enlace del tipo /reservation_c2/guestfolio/12345
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        link = soup.find('a', href=re.compile(r'/guestfolio/(\d+)'))
+        if link:
+            match = re.search(r'/guestfolio/(\d+)', link.get('href'))
+            if match:
+                return int(match.group(1))
+        return None
+
+    @staticmethod
     def extract_guest_details(html_content: str) -> Guest:
         """
         Extrae los detalles completos del huésped desde el HTML de su tarjeta.
@@ -167,36 +214,52 @@ class OtelsProcessadorData:
         if panel:
             body = panel.find('div', class_='panel-body')
             if body:
-                cols = body.find_all('div', class_='col-md-2')
+                # Buscar dentro de folio1 si existe, o directamente en body
+                container = body.find('div', class_='folio1') or body
+                cols = container.find_all('div', class_='col-md-2')
+                
                 for col in cols:
-                    text = col.get_text(" ", strip=True)
-                    if not text: continue
-                    
-                    # Parsear campos clave-valor
-                    if ':' in text:
-                        key, val = text.split(':', 1)
-                        key = key.strip().lower()
-                        val = val.strip()
+                    b_tag = col.find('b')
+                    if not b_tag:
+                        continue
                         
-                        if 'nombre' == key: guest_data['first_name'] = val
-                        elif 'apellido' == key: guest_data['last_name'] = val
-                        elif 'segundo nombre' == key: guest_data['middle_name'] = val
-                        elif 'género' == key: guest_data['gender'] = val
-                        elif 'fecha de nacimiento' == key: guest_data['dob'] = val
-                        elif 'teléfono' == key: guest_data['phone'] = val
-                        elif 'email' == key: guest_data['email'] = val
-                        elif 'lenguaje' in key: guest_data['language'] = val
-                        elif 'país' == key: guest_data['country'] = val
-                        elif 'ciudad' == key: guest_data['city'] = val
-                        elif 'calle' == key: guest_data['street'] = val
-                        elif 'casa' == key: guest_data['house'] = val
-                        elif 'código postal' == key: guest_data['zip_code'] = val
-                        elif 'tipo de documento' == key: guest_data['document_type'] = val
-                        elif 'documento número' == key: guest_data['document_number'] = val # A veces aparece duplicado o con nombre similar
-                        elif 'número de documento' == key: guest_data['document_number'] = val
-                        elif 'fecha de emisión' == key: guest_data['issue_date'] = val
-                        elif 'validez' == key: guest_data['expiration_date'] = val
-                        elif 'emitido por' == key: guest_data['issued_by'] = val
+                    # Extraer la clave del tag <b>
+                    key_text = b_tag.get_text(strip=True).rstrip(':')
+                    key = key_text.lower()
+                    
+                    # Extraer el valor: iterar sobre los hermanos siguientes al tag <b>
+                    val = ""
+                    curr = b_tag.next_sibling
+                    while curr:
+                        if isinstance(curr, str):
+                            val += curr
+                        elif curr.name == 'br':
+                            pass
+                        else:
+                            val += curr.get_text(" ", strip=True)
+                        curr = curr.next_sibling
+                    
+                    val = val.strip()
+                        
+                    if 'nombre' == key: guest_data['first_name'] = val
+                    elif 'apellido' == key: guest_data['last_name'] = val
+                    elif 'segundo nombre' == key: guest_data['middle_name'] = val
+                    elif 'género' == key: guest_data['gender'] = val
+                    elif 'fecha de nacimiento' == key: guest_data['dob'] = val
+                    elif 'teléfono' == key: guest_data['phone'] = val
+                    elif 'email' == key: guest_data['email'] = val
+                    elif 'lenguaje' in key: guest_data['language'] = val
+                    elif 'país' == key: guest_data['country'] = val
+                    elif 'ciudad' == key: guest_data['city'] = val
+                    elif 'calle' == key: guest_data['street'] = val
+                    elif 'casa' == key: guest_data['house'] = val
+                    elif 'código postal' == key: guest_data['zip_code'] = val
+                    elif 'tipo de documento' == key: guest_data['document_type'] = val
+                    elif 'documento número' == key: guest_data['document_number'] = val
+                    elif 'número de documento' == key: guest_data['document_number'] = val
+                    elif 'fecha de emisión' == key: guest_data['issue_date'] = val
+                    elif 'validez' == key: guest_data['expiration_date'] = val
+                    elif 'emitido por' == key: guest_data['issued_by'] = val
 
         # Construir nombre completo si es posible
         parts = [guest_data.get('first_name'), guest_data.get('middle_name'), guest_data.get('last_name')]

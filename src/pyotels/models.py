@@ -74,7 +74,7 @@ class ReservationData(BaseModel):
 
 
 class ReservationDetail(BaseModel):
-    guest: Guest
+    guest: Optional[Guest]
 
 # --------------------------------------------------------------------------------------
 
