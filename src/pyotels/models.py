@@ -12,10 +12,26 @@ class RoomCategory(BaseModel):
 
 
 class Guest(BaseModel):
-    name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    id: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    middle_name: Optional[str] = None
+    gender: Optional[str] = None
     dob: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    language: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    street: Optional[str] = None
+    house: Optional[str] = None
+    zip_code: Optional[str] = None
+    document_type: Optional[str] = None
+    document_number: Optional[str] = None
+    issue_date: Optional[str] = None
+    expiration_date: Optional[str] = None
+    issued_by: Optional[str] = None
+    name: Optional[str] = None # Full name
 
 
 class Service(BaseModel):

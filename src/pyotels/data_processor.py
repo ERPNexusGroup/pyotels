@@ -144,6 +144,68 @@ class OtelsProcessadorData:
         
         return detail.model_dump() if as_dict else detail
 
+    @staticmethod
+    def extract_guest_details(html_content: str) -> Guest:
+        """
+        Extrae los detalles completos del huésped desde el HTML de su tarjeta.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        guest_data = {}
+        
+        # Buscar el panel de "Tarjeta de huésped"
+        panel = None
+        for p in soup.find_all('div', class_='panel'):
+            heading = p.find('div', class_='panel-heading')
+            if heading and 'Tarjeta de huésped' in heading.get_text():
+                panel = p
+                break
+        
+        if not panel:
+            # Fallback: buscar por ID de widget si es consistente
+            panel = soup.find('div', {'data-widget': lambda x: x and 'wiget1' in x})
+
+        if panel:
+            body = panel.find('div', class_='panel-body')
+            if body:
+                cols = body.find_all('div', class_='col-md-2')
+                for col in cols:
+                    text = col.get_text(" ", strip=True)
+                    if not text: continue
+                    
+                    # Parsear campos clave-valor
+                    if ':' in text:
+                        key, val = text.split(':', 1)
+                        key = key.strip().lower()
+                        val = val.strip()
+                        
+                        if 'nombre' == key: guest_data['first_name'] = val
+                        elif 'apellido' == key: guest_data['last_name'] = val
+                        elif 'segundo nombre' == key: guest_data['middle_name'] = val
+                        elif 'género' == key: guest_data['gender'] = val
+                        elif 'fecha de nacimiento' == key: guest_data['dob'] = val
+                        elif 'teléfono' == key: guest_data['phone'] = val
+                        elif 'email' == key: guest_data['email'] = val
+                        elif 'lenguaje' in key: guest_data['language'] = val
+                        elif 'país' == key: guest_data['country'] = val
+                        elif 'ciudad' == key: guest_data['city'] = val
+                        elif 'calle' == key: guest_data['street'] = val
+                        elif 'casa' == key: guest_data['house'] = val
+                        elif 'código postal' == key: guest_data['zip_code'] = val
+                        elif 'tipo de documento' == key: guest_data['document_type'] = val
+                        elif 'documento número' == key: guest_data['document_number'] = val # A veces aparece duplicado o con nombre similar
+                        elif 'número de documento' == key: guest_data['document_number'] = val
+                        elif 'fecha de emisión' == key: guest_data['issue_date'] = val
+                        elif 'validez' == key: guest_data['expiration_date'] = val
+                        elif 'emitido por' == key: guest_data['issued_by'] = val
+
+        # Construir nombre completo si es posible
+        parts = [guest_data.get('first_name'), guest_data.get('middle_name'), guest_data.get('last_name')]
+        full_name = " ".join([p for p in parts if p])
+        if full_name:
+            guest_data['name'] = full_name
+
+        return Guest(**guest_data)
+
     # --- Métodos de Extracción de Detalles ---
 
     def _extract_basic_info_from_detail(self, soup: BeautifulSoup, default_id: str) -> Dict[str, Any]:
@@ -169,6 +231,14 @@ class OtelsProcessadorData:
         # 3. Pares Clave-Valor en panel-body (Estructura Modal)
         panel_body = soup.find('div', class_='panel-body')
         if panel_body:
+            # Buscar enlace al perfil del huésped para obtener el ID
+            guest_link = panel_body.find('a', href=re.compile(r'/reservation_c2/guestfolio/(\d+)'))
+            if guest_link:
+                href = guest_link.get('href')
+                match = re.search(r'/guestfolio/(\d+)', href)
+                if match:
+                    info['guest_id'] = match.group(1)
+
             labels = panel_body.find_all('span', class_='incolor')
             for label_span in labels:
                 key = label_span.get_text(strip=True).lower().replace(':', '')

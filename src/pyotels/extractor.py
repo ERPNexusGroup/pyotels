@@ -229,6 +229,45 @@ class OtelsExtractor:
             if isinstance(e, AuthenticationError): raise
             raise NetworkError(f"Error al obtener HTML de detalle: {e}")
 
+    def get_guest_detail_html(self, guest_id: str) -> str:
+        """
+        Navega a la URL de detalle del huésped y extrae el HTML.
+        """
+        url = self.GUEST_DETAILS_URL % guest_id
+
+        # 1. Verificar caché antes de navegar
+        cache_key = None
+        if self._cache_enabled and self.cache is not None:
+            cache_key = get_cache_key(url)
+            cached_html = self.cache.get(cache_key)
+            if cached_html:
+                self.logger.info(f"✅ HTML de huésped recuperado de caché (key={cache_key[:8]}...)")
+                return cached_html
+
+        self.start()
+        self.logger.info(f"Navegando a detalle de huésped: {url}")
+        try:
+            self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            
+            if "login" in self.page.url:
+                raise AuthenticationError("La sesión ha expirado.")
+
+            try:
+                self.page.wait_for_selector("div.panel", timeout=10000)
+            except PlaywrightTimeoutError:
+                pass
+
+            html_content = self.page.content()
+
+            # 2. Guardar en caché
+            if self._cache_enabled and self.cache is not None and cache_key:
+                self.cache.set(cache_key, html_content)
+
+            return html_content
+        except Exception as e:
+            if isinstance(e, AuthenticationError): raise
+            raise NetworkError(f"Error al obtener HTML de detalle de huésped: {e}")
+
     def get_multiple_reservation_details_html(self, reservation_ids: List[str]) -> Dict[str, str]:
         """
         Itera sobre una lista de IDs y obtiene el HTML de detalle para cada uno.
