@@ -1,6 +1,6 @@
 from .extractor import OtelsExtractor
 from .data_processor import OtelsProcessadorData
-from .models import CalendarData, ReservationDetail, ReservationData
+from .models import CalendarData, ReservationModalDetail, ReservationData
 from .scraper import OtelMSScraper
 from .settings import config, settings
 from .exceptions import (
@@ -12,7 +12,7 @@ __all__ = [
     "OtelsExtractor",
     "OtelsProcessadorData",
     "CalendarData",
-    "ReservationDetail",
+    "ReservationModalDetail",
     "ReservationData",
     "config",
     "settings",

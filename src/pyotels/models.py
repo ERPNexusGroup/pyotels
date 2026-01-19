@@ -1,14 +1,15 @@
-from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from pydantic import BaseModel, Field
 
-# --- Shared / Common Models ---
+
+# --- Model Reservation Details ---
 
 class RoomCategory(BaseModel):
     id: str
     name: str
     rooms: List[Dict[str, Any]]
+
 
 class Guest(BaseModel):
     name: str
@@ -16,22 +17,24 @@ class Guest(BaseModel):
     phone: Optional[str] = None
     dob: Optional[str] = None
 
+
 class Service(BaseModel):
     title: str
     price: float
     quantity: float
+
 
 class PaymentTransaction(BaseModel):
     date: str
     amount: str
     method: str
 
+
 class DailyTariff(BaseModel):
     date: str
     rate_type: str
     price: float
 
-# --- Calendar Grid Models ---
 
 class ReservationData(BaseModel):
     """Datos de una celda específica en el calendario (Grid)"""
@@ -47,11 +50,17 @@ class ReservationData(BaseModel):
     email: Optional[str] = None
     user: Optional[str] = None
     comments: Optional[str] = None
-    room: Optional[str] = None # Nombre/Número de habitación
-    reservation_status: Optional[int] = None # 1: Reservación, 2: Check-in, 3: Check-out
+    room: Optional[str] = None  # Nombre/Número de habitación
+    reservation_status: Optional[int] = None  # 1: Reservación, 2: Check-in, 3: Check-out
     # Campos de contexto del calendario
     room_id: str
-    cell_status: str # occupied, available, locked
+    cell_status: str  # occupied, available, locked
+
+
+class ReservationDetail(BaseModel):
+    guest: Guest
+
+# --------------------------------------------------------------------------------------
 
 class CalendarReservation(BaseModel):
     """Respuesta para la petición de Reservaciones/Grid"""
@@ -60,13 +69,15 @@ class CalendarReservation(BaseModel):
     extracted_at: str
     day_id_to_date: Dict[str, str] = Field(default_factory=dict)
 
+
 class CalendarCategories(BaseModel):
     """Respuesta para la petición de Categorías"""
     categories: List[RoomCategory]
 
+
 # --- Folio / Detail Models ---
 
-class ReservationDetail(BaseModel):
+class ReservationModalDetail(BaseModel):
     """Respuesta para la petición de Detalle de Reserva (Modal)"""
     reservation_number: Optional[str] = None
     guest_name: Optional[str] = None
@@ -85,6 +96,7 @@ class ReservationDetail(BaseModel):
     room: Optional[str] = None
     rate: Optional[str] = None
     source: Optional[str] = None
+
 
 # --- Legacy / Internal ---
 class CalendarData(BaseModel):

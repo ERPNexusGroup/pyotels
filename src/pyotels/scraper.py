@@ -6,7 +6,7 @@ from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNot
 from .extractor import OtelsExtractor
 from .logger import get_logger
 from .models import (
-    CalendarReservation, CalendarCategories, ReservationDetail
+    CalendarReservation, CalendarCategories, ReservationModalDetail, ReservationDetail
 )
 from .settings import config
 from .utils.dev import save_html_debug
@@ -88,7 +88,7 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> Union[List[ReservationDetail], List[Dict[str, Any]]]:
+    def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> Union[List[ReservationModalDetail], List[Dict[str, Any]]]:
         as_dict = self._resolve_as_dict(as_dict)
         try:
             html_content = self.extractor.collect_all_reservation_modals()

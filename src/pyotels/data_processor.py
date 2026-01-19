@@ -8,9 +8,9 @@ from bs4 import BeautifulSoup
 
 from .logger import get_logger
 from .models import (
-    RoomCategory, ReservationData, CalendarData, ReservationDetail,
+    RoomCategory, ReservationData, CalendarData, ReservationModalDetail,
     CalendarReservation, CalendarCategories, Guest, Service, PaymentTransaction,
-    DailyTariff
+    DailyTariff, ReservationDetail
 )
 
 
@@ -70,7 +70,7 @@ class OtelsProcessadorData:
         )
         return result.model_dump() if as_dict else result
 
-    def extract_all_reservation_modals(self, as_dict: bool = False) -> Union[List[ReservationDetail], List[Dict[str, Any]]]:
+    def extract_all_reservation_modals(self, as_dict: bool = False) -> Union[List[ReservationModalDetail], List[Dict[str, Any]]]:
         """
         Procesa todos los modales almacenados y retorna una lista de ReservationDetail o Dicts.
         """
@@ -133,7 +133,7 @@ class OtelsProcessadorData:
         tariffs = self._extract_daily_tariffs_list(soup)
 
         # Construir objeto usando desempaquetado
-        detail = ReservationDetail(
+        detail = ReservationModalDetail(
             **data,
             guests=guests,
             services=services,
