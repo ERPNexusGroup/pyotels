@@ -110,42 +110,6 @@ class OtelMSScraper:
         """
         as_dict = self._resolve_as_dict(as_dict)
 
-        # Caso: Lista de IDs
-        # if isinstance(reservation_id, list):
-        #     self.logger.info(f"Fetching details for {len(reservation_id)} reservations")
-        #     try:
-        #         # Usar método optimizado del extractor para múltiples IDs
-        #         html_map = self.extractor.get_multiple_reservation_details_html(reservation_id)
-        #
-        #         results = []
-        #         for res_id, html_content in html_map.items():
-        #             try:
-        #                 save_html_debug(html_content, f"detail_{res_id}.html")
-        #                 processor = OtelsProcessadorData(html_content)
-        #
-        #                 # Extraer ID de huésped primero para obtener su detalle
-        #                 temp_detail = processor.extract_reservation_details(html_content, res_id, as_dict=True)
-        #                 guest_id = temp_detail.get('guest_id')
-        #
-        #                 guest_html = None
-        #                 if guest_id:
-        #                     try:
-        #                         guest_html = self.extractor.get_guest_detail_html(guest_id)
-        #                         save_html_debug(guest_html, f"guest_{guest_id}.html")
-        #                     except Exception as e:
-        #                         self.logger.warning(f"No se pudo obtener detalle de huésped {guest_id}: {e}")
-        #
-        #                 detail = processor.extract_reservation_details(html_content, res_id, as_dict=as_dict, guest_html_content=guest_html)
-        #                 results.append(detail)
-        #             except Exception as e:
-        #                 self.logger.error(f"Error processing detail for {res_id}: {e}")
-        #                 continue
-        #         return results
-        #     except Exception as e:
-        #         self.logger.error(f"Failed to fetch multiple details: {e}")
-        #         return []
-
-        # Caso: ID único (comportamiento original)
         self.logger.info(f"Fetching details for reservation {reservation_id}")
         try:
             html_reservation_details = self.extractor.get_reservation_detail_html(reservation_id)

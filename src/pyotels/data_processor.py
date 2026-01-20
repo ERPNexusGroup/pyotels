@@ -1,6 +1,7 @@
 # src/pyotels/data_processor.py
 import html
 import re
+import sys
 from datetime import datetime
 from typing import List, Dict, Any, Union, Optional
 
@@ -157,6 +158,8 @@ class OtelsProcessadorData:
 
         soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
 
+        # Siempre usamos objetos para construir ReservationDetail
+        guest = Guest()
         if guest_html:
             guest = self.extract_guest_details(guest_html, as_dict=as_dict)
             # 1. Información General (Basic Info)
@@ -179,7 +182,7 @@ class OtelsProcessadorData:
         # 3. Listas detalladas
         guests = self._extract_guests_list(soup)
         self.logger.debug(f'guests: {guests}')
-        services = self._extract_services_list(soup)
+        # services = self._extract_services_list(soup)
         # payments = self._extract_payments_list(soup)
         # cars = self._extract_cars_list(soup)
         # notes = self._extract_notes_list(soup)
@@ -191,7 +194,7 @@ class OtelsProcessadorData:
             reservation_number=reservation_id,
             guests=guest,
             accommodation=accommodation,
-            services=services,
+            # services=services,
             # payments=payments,
             # cars=cars,
             # notes=notes,
@@ -451,13 +454,15 @@ class OtelsProcessadorData:
 
         return AccommodationInfo(**info) if info else None
 
-    @staticmethod
-    def extract_accommodation_details(html_content: str, as_dict: bool = False) -> Optional[AccommodationInfo]:
+    # @staticmethod
+    def extract_accommodation_details(self,html_content: str, as_dict: bool = False) -> Union[AccommodationInfo, Dict[str, Any], None]:
         """
         Extrae información detallada del alojamiento desde el modal de edición (HTML con inputs).
         """
         soup = BeautifulSoup(html_content, 'html.parser')
-        info = {}
+        info = []
+        self.logger.debug(html_content)
+        sys.exit()
 
         def get_val(selector: str) -> Optional[str]:
             el = soup.select_one(selector)
@@ -523,6 +528,9 @@ class OtelsProcessadorData:
 
         # Filtrar None
         info = {k: v for k, v in info.items() if v is not None}
+
+        if as_dict:
+            return info
 
         return AccommodationInfo(**info)
 
