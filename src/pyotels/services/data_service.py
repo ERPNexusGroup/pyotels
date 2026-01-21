@@ -60,15 +60,20 @@ class DataService:
             self.logger.debug(f"id_guest: {id_guest}")
 
             guest_html = self.extractor.get_guest_detail_html(id_guest)
+            self.logger.debug(f"guest_html: {guest_html}")
             guest = self.processor.extract_guest_details(guest_html, as_dict=return_dict)
             # 1. Información General (Basic Info)
             basic_info = self.processor.extract_basic_info_from_detail(html_reservation_details)
+            self.logger.debug(f"basic_info: {basic_info}")
 
             for key in ['legal_entity', 'source', 'user']:
                 val = basic_info.get(key)
-                # Si es dict, usa guest[key], si no, usa setattr
-                guest[key] = val if return_dict else setattr(guest, key, val)
-            self.logger.debug(f"{len(guest)} guest: {guest}")
+
+                if isinstance(guest, dict):
+                    guest[key] = val
+                else:
+                    setattr(guest, key, val)
+            self.logger.debug(f"guest: {guest}")
 
             # accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
             # accommodation = self.processor.extract_accommodation_details(accommodation_html, as_dict=return_dict)

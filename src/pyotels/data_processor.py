@@ -306,8 +306,11 @@ class OtelsProcessadorData:
     # --- Métodos de Extracción de Detalles ---
 
     @staticmethod
-    def extract_basic_info_from_detail(soup: BeautifulSoup) -> Dict[str, Any]:
+    def extract_basic_info_from_detail(soup: Union[BeautifulSoup, str]) -> Dict[str, Any]:
         info = {}
+
+        if isinstance(soup, str):
+            soup = BeautifulSoup(soup, 'html.parser')
 
         # Buscar el panel de Información básica
         panel = soup.find('div', id='anchors_main_information')
