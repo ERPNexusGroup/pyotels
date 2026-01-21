@@ -1,17 +1,18 @@
 # src/pyotels/extractor.py
 import time
-import requests
 from typing import Optional, List, Dict
+
+import diskcache as dc
+import requests
+from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError
-import diskcache as dc
-
-from .logger import get_logger
 from .exceptions import NetworkError, AuthenticationError
+from .logger import get_logger
 from .settings import config
 from .utils.cache import get_cache_key
+
 
 class OtelsExtractor:
     """
@@ -19,8 +20,13 @@ class OtelsExtractor:
     Maneja la sesión, autenticación y navegación.
     """
 
-    def __init__(self, base_url: str, headless: bool = True, use_cache: bool = False):
+    def __init__(self, base_url: str, username: Optional[str], password: Optional[str], headless: bool = True,
+                 use_cache: bool = False):
         self.logger = get_logger(classname='OtelsExtractor')
+
+        self.username = username
+        self.password = password
+
         self.headless = headless
         self.base_url = base_url
         self.playwright = None
@@ -65,11 +71,11 @@ class OtelsExtractor:
     def start(self):
         """Inicializa los recursos de Playwright si no están activos."""
         if self.playwright: return
-        
+
         self.logger.info("Iniciando Playwright...")
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(headless=self.headless)
-        
+
         # Crear contexto con User-Agent definido
         self.context = self.browser.new_context(
             user_agent=config.USER_AGENT,
@@ -77,23 +83,24 @@ class OtelsExtractor:
         )
         self.page = self.context.new_page()
 
-    def login(self, username, password) -> bool:
+    def login(self, username: Optional[str] = None, password: Optional[str] = None) -> bool:
         """
         Realiza el login en el sistema.
         Utiliza requests para la autenticación POST y transfiere cookies a Playwright.
         """
         self.start()
-        self.logger.info(f"Iniciando login para {username} en {self.base_url}")
-        
-        payload = {"login": username, "password": password, "action": "login"}
-        
+        self.logger.info(f"Iniciando login para {username if username else self.username} en {self.base_url}")
+
+        payload = {"login": username if username else self.username,
+                   "password": password if password else self.password, "action": "login"}
+
         try:
             # Actualizar headers para el login
             self.session.headers.update({
                 "Referer": self.LOGIN_URL,
                 "Origin": self.base_url
             })
-            
+
             resp = self.session.post(self.LOGIN_URL, data=payload, allow_redirects=True, timeout=30)
             resp.raise_for_status()
 
@@ -111,7 +118,7 @@ class OtelsExtractor:
 
             self.logger.warning("⚠️ URL sigue siendo login, intentando sincronizar cookies de todos modos...")
             self._sync_cookies()
-            
+
             # Verificación opcional: Navegar a una página protegida para confirmar
             # Por ahora asumimos True si no hubo error explícito
             return True
@@ -122,7 +129,7 @@ class OtelsExtractor:
     def _sync_cookies(self):
         """Transfiere las cookies de la sesión de requests al contexto de Playwright."""
         if not self.context: return
-        
+
         req_cookies = self.session.cookies.get_dict()
         if req_cookies:
             domain = self.base_url.split('//')[-1].split('/')[0]
@@ -157,7 +164,7 @@ class OtelsExtractor:
 
         self.start()
         self.logger.info(f"Navegando al calendario: {self.CALENDAR_URL} (fecha: {target_date_str})")
-        
+
         full_url = self.CALENDAR_URL
         if target_date_str:
             separator = '&' if '?' in self.CALENDAR_URL else '?'
@@ -165,7 +172,7 @@ class OtelsExtractor:
 
         try:
             self.page.goto(full_url, wait_until="domcontentloaded", timeout=60000)
-            
+
             # Validación de sesión en la página cargada
             if "login" in self.page.url:
                 raise AuthenticationError("La sesión ha expirado (redirigido a login).")
@@ -175,7 +182,7 @@ class OtelsExtractor:
             except PlaywrightTimeoutError:
                 self.logger.warning("Timeout esperando tabla del calendario, intentando continuar con el HTML actual.")
 
-            time.sleep(1) # Pequeña espera para scripts dinámicos
+            time.sleep(1)  # Pequeña espera para scripts dinámicos
 
             html_content = self.page.content()
 
@@ -209,7 +216,7 @@ class OtelsExtractor:
         self.logger.info(f"Navegando a detalle de reserva: {url}")
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            
+
             if "login" in self.page.url:
                 raise AuthenticationError("La sesión ha expirado.")
 
@@ -247,11 +254,11 @@ class OtelsExtractor:
 
         self.start()
         self.logger.info(f"Obteniendo modal de edición de alojamiento para: {reservation_id}")
-        
+
         try:
             # Navegar a la página de detalle
             self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            
+
             if "login" in self.page.url:
                 raise AuthenticationError("La sesión ha expirado.")
 
@@ -267,16 +274,16 @@ class OtelsExtractor:
             # Usamos :has() para seleccionar el modal específico que contiene el formulario cargado
             # Esto evita seleccionar el modal incorrecto (hay múltiples .modal-dialog en el DOM)
             modal_selector = "div.modal-dialog:has(#modalform)"
-            
+
             self.page.wait_for_selector(modal_selector, state="visible", timeout=15000)
-            
-            time.sleep(0.5) # Pequeña espera para renderizado final
+
+            time.sleep(0.5)  # Pequeña espera para renderizado final
 
             # Extraer HTML del modal completo
             modal_element = self.page.query_selector(modal_selector)
             if not modal_element:
                 raise NetworkError("El modal se abrió pero no se pudo seleccionar en el DOM.")
-                
+
             html_content = modal_element.evaluate("el => el.outerHTML")
 
             # Cerrar modal para limpiar estado visual
@@ -292,8 +299,10 @@ class OtelsExtractor:
             if isinstance(e, AuthenticationError): raise
             self.logger.error(f"Error interactuando con modal de alojamiento {reservation_id}: {e}")
             # Intentar cerrar modal por si acaso quedó abierto tras error
-            try: self.page.keyboard.press("Escape")
-            except: pass
+            try:
+                self.page.keyboard.press("Escape")
+            except:
+                pass
             raise NetworkError(f"Error al obtener modal de alojamiento: {e}")
 
     def get_guest_detail_html(self, guest_id: str) -> str:
@@ -315,7 +324,7 @@ class OtelsExtractor:
         self.logger.info(f"Navegando a detalle de huésped: {url}")
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            
+
             if "login" in self.page.url:
                 raise AuthenticationError("La sesión ha expirado.")
 
@@ -342,16 +351,16 @@ class OtelsExtractor:
         """
         results = {}
         self.logger.info(f"Iniciando extracción masiva de detalles para {len(reservation_ids)} reservas...")
-        
+
         for i, res_id in enumerate(reservation_ids):
             try:
-                self.logger.debug(f"Procesando reserva {i+1}/{len(reservation_ids)}: {res_id}")
+                self.logger.debug(f"Procesando reserva {i + 1}/{len(reservation_ids)}: {res_id}")
                 html = self.get_reservation_detail_html(res_id)
                 results[res_id] = html
             except Exception as e:
                 self.logger.error(f"Error obteniendo detalle para reserva {res_id}: {e}")
                 continue
-                
+
         self.logger.info(f"Extracción masiva completada. {len(results)} detalles obtenidos.")
         return results
 
@@ -363,7 +372,7 @@ class OtelsExtractor:
         # Asegurar que estamos en el calendario
         if not self.page.url.startswith(self.CALENDAR_URL):
             self.get_calendar_html()
-            
+
         try:
             # Seleccionar todos los elementos que tengan el atributo 'resid'
             # Usamos JS eval para obtener los atributos rápidamente
@@ -371,7 +380,7 @@ class OtelsExtractor:
                 const elements = document.querySelectorAll('div.calendar_item[resid]');
                 return Array.from(elements).map(el => el.getAttribute('resid')).filter(id => id);
             }""")
-            
+
             # Eliminar duplicados
             unique_ids = list(set(ids))
             self.logger.info(f"Encontrados {len(unique_ids)} IDs de reserva visibles en el calendario.")
@@ -396,7 +405,7 @@ class OtelsExtractor:
         try:
             # Selector para el bloque de reserva
             res_selector = f"div[resid='{reservation_id}']"
-            
+
             # Esperar a que la reserva sea visible
             try:
                 self.page.wait_for_selector(res_selector, state="visible", timeout=5000)
@@ -409,24 +418,24 @@ class OtelsExtractor:
             self.page.click(res_selector, force=True)
 
             # Esperar a que aparezca el modal
-            modal_selector = "div.modal-content" 
+            modal_selector = "div.modal-content"
             self.page.wait_for_selector(modal_selector, state="visible", timeout=5000)
-            
-            time.sleep(0.5) # Pequeña espera para renderizado
+
+            time.sleep(0.5)  # Pequeña espera para renderizado
 
             # Extraer el HTML del modal
             modal_element = self.page.query_selector(modal_selector)
             if modal_element:
                 modal_html = modal_element.inner_html()
-                
+
                 # Cerrar el modal para limpiar
                 self.page.keyboard.press("Escape")
                 # Esperar a que el modal desaparezca para no interferir con el siguiente clic
                 try:
                     self.page.wait_for_selector(modal_selector, state="hidden", timeout=3000)
                 except:
-                    pass # Si no desaparece rápido, seguimos igual
-                
+                    pass  # Si no desaparece rápido, seguimos igual
+
                 return modal_html
             else:
                 raise NetworkError("El modal se abrió pero no se pudo obtener su contenido.")
@@ -445,12 +454,12 @@ class OtelsExtractor:
         """
         results = {}
         ids = self.get_visible_reservation_ids()
-        
+
         self.logger.info(f"Iniciando extracción masiva de modales para {len(ids)} reservas...")
-        
+
         for i, res_id in enumerate(ids):
             try:
-                self.logger.debug(f"Procesando reserva {i+1}/{len(ids)}: {res_id}")
+                self.logger.debug(f"Procesando reserva {i + 1}/{len(ids)}: {res_id}")
                 html = self.get_reservation_modal_html(res_id)
                 results[res_id] = html
                 # Pequeña pausa para no saturar la UI del navegador
@@ -458,7 +467,7 @@ class OtelsExtractor:
             except Exception as e:
                 self.logger.error(f"Saltando reserva {res_id} debido a error: {e}")
                 continue
-                
+
         self.logger.info(f"Extracción masiva completada. {len(results)} modales obtenidos.")
         return results
 
@@ -469,7 +478,7 @@ class OtelsExtractor:
         if self.browser: self.browser.close()
         if self.playwright: self.playwright.stop()
         self.session.close()
-        
+
         self.page = None
         self.context = None
         self.browser = None

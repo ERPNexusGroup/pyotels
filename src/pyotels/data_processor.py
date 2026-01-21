@@ -18,30 +18,11 @@ from .models import (
 class OtelsProcessadorData:
     """Procesa datos estructurados del calendario HTML de OtelMS."""
 
-    def __init__(self, html_content: Union[str, Dict[str, str]], include_empty_cells: bool = False):
+    def __init__(self, html_content: Union[str, Dict[str, str], None] = None, include_empty_cells: bool = False):
         self.logger = get_logger(classname="OtelsProcessadorData")
         self.logger.info("Inicializando OtelsProcessadorData...")
-
-        self.modals_data = {}
-        self.soup = None
-
-        if isinstance(html_content, dict):
-            self.modals_data = html_content
-            self.soup = BeautifulSoup("", 'html.parser')
-            self.logger.debug(f"Inicializado con {len(self.modals_data)} modales.")
-        else:
-            self.soup = BeautifulSoup(html_content, 'html.parser')
-            self.logger.debug(f"HTML cargado. Longitud: {len(html_content)} caracteres.")
-
-        self.day_id_to_date = {}
-        self.categories = []
-        self.rooms_data = []
-        self.date_range = {}
         self.include_empty_cells = include_empty_cells
-        self.room_id_to_category = {}
-
-        if self.soup and self.soup.text:
-            self._build_date_mapping()
+        self._load_content(html_content)
 
     @property
     def html_content(self) -> Union[BeautifulSoup, Dict[str, str]]:
@@ -54,17 +35,22 @@ class OtelsProcessadorData:
     @html_content.setter
     def html_content(self, content: Union[str, Dict[str, str]]):
         self.logger.info("Actualizando contenido HTML vía propiedad...")
+        self._load_content(content)
 
+    def _load_content(self, content: Union[str, Dict[str, str], None]):
+        """Carga el contenido HTML/dict y reinicia el estado del procesador."""
         self.modals_data = {}
         self.soup = None
 
-        if isinstance(content, dict):
+        if content is None:
+            pass
+        elif isinstance(content, dict):
             self.modals_data = content
             self.soup = BeautifulSoup("", 'html.parser')
-            self.logger.debug(f"Actualizado con {len(self.modals_data)} modales.")
+            self.logger.debug(f"Contenido actualizado con {len(self.modals_data)} modales.")
         else:
             self.soup = BeautifulSoup(content, 'html.parser')
-            self.logger.debug(f"HTML actualizado. Longitud: {len(content)} caracteres.")
+            self.logger.debug(f"Contenido HTML actualizado. Longitud: {len(content)} caracteres.")
 
         # Reiniciar estado interno
         self.categories = []
@@ -73,8 +59,8 @@ class OtelsProcessadorData:
         self.room_id_to_category = {}
         self.day_id_to_date = {}
 
-        if self.soup and self.soup.text:
-            self._build_date_mapping()
+        # if self.soup and self.soup.text:
+        #     self._build_date_mapping()
 
     def extract_categories(self, as_dict: bool = False) -> Union[CalendarCategories, Dict[str, Any]]:
         """Extrae solo las categorías y habitaciones."""
@@ -163,7 +149,7 @@ class OtelsProcessadorData:
         if guest_html:
             guest = self.extract_guest_details(guest_html, as_dict=as_dict)
             # 1. Información General (Basic Info)
-            basic_info = self._extract_basic_info_from_detail(soup)
+            basic_info = self.extract_basic_info_from_detail(soup)
             if as_dict:
                 guest['legal_entity'] = basic_info.get('legal_entity', None)
                 guest['source'] = basic_info.get('source', None)
@@ -209,8 +195,11 @@ class OtelsProcessadorData:
         Extrae el ID del huésped desde el HTML de información básica.
         Busca un enlace del tipo /reservation_c2/guestfolio/12345
         """
+        self.logger.debug(f"Method: extract_guest_id")
         soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug(f"soup: {soup}")
         link = soup.find('a', href=re.compile(r'/guestfolio/(\d+)'))
+        self.logger.debug(f"link: {link}")
         if link:
             match = re.search(r'/guestfolio/(\d+)', link.get('href'))
             if match:
@@ -317,7 +306,7 @@ class OtelsProcessadorData:
     # --- Métodos de Extracción de Detalles ---
 
     @staticmethod
-    def _extract_basic_info_from_detail(soup: BeautifulSoup) -> Dict[str, Any]:
+    def extract_basic_info_from_detail(soup: BeautifulSoup) -> Dict[str, Any]:
         info = {}
 
         # Buscar el panel de Información básica
@@ -455,7 +444,8 @@ class OtelsProcessadorData:
         return AccommodationInfo(**info) if info else None
 
     # @staticmethod
-    def extract_accommodation_details(self,html_content: str, as_dict: bool = False) -> Union[AccommodationInfo, Dict[str, Any], None]:
+    def extract_accommodation_details(self, html_content: str, as_dict: bool = False) -> Union[
+        AccommodationInfo, Dict[str, Any], None]:
         """
         Extrae información detallada del alojamiento desde el modal de edición (HTML con inputs).
         """
@@ -503,7 +493,7 @@ class OtelsProcessadorData:
 
         # Tarifa y Categoría
         info['rate_name'] = get_sel_text('#price_type').split(' ')[0]
-        
+
         rate_cat = get_sel_text('#ud_price_category')
         if rate_cat and rate_cat != '---':
             info['rate_category'] = rate_cat
@@ -537,21 +527,21 @@ class OtelsProcessadorData:
     @staticmethod
     def _extract_guests_list(soup: BeautifulSoup) -> List[Guest]:
         guests = []
-        
+
         # Intentar encontrar la tabla en varios contenedores posibles
         table = None
-        
+
         # 1. Panel de residentes (común en la vista de detalles)
         panel = soup.find('div', id='anchors_info_residents')
         if panel:
             table = panel.find('table')
-            
+
         # 2. Formulario de impresión (guest_template_print) - Caso del HTML proporcionado
         if not table:
             form = soup.find('form', id='guest_template_print')
             if form:
                 table = form.find('table', class_='add-line-table')
-                
+
         # 3. Búsqueda genérica por clase
         if not table:
             table = soup.find('table', class_='add-line-table')
@@ -595,7 +585,7 @@ class OtelsProcessadorData:
     @staticmethod
     def _extract_services_list(soup: BeautifulSoup) -> List[Service]:
         services = []
-        
+
         # Estrategia 1: Buscar panel por título
         target_panel = None
         for p in soup.find_all('div', class_='panel'):
@@ -603,11 +593,11 @@ class OtelsProcessadorData:
             if h2 and 'Servicios' in h2.get_text():
                 target_panel = p
                 break
-        
+
         table = None
         if target_panel:
             table = target_panel.find('table', class_='add-line-table') or target_panel.find('table')
-        
+
         # Estrategia 2: Si no hay panel o tabla en panel, buscar tabla por encabezado característico
         if not table:
             for t in soup.find_all('table', class_='add-line-table'):
@@ -1005,8 +995,8 @@ class OtelsProcessadorData:
 
         return data
 
-    def _build_date_mapping(self):
-        pass
+    # def _build_date_mapping(self):
+    #     pass
 
     def _extract_date_range(self):
         if self.day_id_to_date:

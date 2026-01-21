@@ -120,7 +120,6 @@ class OtelMSScraper:
             id_guest = processor.extract_guest_id()
             # Raspar la informacion del huesped para guardarla
             guest_html = self.extractor.get_guest_detail_html(id_guest)
-
             accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
 
             return processor.extract_reservation_details(as_dict=as_dict, id=reservation_id, guest_html=guest_html,
