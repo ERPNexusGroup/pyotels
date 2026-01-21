@@ -1,7 +1,6 @@
 # src/pyotels/data_processor.py
 import html
 import re
-import sys
 from datetime import datetime
 from typing import List, Dict, Any, Union, Optional
 
@@ -206,13 +205,22 @@ class OtelsProcessadorData:
                 return int(match.group(1))
         return None
 
-    @staticmethod
-    def extract_guest_details(html_content: str, as_dict: bool = False) -> Guest:
+    def extract_guest_details(self, html_content: Optional[str] = None, as_dict: bool = False) -> Guest:
         """
         Extrae los detalles completos del huésped desde el HTML de su tarjeta.
         """
-        soup = BeautifulSoup(html_content, 'html.parser')
+        self.logger.debug(f"Method: extract_guest_details")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug(f"soup: {soup}")
         guest_data = {}
+
+        # Extraer ID del header si existe
+        header_time = soup.find('span', class_='header-time')
+        if header_time:
+            text = header_time.get_text(" ", strip=True)
+            match = re.search(r'ID:\s*(\d+)', text)
+            if match:
+                guest_data['id'] = match.group(1)
 
         # Buscar el panel de "Tarjeta de huésped"
         panel = None
@@ -305,12 +313,12 @@ class OtelsProcessadorData:
 
     # --- Métodos de Extracción de Detalles ---
 
-    @staticmethod
-    def extract_basic_info_from_detail(soup: Union[BeautifulSoup, str]) -> Dict[str, Any]:
+    def extract_basic_info_from_detail(self, html_content: Optional[str] = None) -> Dict[str, Any]:
+        self.logger.debug(f"Method: extract_basic_info_from_detail")
         info = {}
 
-        if isinstance(soup, str):
-            soup = BeautifulSoup(soup, 'html.parser')
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug(f"soup: {soup}")
 
         # Buscar el panel de Información básica
         panel = soup.find('div', id='anchors_main_information')
@@ -367,8 +375,9 @@ class OtelsProcessadorData:
 
         return info
 
-    @staticmethod
-    def _extract_accommodation_info(soup: BeautifulSoup) -> Optional[AccommodationInfo]:
+    def _extract_accommodation_info(self, soup: BeautifulSoup) -> Optional[AccommodationInfo]:
+        self.logger.debug(f"Method: _extract_accommodation_info")
+
         info = {}
         panel = soup.find('div', id='anchors_accommodation')
 
@@ -388,6 +397,7 @@ class OtelsProcessadorData:
                     if not b_tag: continue
 
                     key = b_tag.get_text(strip=True).lower().replace(':', '')
+                    self.logger.debug(f"Key: {key}")
 
                     # Extraer valor
                     val_parts = []
@@ -447,15 +457,14 @@ class OtelsProcessadorData:
         return AccommodationInfo(**info) if info else None
 
     # @staticmethod
-    def extract_accommodation_details(self, html_content: str, as_dict: bool = False) -> Union[
+    @staticmethod
+    def extract_accommodation_details(html_content: str, as_dict: bool = False) -> Union[
         AccommodationInfo, Dict[str, Any], None]:
         """
         Extrae información detallada del alojamiento desde el modal de edición (HTML con inputs).
         """
         soup = BeautifulSoup(html_content, 'html.parser')
-        info = []
-        self.logger.debug(html_content)
-        sys.exit()
+        info = {}
 
         def get_val(selector: str) -> Optional[str]:
             el = soup.select_one(selector)
@@ -490,7 +499,9 @@ class OtelsProcessadorData:
             adults = int(get_sel_val('#adults') or 0)
             baby1 = int(get_sel_val('#baby_places') or 0)
             baby2 = int(get_sel_val('#babyplace2') or 0)
-            info['guest_count'] = adults + baby1 + baby2
+            info['adults_count'] = adults
+            info['children_count'] = baby1
+            info['babies_count'] = baby2
         except ValueError:
             pass
 
@@ -527,8 +538,9 @@ class OtelsProcessadorData:
 
         return AccommodationInfo(**info)
 
-    @staticmethod
-    def _extract_guests_list(soup: BeautifulSoup) -> List[Guest]:
+    def extract_guests_list(self,html_content: Optional[str] = None) -> List[Guest]:
+        self.logger.debug(f"Method: extract_guests_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
         guests = []
 
         # Intentar encontrar la tabla en varios contenedores posibles

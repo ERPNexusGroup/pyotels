@@ -76,7 +76,9 @@ class AccommodationInfo(BaseModel):
     nights: Optional[int] = None
     room_number: Optional[str] = None
     room_type: Optional[str] = None
-    guest_count: Optional[int] = None
+    adults_count: Optional[int] = None
+    children_count: Optional[int] = None
+    babies_count: Optional[int] = None
     rate_category: Optional[str] = None
     rate_name: Optional[str] = None
     price_type: Optional[str] = None
@@ -132,8 +134,8 @@ class ReservationData(BaseModel):
 class ReservationDetail(BaseModel):
     id: Final[int] = None
     guest: Guest = Field(default_factory=Guest)
+    accommodation: AccommodationInfo = Field(default_factory=AccommodationInfo)
     services: List[Service] = Field(default_factory=list)
-    accommodation: List[AccommodationInfo] = Field(default_factory=list)
     payments: List[PaymentTransaction] = Field(default_factory=list)
     cars: List[CarInfo] = Field(default_factory=list)
     notes: List[NoteInfo] = Field(default_factory=list)
