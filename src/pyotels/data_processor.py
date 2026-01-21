@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Union, Optional
 
 from bs4 import BeautifulSoup
 
-from .logger import get_logger
+from pyotels.utils.logger import get_logger
 from .models import (
     RoomCategory, ReservationData, CalendarData, ReservationModalDetail,
     CalendarReservation, CalendarCategories, Guest, Service, PaymentTransaction,
@@ -538,7 +538,7 @@ class OtelsProcessadorData:
 
         return AccommodationInfo(**info)
 
-    def extract_guests_list(self,html_content: Optional[str] = None) -> List[Guest]:
+    def extract_guests_list(self, html_content: Optional[str] = None) -> List[Guest]:
         self.logger.debug(f"Method: extract_guests_list")
         soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
         guests = []

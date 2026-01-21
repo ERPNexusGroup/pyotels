@@ -4,7 +4,7 @@ import time
 
 from .scraper import OtelMSScraper
 from .settings import config
-from .logger import logger, log_execution
+from pyotels.utils.logger import logger, log_execution
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scraper para OtelMS")

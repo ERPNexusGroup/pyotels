@@ -1,9 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
-import re
-from typing import Dict, List, Optional
-from urllib.parse import urlparse
-from .logger import logger
+from typing import Dict
+from pyotels.utils.logger import logger
 
 class SiteAnalyzer:
     def __init__(self, url: str):

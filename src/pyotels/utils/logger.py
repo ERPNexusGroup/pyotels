@@ -1,31 +1,36 @@
 import logging
 import sys
 from logging.handlers import TimedRotatingFileHandler
-from .settings import config
+
+from ..config.settings import config
+
 
 class ColoredFormatter(logging.Formatter):
     """
     Formatter para agregar colores a los logs en la terminal.
     """
     COLORS = {
-        'DEBUG': '\033[94m',    # Azul
-        'INFO': '\033[92m',     # Verde
+        'DEBUG': '\033[94m',  # Azul
+        'INFO': '\033[92m',  # Verde
         'WARNING': '\033[93m',  # Amarillo
-        'ERROR': '\033[91m',    # Rojo
-        'CRITICAL': '\033[95m', # Magenta
-        'ENDC': '\033[0m'       # Reset
+        'ERROR': '\033[91m',  # Rojo
+        'CRITICAL': '\033[95m',  # Magenta
+        'ENDC': '\033[0m'  # Reset
     }
 
     def format(self, record):
         log_message = super().format(record)
         return f"{self.COLORS.get(record.levelname, self.COLORS['ENDC'])}{log_message}{self.COLORS['ENDC']}"
 
+
 class ClassLoggerAdapter(logging.LoggerAdapter):
     """
     Adaptador para inyectar el nombre de la clase en los logs.
     """
+
     def process(self, msg, kwargs):
         return f"[{self.extra['classname']}] {msg}", kwargs
+
 
 def get_logger(name: str = "otelms_scraper", classname: str = None):
     """
@@ -33,14 +38,15 @@ def get_logger(name: str = "otelms_scraper", classname: str = None):
     que prefija el nombre de la clase en los mensajes.
     """
     logger = logging.getLogger(name)
-    
+
     if not logger.hasHandlers():
         _configure_logger(logger)
-        
+
     if classname:
         return ClassLoggerAdapter(logger, {'classname': classname})
-    
+
     return logger
+
 
 def _configure_logger(logger):
     """Configuración interna del logger."""
@@ -84,6 +90,7 @@ def _configure_logger(logger):
         logger.addHandler(file_handler)
     except (PermissionError, OSError) as e:
         sys.stderr.write(f"⚠️ No se pudo configurar log a archivo: {e}\n")
+
 
 # Instancia global por defecto para compatibilidad
 logger = get_logger()

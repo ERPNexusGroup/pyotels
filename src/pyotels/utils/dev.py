@@ -1,8 +1,7 @@
 # src/pyotels/utils/dev.py
 """  """
-import re
-from ..logger import logger
-from ..settings import config
+from pyotels.utils.logger import logger
+from ..config.settings import config
 
 
 def save_html_debug(html_content: str, filename: str):
@@ -15,11 +14,11 @@ def save_html_debug(html_content: str, filename: str):
             html_dir = config.get_html_path()
             html_dir.mkdir(exist_ok=True)
             file_path = html_dir / filename
-            
+
             # 1. Eliminar líneas vacías y espacios extra al inicio/final de cada línea
             lines = [line.strip() for line in html_content.splitlines()]
             non_empty_lines = [line for line in lines if line]
-            
+
             # 2. Unir de nuevo
             cleaned_content = "\n".join(non_empty_lines)
 

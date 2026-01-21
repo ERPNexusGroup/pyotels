@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Union, Any
 from . import config
 from .data_processor import OtelsProcessadorData
 from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNotFoundError
-from .logger import get_logger
+from pyotels.utils.logger import get_logger
 from .models import (
     CalendarReservation, CalendarCategories, ReservationModalDetail, ReservationDetail
 )

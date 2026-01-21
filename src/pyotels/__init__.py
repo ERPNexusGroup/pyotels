@@ -1,9 +1,9 @@
-from .extractor import OtelsExtractor
+from .config.settings import config, settings
 from .data_processor import OtelsProcessadorData
+from .exceptions import (AuthenticationError, NetworkError, ParsingError, DataNotFoundError)
+from .extractor import OtelsExtractor
 from .models import CalendarData, ReservationModalDetail, ReservationData
 from .scraper import OtelMSScraper
-from .settings import config, settings
-from .exceptions import ( AuthenticationError, NetworkError, ParsingError, DataNotFoundError)
 
 __all__ = [
     "OtelMSScraper",

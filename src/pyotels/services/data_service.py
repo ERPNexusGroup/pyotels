@@ -3,11 +3,11 @@ import sys
 from typing import Union, List, Dict, Any, Optional
 
 from .. import OtelsExtractor, OtelsProcessadorData
-from ..exceptions import AuthenticationError, NetworkError, DataNotFoundError
+from ..config.settings import config
+from ..exceptions import DataNotFoundError
 from ..models import ReservationDetail
-from ..settings import config
 from ..utils.dev import save_html_debug
-from ..logger import get_logger
+from ..utils.logger import get_logger
 
 
 class OtelsDataServices:
@@ -101,7 +101,6 @@ class OtelsDataServices:
         except Exception as e:
             self.logger.error(f"Failed to fetch details for {reservation_id}: {e}")
             raise DataNotFoundError(f"Failed to fetch details for {reservation_id}")
-
 
 # if __name__ == '__main__':
 #     id_hotel = '118510'

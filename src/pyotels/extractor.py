@@ -8,9 +8,9 @@ from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from pyotels.utils.logger import get_logger
+from .config.settings import config
 from .exceptions import NetworkError, AuthenticationError
-from .logger import get_logger
-from .settings import config
 from .utils.cache import get_cache_key
 
 
