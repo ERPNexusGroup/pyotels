@@ -135,6 +135,7 @@ class ReservationDetail(BaseModel):
     id: Final[int] = None
     guest: Guest = Field(default_factory=Guest)
     accommodation: AccommodationInfo = Field(default_factory=AccommodationInfo)
+    guests: List[Guest] = Field(default_factory=list)
     services: List[Service] = Field(default_factory=list)
     payments: List[PaymentTransaction] = Field(default_factory=list)
     cars: List[CarInfo] = Field(default_factory=list)

@@ -277,7 +277,7 @@ class OtelsExtractor:
 
             self.page.wait_for_selector(modal_selector, state="visible", timeout=15000)
 
-            time.sleep(10.5)  # Pequeña espera para renderizado final
+            time.sleep(0.5)  # Pequeña espera para renderizado final
 
             # Extraer HTML del modal completo
             modal_element = self.page.query_selector(modal_selector)

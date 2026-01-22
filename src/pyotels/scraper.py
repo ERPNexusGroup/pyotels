@@ -120,16 +120,6 @@ class OtelMSScraper:
 
         self.logger.info(f"Fetching details for reservation {reservation_id}")
         try:
-            # html_reservation_details = self.extractor.get_reservation_detail_html(reservation_id)
-            # save_html_debug(html_reservation_details, f"detail_{reservation_id}.html")
-            # processor = OtelsProcessadorData(html_reservation_details)
-
-            # Extraer ID de huésped primero para obtener su detalle
-            # id_guest = processor.extract_guest_id()
-            # Raspar la informacion del huesped para guardarla
-            # guest_html = self.extractor.get_guest_detail_html(id_guest)
-            # accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
-
             return self.service.get_reservation_data(
                 reservation_id=reservation_id, as_dict=as_dict
             )

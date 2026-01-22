@@ -1,5 +1,4 @@
 # src/services/data_service.py
-import sys
 from typing import Union, List, Dict, Any, Optional
 
 from .. import OtelsExtractor, OtelsProcessadorData
@@ -76,26 +75,42 @@ class OtelsDataServices:
             self.logger.debug(f"guest ({type(guest)}): {guest}")
 
             accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
-            self.logger.debug(f"accommodation_html: {accommodation_html}")
+            # self.logger.debug(f"accommodation_html: {accommodation_html}")
             accommodation = self.processor.extract_accommodation_details(accommodation_html, as_dict=return_dict)
             self.logger.debug(f"accommodation ({type(accommodation)}): {accommodation}")
 
             guests = self.processor.extract_guests_list()
-            self.logger.debug(f"guests_html: {guests}")
+            self.logger.debug(f"guests ({len(guests)}): {guests}")
 
-            sys.exit()
+            services = self.processor.extract_services_list()
+            self.logger.debug(f"services ({len(services)}): {services}")
+
+            payments = self.processor.extract_payments_list()
+            self.logger.debug(f"payments ({len(payments)}): {payments}")
+
+            cars = self.processor.extract_cars_list()
+            self.logger.debug(f"cars ({len(cars)}): {cars}")
+
+            notes = self.processor.extract_notes_list()
+            self.logger.debug(f"notes ({len(notes)}): {notes}")
+
+            tariffs = self.processor.extract_daily_tariffs_list()
+            self.logger.debug(f"tariffs ({len(tariffs)}): {tariffs}")
+
+            logs = self.processor.extract_change_log_list()
+            self.logger.debug(f"logs ({len(logs)}): {logs}")
 
             detail = ReservationDetail(
                 reservation_number=reservation_id,
-                guests=guest,
+                guest=guest,
                 accommodation=accommodation,
-                # guests=guests,
-                # services=services,
-                # payments=payments,
-                # cars=cars,
-                # notes=notes,
-                # daily_tariffs=tariffs,
-                # change_log=logs
+                guests=guests,
+                services=services,
+                payments=payments,
+                cars=cars,
+                notes=notes,
+                daily_tariffs=tariffs,
+                change_log=logs
             )
             return detail
         except Exception as e:

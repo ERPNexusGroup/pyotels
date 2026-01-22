@@ -597,8 +597,10 @@ class OtelsProcessadorData:
                 guests.append(Guest(**g))
         return guests
 
-    @staticmethod
-    def _extract_services_list(soup: BeautifulSoup) -> List[Service]:
+    def extract_services_list(self, html_content: Optional[str] = None) -> List[Service]:
+        self.logger.debug(f"Method: extract_services_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+
         services = []
 
         # Estrategia 1: Buscar panel por título
@@ -659,9 +661,13 @@ class OtelsProcessadorData:
                 services.append(Service(**s))
         return services
 
-    @staticmethod
-    def _extract_payments_list(soup: BeautifulSoup) -> List[PaymentTransaction]:
+    def extract_payments_list(self, html_content: Optional[str] = None) -> List[PaymentTransaction]:
+        self.logger.debug(f"Method: extract_payments_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        self.logger.debug(f"soup: {soup}")
+
         payments = []
+
         panel = soup.find('div', id='anchors_list_payments')
         # Nota: En el HTML proporcionado hay dos paneles con id="anchors_list_payments".
         # El primero es "Lista de pagos", el segundo "Lista de tarjetas de pago".
@@ -702,7 +708,11 @@ class OtelsProcessadorData:
 
         return payments
 
-    def _extract_cars_list(self, soup: BeautifulSoup) -> List[CarInfo]:
+    def extract_cars_list(self, html_content: Optional[str] = None) -> List[CarInfo]:
+        self.logger.debug(f"Method: extract_cars_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug(f"soup: {soup}")
+
         cars = []
         # Buscar panel Coche
         panels = soup.find_all('div', class_='panel')
@@ -730,7 +740,11 @@ class OtelsProcessadorData:
                         cars.append(CarInfo(**c))
         return cars
 
-    def _extract_notes_list(self, soup: BeautifulSoup) -> List[NoteInfo]:
+    def extract_notes_list(self, html_content: Optional[str] = None) -> List[NoteInfo]:
+        self.logger.debug("Method: _extract_notes_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug("soup: {soup}")
+
         notes = []
         # Buscar panel Notas
         panels = soup.find_all('div', class_='panel')
@@ -758,7 +772,11 @@ class OtelsProcessadorData:
                         notes.append(NoteInfo(**n))
         return notes
 
-    def _extract_daily_tariffs_list(self, soup: BeautifulSoup) -> List[DailyTariff]:
+    def extract_daily_tariffs_list(self, html_content: Optional[str] = None) -> List[DailyTariff]:
+        self.logger.debug("Method: _extract_notes_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug("soup: {soup}")
+
         tariffs = []
         panel = soup.find('div', id='anchors_billing_days')
 
@@ -786,7 +804,11 @@ class OtelsProcessadorData:
                         tariffs.append(DailyTariff(**t))
         return tariffs
 
-    def _extract_change_log(self, soup: BeautifulSoup) -> List[ChangeLog]:
+    def extract_change_log_list(self, html_content: Optional[str] = None) -> List[ChangeLog]:
+        self.logger.debug("Method: _extract_notes_list")
+        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        # self.logger.debug("soup: {soup}")
+
         logs = []
         panel = soup.find('div', id='anchors_log')
 

@@ -44,6 +44,8 @@ class Config(BaseSettings):
     )
     ACCEPT_REQUEST: str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
+    WAIT_FOR_FINAL_RENDERING: float = 0.5
+
     # -----------------------
     # Helpers
     # -----------------------
