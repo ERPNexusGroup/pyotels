@@ -1,18 +1,18 @@
 # src/pyotels/data_processor.py
 import html
 import re
-import sys
 from datetime import datetime
 from typing import List, Dict, Any, Union, Optional
 
 from bs4 import BeautifulSoup
 
-from pyotels.utils.logger import get_logger
 from pyotels.core.models import (
     RoomCategory, ReservationData, CalendarData, ReservationModalDetail,
     CalendarReservation, CalendarCategories, Guest, Service, PaymentTransaction,
-    DailyTariff, ReservationDetail, AccommodationInfo, CarInfo, NoteInfo, ChangeLog
+    DailyTariff, AccommodationInfo, CarInfo, NoteInfo, ChangeLog
 )
+from pyotels.utils.dev import save_html_debug
+from pyotels.utils.logger import get_logger
 
 
 class OtelsProcessadorData:
@@ -99,11 +99,11 @@ class OtelsProcessadorData:
         details = []
 
         for res_id, modal_html in self.modals_data.items():
-            self.logger.debug(f"Procesando modal para reserva {res_id}-> {modal_html}")
-            sys.exit(0)
+            # self.logger.debug(f"Procesando modal para reserva {res_id}-> {modal_html}")
             try:
                 # Se pasa 'id' como keyword argument para evitar conflicto con 'as_dict'
-                detail = self.extract_reservation_details(modal_html, as_dict=as_dict, id=res_id)
+                save_html_debug(modal_html, f'modal_{res_id}.html')
+                detail = self._extract_reservation_modal(modal_html, as_dict=as_dict, id=res_id)
                 details.append(detail)
             except Exception as e:
                 self.logger.error(f"Error procesando modal para reserva {res_id}: {e}")
@@ -132,73 +132,128 @@ class OtelsProcessadorData:
             self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
-    # def extract_reservation_details(self, html_content: Optional[str] = None,
-    #                                 as_dict: bool = False, **kwargs) -> Union[ReservationDetail, Dict[str, Any]]:
-    #     """
-    #     Extrae los detalles de la reserva desde el HTML de un folio (Modal/Página).
-    #     """
-    #     self.logger.info("Iniciando extracción de detalles de reserva...")
-    #     reservation_id = kwargs.get('id')
-    #     self.logger.info(f"reservation_id: {reservation_id}")
-    #     guest_html = kwargs.get('guest_html')
-    #     self.logger.info(f"guest_html: {len(guest_html) if guest_html else 0}")
-    #     accommodation_html = kwargs.get('accommodation_html')
-    #     self.logger.info(f"accommodation_html: {len(accommodation_html) if accommodation_html else 0}")
-    #
-    #     soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-    #
-    #     # Siempre usamos objetos para construir ReservationDetail
-    #     guest = Guest()
-    #     if guest_html:
-    #         guest = self.extract_guest_details(guest_html, as_dict=as_dict)
-    #         # 1. Información General (Basic Info)
-    #         basic_info = self.extract_basic_info_from_detail(soup)
-    #         if as_dict:
-    #             guest['legal_entity'] = basic_info.get('legal_entity', None)
-    #             guest['source'] = basic_info.get('source', None)
-    #             guest['user'] = basic_info.get('user', None)
-    #         else:
-    #             guest.legal_entity = basic_info.get('legal_entity', None)
-    #             guest.source = basic_info.get('source', None)
-    #             guest.user = basic_info.get('user', None)
-    #         self.logger.debug(f"guest: {guest}")
-    #
-    #     if accommodation_html:
-    #         # 2. Alojamiento (Accommodation)
-    #         accommodation = self.extract_accommodation_details(accommodation_html, as_dict=as_dict)
-    #         self.logger.debug(f"accommodation: {accommodation}\n Type: {type(accommodation)}")
-    #     else:
-    #         accommodation = None
-    #
-    #     # 3. Listas detalladas
-    #     guests = self._extract_guests_list(soup)
-    #     self.logger.debug(f'guests: {guests}')
-    #     # services = self._extract_services_list(soup)
-    #     # payments = self._extract_payments_list(soup)
-    #     # cars = self._extract_cars_list(soup)
-    #     # notes = self._extract_notes_list(soup)
-    #     # tariffs = self._extract_daily_tariffs_list(soup)
-    #     # logs = self._extract_change_log(soup)
-    #
-    #     # Construir objeto
-    #     detail = ReservationDetail(
-    #         reservation_number=reservation_id,
-    #         guests=guest,
-    #         accommodation=accommodation,
-    #         # services=services,
-    #         # payments=payments,
-    #         # cars=cars,
-    #         # notes=notes,
-    #         # daily_tariffs=tariffs,
-    #         # change_log=logs
-    #     )
-    #
-    #     return detail.model_dump() if as_dict else detail
+    def _extract_reservation_modal(self, html_content: str, as_dict: bool = False, **kwargs) -> Union[
+        ReservationModalDetail, Dict[str, Any]]:
+        """
+        Extrae información del modal de reserva (HTML parcial) y devuelve un ReservationModalDetail.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # 1. Reservation Number
+        h2 = soup.find('h2', class_='nameofgroup')
+        if h2:
+            text = h2.get_text(strip=True)
+            match = re.search(r'#(\d+)', text)
+            if match:
+                reservation_number = str(match.group(1))
+
+        # 2. Balance
+        balance_div = soup.find('div', class_='balans')
+        if balance_div:
+            balance_text = balance_div.get_text(strip=True).replace('Saldo:', '').strip()
+            try:
+                balance = float(balance_text.replace(',', ''))
+            except (ValueError, TypeError):
+                pass  # Mantener como None si la conversión falla
+
+        # 3. Mapeo de campos clave-valor
+        data_map = {}
+        labels = soup.find_all('span', class_='incolor')
+        for label in labels:
+            key = label.get_text(strip=True)
+            parent = label.find_parent('div')
+            if parent:
+                value_div = parent.find_next_sibling('div', class_='text-right')
+                if value_div:
+                    data_map[key] = value_div.get_text(strip=True)
+
+        self.logger.debug(f"data_map: {data_map}")
+
+        # 4. Mapeo a campos del modelo
+        if 'Huésped' in data_map:
+            guest_name = data_map['Huésped']
+
+        if 'Fuente' in data_map:
+            source = data_map['Fuente']
+
+        if 'Llegada' in data_map:
+            check_in = data_map['Llegada']
+
+        if 'Salida' in data_map:
+            check_out = data_map['Salida']
+
+        if 'Teléfono' in data_map:
+            phone = data_map['Teléfono']
+
+        if 'e-mail' in data_map:
+            email = data_map['e-mail']
+
+        if 'Total' in data_map:
+            try:
+                total = float(data_map['Total'].replace(',', ''))
+            except (ValueError, TypeError):
+                pass
+
+        if 'Pagado' in data_map:
+            try:
+                paid = float(data_map['Pagado'].replace(',', ''))
+            except (ValueError, TypeError):
+                pass
+
+        if 'Importe de los servicios por el día actual' in data_map:
+            try:
+                rate = float(data_map['Importe de los servicios por el día actual'].replace(',', ''))
+            except (ValueError, TypeError):
+                pass
+
+        if 'Notas' in data_map:
+            comments = data_map['Notas']
+
+        if 'Usuario' in data_map:
+            user = data_map['Usuario']
+
+        # 5. Guest Name y Guest Count
+        guest_label = soup.find('span', class_='incolor', string='Lista de huéspedes')
+        if guest_label:
+            parent_div = guest_label.find_parent('div')
+            if parent_div:
+                guest_div = parent_div.find_next_sibling('div', class_='text-right')
+                if guest_div:
+                    # Extraer nombres ignorando tags internos como <img>
+                    names = [text.strip() for text in guest_div.stripped_strings]
+                    if names:
+                        guest_name = names[0]
+                        guest_count = len(names)
+
+        # --- Construcción del objeto ---
+        detail = ReservationModalDetail(
+            reservation_number=reservation_number,
+            guest_name=guest_name,
+            check_in=check_in,
+            check_out=check_out,
+            created_at=created_at,
+            guest_count=guest_count,
+            balance=balance,
+            total=total,
+            paid=paid,
+            phone=phone,
+            email=email,
+            user=user,
+            comments=comments,
+            room_type=room_type,
+            room=room,
+            rate=rate,
+            source=source
+        )
+
+        if as_dict:
+            return detail.model_dump(exclude_none=True)
+        return detail
 
     def extract_guest_id(self, html_content: Optional[str] = None) -> Optional[int]:
         """
         Extrae el ID del huésped desde el HTML de información básica.
-        Busca un enlace del tipo /reservation_c2/guestfolio/12345
+        Busca un enlace del tipo /reservation_c2/foliogroup/0
         """
         self.logger.debug(f"Method: extract_guest_id")
         soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
