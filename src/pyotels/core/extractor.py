@@ -178,7 +178,7 @@ class OtelsExtractor:
                 raise AuthenticationError("La sesión ha expirado (redirigido a login).")
 
             try:
-                self.page.wait_for_selector("table.calendar_table", timeout=15000)
+                self.page.wait_for_selector("table.calendar_table", timeout=config.WAIT_FOR_SELECTOR)
             except PlaywrightTimeoutError:
                 self.logger.warning("Timeout esperando tabla del calendario, intentando continuar con el HTML actual.")
 
@@ -215,13 +215,13 @@ class OtelsExtractor:
         self.start()
         self.logger.info(f"Navegando a detalle de reserva: {url}")
         try:
-            self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            self.page.goto(url, wait_until="domcontentloaded", timeout=config.WAIT_FOR_SELECTOR)
 
             if "login" in self.page.url:
                 raise AuthenticationError("La sesión ha expirado.")
 
             try:
-                self.page.wait_for_selector("div.panel", timeout=10000)
+                self.page.wait_for_selector("div.panel", timeout=config.WAIT_FOR_SELECTOR)
             except PlaywrightTimeoutError:
                 pass
 
@@ -265,7 +265,7 @@ class OtelsExtractor:
             # Esperar y hacer clic en el botón Editar
             edit_btn_selector = "#edit_reservation"
             try:
-                self.page.wait_for_selector(edit_btn_selector, state="visible", timeout=10000)
+                self.page.wait_for_selector(edit_btn_selector, state="visible", timeout=config.WAIT_FOR_SELECTOR)
                 self.page.click(edit_btn_selector)
             except PlaywrightTimeoutError:
                 raise NetworkError(f"No se encontró el botón 'Editar' para la reserva {reservation_id}")
@@ -275,7 +275,7 @@ class OtelsExtractor:
             # Esto evita seleccionar el modal incorrecto (hay múltiples .modal-dialog en el DOM)
             modal_selector = "div.modal-dialog:has(#modalform)"
 
-            self.page.wait_for_selector(modal_selector, state="visible", timeout=15000)
+            self.page.wait_for_selector(modal_selector, state="visible", timeout=config.WAIT_FOR_SELECTOR)
 
             time.sleep(0.5)  # Pequeña espera para renderizado final
 
@@ -329,7 +329,7 @@ class OtelsExtractor:
                 raise AuthenticationError("La sesión ha expirado.")
 
             try:
-                self.page.wait_for_selector("div.panel", timeout=10000)
+                self.page.wait_for_selector("div.panel", timeout=config.WAIT_FOR_SELECTOR)
             except PlaywrightTimeoutError:
                 pass
 
@@ -408,7 +408,7 @@ class OtelsExtractor:
 
             # Esperar a que la reserva sea visible
             try:
-                self.page.wait_for_selector(res_selector, state="visible", timeout=5000)
+                self.page.wait_for_selector(res_selector, state="visible", timeout=config.WAIT_FOR_SELECTOR)
             except PlaywrightTimeoutError:
                 self.logger.warning(f"Reserva {reservation_id} no encontrada visible en la vista actual.")
                 raise NetworkError(f"Reserva {reservation_id} no encontrada en el calendario actual.")
@@ -419,7 +419,7 @@ class OtelsExtractor:
 
             # Esperar a que aparezca el modal
             modal_selector = "div.modal-content"
-            self.page.wait_for_selector(modal_selector, state="visible", timeout=5000)
+            self.page.wait_for_selector(modal_selector, state="visible", timeout=config.WAIT_FOR_SELECTOR)
 
             time.sleep(0.5)  # Pequeña espera para renderizado
 
@@ -432,7 +432,7 @@ class OtelsExtractor:
                 self.page.keyboard.press("Escape")
                 # Esperar a que el modal desaparezca para no interferir con el siguiente clic
                 try:
-                    self.page.wait_for_selector(modal_selector, state="hidden", timeout=3000)
+                    self.page.wait_for_selector(modal_selector, state="hidden", timeout=config.WAIT_FOR_SELECTOR)
                 except:
                     pass  # Si no desaparece rápido, seguimos igual
 

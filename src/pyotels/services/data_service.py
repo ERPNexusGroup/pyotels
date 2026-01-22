@@ -1,8 +1,8 @@
 # src/services/data_service.py
-from typing import Union, Dict, Any, Optional
+from typing import Union, Dict, Any, Optional, Literal
 
 from pyotels.core.models import ReservationDetail
-from .. import OtelsExtractor, OtelsProcessadorData, ParsingError
+from .. import OtelsExtractor, OtelsProcessadorData, ParsingError, NetworkError, AuthenticationError
 from ..config.settings import config
 from ..exceptions import DataNotFoundError
 from ..utils.dev import save_html_debug
@@ -126,10 +126,20 @@ class OtelsDataServices:
         ReservationDetail, Dict[str, Any], None]:
         html_content = self.extractor.get_calendar_html(start_date)
         save_html_debug(html_content, f"calendar_{start_date or 'default'}.html")
-        processor = OtelsProcessadorData(html_content)
-        return processor.extract_reservations(as_dict=self._resolve_as_dict(as_dict))
+        self.processor.html_content = html_content
+        return self.processor.extract_reservations(as_dict=self._resolve_as_dict(as_dict))
 
-    def get_reservation_data(self, reservation_id: Optional[str] = None, full_data: bool = False,
+    def _get_reservation_partial_data(self, as_dict: bool = False):
+        try:
+            html_content = self.extractor.collect_all_reservation_modals()
+            self.processor.html_content = html_content
+            return self.processor.extract_all_reservation_modals(as_dict=as_dict)
+        except Exception as e:
+            if isinstance(e, (NetworkError, AuthenticationError)): raise
+            raise ParsingError(f"Error al extraer modales: {e}")
+
+    def get_reservation_data(self, reservation_id: Optional[str] = None,
+                             strategy: Literal['basic', 'partial', 'full'] = 'basic',
                              as_dict: bool = False, start_date: Optional[str] = None) -> Union[
         ReservationDetail, Dict[str, Any], None]:
         """ obtener la data de cada segmento del detalle de las reservas """
@@ -137,19 +147,29 @@ class OtelsDataServices:
         return_dict = self._resolve_as_dict(as_dict)
 
         self.logger.info(f"Iniciando proceso de recuperacion de datos de reservacion 'get_reservation_data'")
-        if reservation_id and not full_data:
+        if reservation_id and strategy != 'full':
             self.logger.warning("La configuracion de reservation_id y fulldata es incorrecta")
             return None
 
         try:
-            reservations = self._get_reservation_full_data(
-                reservation_id=reservation_id,
-                as_dict=return_dict
-            ) if full_data \
-                else self._get_reservation_basic_data(
-                as_dict=return_dict,
-                start_date=start_date
-            )
+
+            if strategy == 'basic':
+                reservations = self._get_reservation_basic_data(
+                    as_dict=return_dict,
+                    start_date=start_date
+                )
+            elif strategy == 'partial':
+                reservations = self._get_reservation_partial_data(
+                    as_dict=return_dict
+                )
+            elif strategy == 'full':
+                reservations = self._get_reservation_full_data(
+                    reservation_id=reservation_id,
+                    as_dict=return_dict
+                )
+            else:
+                pass
+
             return reservations
         except Exception as e:
             self.logger.error(f"Failed to fetch details for {reservation_id}: {e}")
@@ -159,6 +179,5 @@ class OtelsDataServices:
         Metodos para extraer los ids
     """
 
-    def get_ids_reservation(self,start_date: Optional[str] = None):
+    def get_ids_reservation(self, start_date: Optional[str] = None):
         return self.extractor.get_visible_reservation_ids(start_date)
-

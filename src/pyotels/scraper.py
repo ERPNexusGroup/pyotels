@@ -1,5 +1,5 @@
 # src/pyotels/scarper.py
-from typing import Optional, List, Dict, Union, Any
+from typing import Optional, List, Dict, Union, Any, Literal
 
 from pyotels.core.data_processor import OtelsProcessadorData
 from pyotels.core.models import (
@@ -59,10 +59,10 @@ class OtelMSScraper:
             raise ParsingError(f"Error al extraer categorías: {e}")
 
     def get_reservations(self, start_date: Optional[str] = None, as_dict: Optional[bool] = None,
-                         full_data: Optional[bool] = False) -> Union[
+                         strategy: Literal['basic','partial','full'] = 'basic') -> Union[
         CalendarReservation, Dict[str, Any]]:
         try:
-            return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, full_data=full_data)
+            return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, strategy=strategy)
         except Exception as e:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
@@ -74,16 +74,12 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> Union[
-        List[ReservationModalDetail], List[Dict[str, Any]]]:
-        # as_dict = self._resolve_as_dict(as_dict)
-        try:
-            html_content = self.service.extractor.collect_all_reservation_modals()
-            processor = OtelsProcessadorData(html_content)
-            return processor.extract_all_reservation_modals(as_dict=as_dict)
-        except Exception as e:
-            if isinstance(e, (NetworkError, AuthenticationError)): raise
-            raise ParsingError(f"Error al extraer modales: {e}")
+    # def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> ReservationDetail | Dict[str, Any] | None:
+    #     try:
+    #         return self.service.get_reservation_data(as_dict=as_dict, strategy='partial')
+    #     except Exception as e:
+    #         if isinstance(e, (NetworkError, AuthenticationError)): raise
+    #         raise ParsingError(f"Error al extraer modales: {e}")
 
     def get_reservation_detail(self, reservation_id: Union[str, List[str]], as_dict: Optional[bool] = None) -> Union[
         ReservationDetail, List[ReservationDetail], Dict[str, Any], List[Dict[str, Any]], None]:
