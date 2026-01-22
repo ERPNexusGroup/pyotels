@@ -19,9 +19,9 @@ class Config(BaseSettings):
     # Flags generales
     # -----------------------
     DEBUG: bool = False
-    HEADLESS: bool = False
+    HEADLESS: bool = True
     USE_CACHE: bool = False
-    RETURN_DICT: bool = False
+    RETURN_DICT: bool = True
 
     LOG_LEVEL: Optional[str] = "INFO"
     LOG_BACKUP_COUNT: int = 10
@@ -53,7 +53,7 @@ class Config(BaseSettings):
     ACCEPT_REQUEST: str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
     WAIT_FOR_FINAL_RENDERING: float = 0.5
-    WAIT_FOR_SELECTOR: float = 10000
+    WAIT_FOR_SELECTOR: float = 20000
 
     # -----------------------
     # Helpers

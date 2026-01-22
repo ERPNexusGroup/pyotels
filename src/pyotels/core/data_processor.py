@@ -1,11 +1,13 @@
 # src/pyotels/data_processor.py
+
 import html
 import re
 from datetime import datetime
-from typing import List, Dict, Any, Union, Optional
+from typing import List, Dict, Any, Union, Optional, Final
 
 from bs4 import BeautifulSoup
 
+from pyotels.core.enums import StatusReservation
 from pyotels.core.models import (
     RoomCategory, ReservationData, CalendarData, ReservationModalDetail,
     CalendarReservation, CalendarCategories, Guest, Service, PaymentTransaction,
@@ -13,6 +15,7 @@ from pyotels.core.models import (
 )
 from pyotels.utils.dev import save_html_debug
 from pyotels.utils.logger import get_logger
+from pyotels.utils.normalizations import normalize_float, normalize_date
 
 
 class OtelsProcessadorData:
@@ -96,6 +99,7 @@ class OtelsProcessadorData:
         Procesa todos los modales almacenados y retorna una lista de ReservationDetail o Dicts.
         """
         self.logger.info(f"Procesando {len(self.modals_data)} modales de reserva...")
+
         details = []
 
         for res_id, modal_html in self.modals_data.items():
@@ -132,123 +136,173 @@ class OtelsProcessadorData:
             self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
+    @staticmethod
+    def normalize_balance(balance_raw: Optional[str], total_raw: Optional[str],
+                          paid_raw: Optional[str]) -> Optional[float]:
+
+        balance = normalize_float(balance_raw)
+        if balance is not None:
+            return balance
+
+        total = normalize_float(total_raw)
+        paid = normalize_float(paid_raw)
+
+        if total is not None and paid is not None:
+            return total - paid
+
+        return None
+
     def _extract_reservation_modal(self, html_content: str, as_dict: bool = False, **kwargs) -> Union[
         ReservationModalDetail, Dict[str, Any]]:
         """
         Extrae información del modal de reserva (HTML parcial) y devuelve un ReservationModalDetail.
         """
         soup = BeautifulSoup(html_content, 'html.parser')
+        extracted = {}
+        FIELDS_MAP: Final[dict] = {
+            "Huésped": "guest_name",
+            "Fuente": "source",
+            "Llegada": "check_in",
+            "Salida": "check_out",
+            "Teléfono": "phone",
+            "e-mail": "email",
+            "Notas": "comments",
+            "Usuario": "user",
+            "Total": "total",
+            "Pagado": "paid",
+            "Importe de los servicios por el día actual": "balance",
+            'Número de huéspedes': 'guest_count',
+            'Tipo de habitación': 'room_type',
+            'Habitación': 'room',
+            'Tarifa': 'rate',
+        }
 
         # 1. Reservation Number
-        h2 = soup.find('h2', class_='nameofgroup')
+        status = None
+        reservation_number = None
+        h2 = soup.find('h2', class_='nameofgroup') or soup.find('h2')
         if h2:
             text = h2.get_text(strip=True)
-            match = re.search(r'#(\d+)', text)
-            if match:
-                reservation_number = str(match.group(1))
+            # self.logger.debug(f"text: {text}")
+            match = re.findall(r'(?:Reserva|Salida|Alojamiento)|\d+', text)
+            # self.logger.debug(f"match: {match}")
+            if match and len(match) > 1:
+                status = StatusReservation.from_text(match[0].strip())
+                # self.logger.debug(f"status: {status}")
+                reservation_number = str(match[1])
+                # self.logger.debug(f"reservation_number {type(reservation_number)}: {reservation_number}")
 
         # 2. Balance
         balance_div = soup.find('div', class_='balans')
+        balance: Optional[float] = None
         if balance_div:
             balance_text = balance_div.get_text(strip=True).replace('Saldo:', '').strip()
             try:
                 balance = float(balance_text.replace(',', ''))
             except (ValueError, TypeError):
-                pass  # Mantener como None si la conversión falla
+                pass
 
         # 3. Mapeo de campos clave-valor
         data_map = {}
-        labels = soup.find_all('span', class_='incolor')
-        for label in labels:
+
+        for label in soup.find_all('span', class_='incolor'):
             key = label.get_text(strip=True)
             parent = label.find_parent('div')
-            if parent:
-                value_div = parent.find_next_sibling('div', class_='text-right')
-                if value_div:
-                    data_map[key] = value_div.get_text(strip=True)
+            if not parent:
+                continue
 
-        self.logger.debug(f"data_map: {data_map}")
+            value_div = parent.find_next_sibling('div', class_='text-right')
 
-        # 4. Mapeo a campos del modelo
-        if 'Huésped' in data_map:
-            guest_name = data_map['Huésped']
+            if value_div:
+                if value_div.find('img') and 'dc_logo/dc_logo_1.png' in value_div.find('img').get('src', ''):
+                    # self.logger.debug(f"key: {key} \t source: {value_div.find('img')}")
+                    data_map[key] = "booking"
+                else:
+                    # self.logger.debug(f"key: {key} \t value: {" ".join(value_div.stripped_strings)}")
+                    data_map[key] = " ".join(value_div.stripped_strings)
 
-        if 'Fuente' in data_map:
-            source = data_map['Fuente']
+        extracted["fields"] = data_map
+        # self.logger.debug(f"data_map: {data_map}")
 
-        if 'Llegada' in data_map:
-            check_in = data_map['Llegada']
+        mapped = {}
 
-        if 'Salida' in data_map:
-            check_out = data_map['Salida']
+        for label, value in data_map.items():
+            field = FIELDS_MAP.get(label)
+            if field:
+                # self.logger.debug(f"key: {field} \t value: {value}")
+                mapped[field] = value
+            else:
+                # self.logger.debug(f"Exclude key: {label} \t value: {value}")
+                continue
+        guest_list = []
 
-        if 'Teléfono' in data_map:
-            phone = data_map['Teléfono']
-
-        if 'e-mail' in data_map:
-            email = data_map['e-mail']
-
-        if 'Total' in data_map:
-            try:
-                total = float(data_map['Total'].replace(',', ''))
-            except (ValueError, TypeError):
-                pass
-
-        if 'Pagado' in data_map:
-            try:
-                paid = float(data_map['Pagado'].replace(',', ''))
-            except (ValueError, TypeError):
-                pass
-
-        if 'Importe de los servicios por el día actual' in data_map:
-            try:
-                rate = float(data_map['Importe de los servicios por el día actual'].replace(',', ''))
-            except (ValueError, TypeError):
-                pass
-
-        if 'Notas' in data_map:
-            comments = data_map['Notas']
-
-        if 'Usuario' in data_map:
-            user = data_map['Usuario']
-
-        # 5. Guest Name y Guest Count
         guest_label = soup.find('span', class_='incolor', string='Lista de huéspedes')
         if guest_label:
-            parent_div = guest_label.find_parent('div')
-            if parent_div:
-                guest_div = parent_div.find_next_sibling('div', class_='text-right')
+            parent = guest_label.find_parent('div')
+            if parent:
+                guest_div = parent.find_next_sibling('div', class_='text-right')
                 if guest_div:
-                    # Extraer nombres ignorando tags internos como <img>
-                    names = [text.strip() for text in guest_div.stripped_strings]
-                    if names:
-                        guest_name = names[0]
-                        guest_count = len(names)
+                    guest_list = list(guest_div.stripped_strings)
+
+        # self.logger.debug(f"guest_list: {guest_list}")
+
+        mapped["guest_name"] = data_map['Huésped'] if 'Huésped' in data_map else guest_list[0] if guest_list else None
+        mapped["guest_count"] = data_map['Número de huéspedes'].split(' ')[
+            0] if 'Número de huéspedes' in data_map else len(guest_list) or None
+
+        balance_div = soup.find('div', class_='balans')
+        if balance_div:
+            mapped["balance"] = balance_div.get_text(strip=True)
+
+        for key, value in data_map.items():
+            if "habitación" in key.lower():
+                mapped["room"] = value
+
+            if "tipo" in key.lower():
+                mapped["room_type"] = value
+
+            if "cread" in key.lower():
+                mapped["created_at"] = value
+
+        normalized = dict()
+
+        normalized["balance"] = self.normalize_balance(
+            mapped.get("balance") if mapped.get("balance") else balance,
+            mapped.get("total"),
+            mapped.get("paid")
+        )
+
+        normalized["total"] = normalize_float(mapped.get("total"))
+        normalized["paid"] = normalize_float(mapped.get("paid"))
+        normalized["rate"] = normalize_float(mapped.get("rate"))
+
+        normalized["check_in"] = normalize_date(mapped.get("check_in"))
+        normalized["check_out"] = normalize_date(mapped.get("check_out"))
+        normalized["created_at"] = normalize_date(mapped.get("created_at"))
 
         # --- Construcción del objeto ---
         detail = ReservationModalDetail(
-            reservation_number=reservation_number,
-            guest_name=guest_name,
-            check_in=check_in,
-            check_out=check_out,
-            created_at=created_at,
-            guest_count=guest_count,
-            balance=balance,
-            total=total,
-            paid=paid,
-            phone=phone,
-            email=email,
-            user=user,
-            comments=comments,
-            room_type=room_type,
-            room=room,
-            rate=rate,
-            source=source
+            reservation_number=reservation_number if reservation_number else kwargs.get('id'),
+            status=status,
+            guest_name=mapped.get("guest_name"),
+            check_in=normalized.get("check_in"),
+            check_out=normalized.get("check_out"),
+            created_at=normalized.get("created_at"),
+            guest_count=mapped.get("guest_count"),
+            balance=normalized.get("balance"),
+            total=normalized.get("total"),
+            paid=normalized.get("paid"),
+            rate=normalized.get("rate"),
+            phone=mapped.get("phone"),
+            email=mapped.get("email"),
+            user=mapped.get("user"),
+            comments=mapped.get("comments"),
+            room_type=mapped.get("room_type"),
+            room=mapped.get("room"),
+            source=mapped.get("source"),
         )
 
-        if as_dict:
-            return detail.model_dump(exclude_none=True)
-        return detail
+        return detail.model_dump(exclude_none=True) if as_dict else detail
 
     def extract_guest_id(self, html_content: Optional[str] = None) -> Optional[int]:
         """

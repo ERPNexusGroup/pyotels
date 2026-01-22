@@ -74,13 +74,6 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    # def get_all_reservation_modals(self, as_dict: Optional[bool] = None) -> ReservationDetail | Dict[str, Any] | None:
-    #     try:
-    #         return self.service.get_reservation_data(as_dict=as_dict, strategy='partial')
-    #     except Exception as e:
-    #         if isinstance(e, (NetworkError, AuthenticationError)): raise
-    #         raise ParsingError(f"Error al extraer modales: {e}")
-
     def get_reservation_detail(self, reservation_id: Union[str, List[str]], as_dict: Optional[bool] = None) -> Union[
         ReservationDetail, List[ReservationDetail], Dict[str, Any], List[Dict[str, Any]], None]:
         """

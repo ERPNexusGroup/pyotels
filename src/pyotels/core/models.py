@@ -164,6 +164,7 @@ class CalendarCategories(BaseModel):
 class ReservationModalDetail(BaseModel):
     """Respuesta para la petición de Detalle de Reserva (Modal) - Legacy/Simple"""
     reservation_number: Optional[str] = None
+    status: Optional[int] = None
     guest_name: Optional[str] = None
     check_in: Optional[str] = None
     check_out: Optional[str] = None
