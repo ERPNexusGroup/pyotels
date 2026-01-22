@@ -4,7 +4,7 @@ from typing import Union, List, Dict, Any, Optional
 from .. import OtelsExtractor, OtelsProcessadorData
 from ..config.settings import config
 from ..exceptions import DataNotFoundError
-from ..models import ReservationDetail
+from pyotels.core.models import ReservationDetail
 from ..utils.dev import save_html_debug
 from ..utils.logger import get_logger
 

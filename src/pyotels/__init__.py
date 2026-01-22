@@ -1,8 +1,8 @@
 from .config.settings import config, settings
-from .data_processor import OtelsProcessadorData
+from pyotels.core.data_processor import OtelsProcessadorData
 from .exceptions import (AuthenticationError, NetworkError, ParsingError, DataNotFoundError)
-from .extractor import OtelsExtractor
-from .models import CalendarData, ReservationModalDetail, ReservationData
+from pyotels.core.extractor import OtelsExtractor
+from pyotels.core.models import CalendarData, ReservationModalDetail, ReservationData
 from .scraper import OtelMSScraper
 
 __all__ = [

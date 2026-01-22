@@ -32,6 +32,14 @@ class Config(BaseSettings):
     BASE_DIR: Path = Path(os.getcwd())
 
     # -----------------------
+    # Logging
+    # -----------------------
+    SAVE_HTML: bool = False
+    SAVE_JSON: bool = False
+    PRINT_DEBUG: bool = False
+    PRINT_HTML: bool = False
+
+    # -----------------------
     # Scraping / negocio
     # -----------------------
     TARGET_DATE: str = datetime.now().strftime("%Y-%m-%d")

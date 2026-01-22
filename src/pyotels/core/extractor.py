@@ -9,9 +9,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from pyotels.utils.logger import get_logger
-from .config.settings import config
-from .exceptions import NetworkError, AuthenticationError
-from .utils.cache import get_cache_key
+from pyotels.config.settings import config
+from pyotels.exceptions import NetworkError, AuthenticationError
+from pyotels.utils.cache import get_cache_key
 
 
 class OtelsExtractor:

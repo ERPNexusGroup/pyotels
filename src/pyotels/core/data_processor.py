@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Union, Optional
 from bs4 import BeautifulSoup
 
 from pyotels.utils.logger import get_logger
-from .models import (
+from pyotels.core.models import (
     RoomCategory, ReservationData, CalendarData, ReservationModalDetail,
     CalendarReservation, CalendarCategories, Guest, Service, PaymentTransaction,
     DailyTariff, ReservationDetail, AccommodationInfo, CarInfo, NoteInfo, ChangeLog

@@ -1,11 +1,11 @@
 # src/pyotels/scarper.py
 from typing import Optional, List, Dict, Union, Any
 
-from . import config
-from .data_processor import OtelsProcessadorData
-from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNotFoundError
 from pyotels.utils.logger import get_logger
-from .models import (
+from . import config
+from pyotels.core.data_processor import OtelsProcessadorData
+from .exceptions import AuthenticationError, NetworkError, ParsingError, DataNotFoundError
+from pyotels.core.models import (
     CalendarReservation, CalendarCategories, ReservationModalDetail, ReservationDetail
 )
 from .services.data_service import OtelsDataServices
@@ -63,10 +63,6 @@ class OtelMSScraper:
             self.logger.error(f"Error inesperado en login: {e}")
             raise NetworkError(f"Error en login: {e}")
 
-    # def _resolve_as_dict(self, as_dict: Optional[bool]) -> bool:
-    #     """Resuelve si se debe retornar un diccionario o un objeto."""
-    #     return as_dict if as_dict is not None else self.return_dict
-
     def get_categories(self, target_date_str: str = None, as_dict: Optional[bool] = None) -> Union[
         CalendarCategories, Dict[str, Any]]:
         # as_dict = self._resolve_as_dict(as_dict)
@@ -80,7 +76,6 @@ class OtelMSScraper:
 
     def get_reservations(self, target_date_str: str = None, as_dict: Optional[bool] = None) -> Union[
         CalendarReservation, Dict[str, Any]]:
-        # as_dict = self._resolve_as_dict(as_dict)
         try:
             html_content = self.service.extractor.get_calendar_html(target_date_str)
             save_html_debug(html_content, f"calendar_{target_date_str or 'default'}.html")
@@ -90,7 +85,7 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    def get_reservations_ids(self, target_date_str: str = None) -> List[int]:
+    def get_reservations_ids(self) -> List[int]:
         try:
             ids_list = self.service.extractor.get_visible_reservation_ids()
             return ids_list
@@ -116,7 +111,8 @@ class OtelMSScraper:
         Si reservation_id es una lista, retorna una lista de detalles.
         Si es un solo ID, retorna un solo objeto detalle.
         """
-        # as_dict = self._resolve_as_dict(as_dict)
+        self.logger.debug(f"Method: get_reservation_detail")
+        self.logger.debug(f"Parameters: {{\"reservation_id\": {reservation_id}, \"as_dict\": {as_dict}}}")
 
         self.logger.info(f"Fetching details for reservation {reservation_id}")
         try:
