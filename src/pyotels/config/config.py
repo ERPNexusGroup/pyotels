@@ -57,8 +57,8 @@ class Config(BaseSettings):
     # -----------------------
     # Helpers
     # -----------------------
-    def get_output_path(self, filename: str) -> str:
-        output_dir = self.BASE_DIR / "output"
+    def get_data_path(self, filename: str) -> str:
+        output_dir = self.BASE_DIR / "data"
         output_dir.mkdir(exist_ok=True)
         return str(output_dir / filename)
 
