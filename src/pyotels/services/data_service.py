@@ -137,15 +137,28 @@ class OtelsDataServices:
         return_dict = self._resolve_as_dict(as_dict)
 
         self.logger.info(f"Iniciando proceso de recuperacion de datos de reservacion 'get_reservation_data'")
+        if reservation_id and not full_data:
+            self.logger.warning("La configuracion de reservation_id y fulldata es incorrecta")
+            return None
+
         try:
             reservations = self._get_reservation_full_data(
                 reservation_id=reservation_id,
                 as_dict=return_dict
             ) if full_data \
                 else self._get_reservation_basic_data(
-                as_dict=return_dict
+                as_dict=return_dict,
+                start_date=start_date
             )
             return reservations
         except Exception as e:
             self.logger.error(f"Failed to fetch details for {reservation_id}: {e}")
             raise DataNotFoundError(f"Failed to fetch details for {reservation_id}")
+
+    """
+        Metodos para extraer los ids
+    """
+
+    def get_ids_reservation(self,start_date: Optional[str] = None):
+        return self.extractor.get_visible_reservation_ids(start_date)
+
