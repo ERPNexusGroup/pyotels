@@ -1,6 +1,7 @@
 # src/pyotels/data_processor.py
 import html
 import re
+import sys
 from datetime import datetime
 from typing import List, Dict, Any, Union, Optional
 
@@ -98,8 +99,11 @@ class OtelsProcessadorData:
         details = []
 
         for res_id, modal_html in self.modals_data.items():
+            self.logger.debug(f"Procesando modal para reserva {res_id}-> {modal_html}")
+            sys.exit(0)
             try:
-                detail = self.extract_reservation_details(modal_html, res_id, as_dict=as_dict)
+                # Se pasa 'id' como keyword argument para evitar conflicto con 'as_dict'
+                detail = self.extract_reservation_details(modal_html, as_dict=as_dict, id=res_id)
                 details.append(detail)
             except Exception as e:
                 self.logger.error(f"Error procesando modal para reserva {res_id}: {e}")
@@ -128,66 +132,68 @@ class OtelsProcessadorData:
             self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
             raise
 
-    def extract_reservation_details(self, html_content: Optional[str] = None,
-                                    as_dict: bool = False, **kwargs) -> Union[ReservationDetail, Dict[str, Any]]:
-        """
-        Extrae los detalles de la reserva desde el HTML de un folio (Modal/Página).
-        """
-        self.logger.info("Iniciando extracción de detalles de reserva...")
-        reservation_id = kwargs.get('id')
-        self.logger.info(f"reservation_id: {reservation_id}")
-        guest_html = kwargs.get('guest_html')
-        self.logger.info(f"guest_html: {len(guest_html)}")
-        accommodation_html = kwargs.get('accommodation_html')
-        self.logger.info(f"accommodation_html: {len(accommodation_html)}")
-
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-
-        # Siempre usamos objetos para construir ReservationDetail
-        guest = Guest()
-        if guest_html:
-            guest = self.extract_guest_details(guest_html, as_dict=as_dict)
-            # 1. Información General (Basic Info)
-            basic_info = self.extract_basic_info_from_detail(soup)
-            if as_dict:
-                guest['legal_entity'] = basic_info.get('legal_entity', None)
-                guest['source'] = basic_info.get('source', None)
-                guest['user'] = basic_info.get('user', None)
-            else:
-                guest.legal_entity = basic_info.get('legal_entity', None)
-                guest.source = basic_info.get('source', None)
-                guest.user = basic_info.get('user', None)
-            self.logger.debug(f"guest: {guest}")
-
-        if accommodation_html:
-            # 2. Alojamiento (Accommodation)
-            accommodation = self.extract_accommodation_details(accommodation_html, as_dict=as_dict)
-            self.logger.debug(f"accommodation: {accommodation}\n Type: {type(accommodation)}")
-
-        # 3. Listas detalladas
-        guests = self._extract_guests_list(soup)
-        self.logger.debug(f'guests: {guests}')
-        # services = self._extract_services_list(soup)
-        # payments = self._extract_payments_list(soup)
-        # cars = self._extract_cars_list(soup)
-        # notes = self._extract_notes_list(soup)
-        # tariffs = self._extract_daily_tariffs_list(soup)
-        # logs = self._extract_change_log(soup)
-
-        # Construir objeto
-        detail = ReservationDetail(
-            reservation_number=reservation_id,
-            guests=guest,
-            accommodation=accommodation,
-            # services=services,
-            # payments=payments,
-            # cars=cars,
-            # notes=notes,
-            # daily_tariffs=tariffs,
-            # change_log=logs
-        )
-
-        return detail.model_dump() if as_dict else detail
+    # def extract_reservation_details(self, html_content: Optional[str] = None,
+    #                                 as_dict: bool = False, **kwargs) -> Union[ReservationDetail, Dict[str, Any]]:
+    #     """
+    #     Extrae los detalles de la reserva desde el HTML de un folio (Modal/Página).
+    #     """
+    #     self.logger.info("Iniciando extracción de detalles de reserva...")
+    #     reservation_id = kwargs.get('id')
+    #     self.logger.info(f"reservation_id: {reservation_id}")
+    #     guest_html = kwargs.get('guest_html')
+    #     self.logger.info(f"guest_html: {len(guest_html) if guest_html else 0}")
+    #     accommodation_html = kwargs.get('accommodation_html')
+    #     self.logger.info(f"accommodation_html: {len(accommodation_html) if accommodation_html else 0}")
+    #
+    #     soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+    #
+    #     # Siempre usamos objetos para construir ReservationDetail
+    #     guest = Guest()
+    #     if guest_html:
+    #         guest = self.extract_guest_details(guest_html, as_dict=as_dict)
+    #         # 1. Información General (Basic Info)
+    #         basic_info = self.extract_basic_info_from_detail(soup)
+    #         if as_dict:
+    #             guest['legal_entity'] = basic_info.get('legal_entity', None)
+    #             guest['source'] = basic_info.get('source', None)
+    #             guest['user'] = basic_info.get('user', None)
+    #         else:
+    #             guest.legal_entity = basic_info.get('legal_entity', None)
+    #             guest.source = basic_info.get('source', None)
+    #             guest.user = basic_info.get('user', None)
+    #         self.logger.debug(f"guest: {guest}")
+    #
+    #     if accommodation_html:
+    #         # 2. Alojamiento (Accommodation)
+    #         accommodation = self.extract_accommodation_details(accommodation_html, as_dict=as_dict)
+    #         self.logger.debug(f"accommodation: {accommodation}\n Type: {type(accommodation)}")
+    #     else:
+    #         accommodation = None
+    #
+    #     # 3. Listas detalladas
+    #     guests = self._extract_guests_list(soup)
+    #     self.logger.debug(f'guests: {guests}')
+    #     # services = self._extract_services_list(soup)
+    #     # payments = self._extract_payments_list(soup)
+    #     # cars = self._extract_cars_list(soup)
+    #     # notes = self._extract_notes_list(soup)
+    #     # tariffs = self._extract_daily_tariffs_list(soup)
+    #     # logs = self._extract_change_log(soup)
+    #
+    #     # Construir objeto
+    #     detail = ReservationDetail(
+    #         reservation_number=reservation_id,
+    #         guests=guest,
+    #         accommodation=accommodation,
+    #         # services=services,
+    #         # payments=payments,
+    #         # cars=cars,
+    #         # notes=notes,
+    #         # daily_tariffs=tariffs,
+    #         # change_log=logs
+    #     )
+    #
+    #     return detail.model_dump() if as_dict else detail
 
     def extract_guest_id(self, html_content: Optional[str] = None) -> Optional[int]:
         """
