@@ -1,8 +1,7 @@
-import json
-
-from src.pyotels.logger import logger
+from pyotels.utils.dev import save_json
+from pyotels.utils.logger import logger
+from src.pyotels.config.settings import config
 from src.pyotels.scraper import OtelMSScraper
-from src.pyotels.settings import config
 
 # --- CONFIGURACIÓN DE PRUEBAS ---
 # Lista de métodos a ejecutar:
@@ -13,10 +12,10 @@ from src.pyotels.settings import config
 # 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
 # 0: Ejecutar TODOS (en orden lógico)
 
-TEST_METHODS = [5]  # Ejemplo: [1, 2] o [0] o [4]
+TEST_METHODS = [2]  # Ejemplo: [1, 2] o [0] o [4]
 
 # ID de reserva específico para probar el méto.do 5 (si se selecciona)
-TEST_RESERVATION_ID = '22804'
+TEST_RESERVATION_ID = '22810'
 
 
 def main():
@@ -24,7 +23,8 @@ def main():
     id_hotel = '118510'
     username = 'gerencia@harmonyhotelgroup.com'
     password = 'Majestic2'
-    target_date = config.TARGET_DATE  # O '2026-01-16'
+    # target_date = config.TARGET_DATE # O '2026-01-16'
+    target_date = None  # O '2026-01-16'
 
     logger.info(f"Iniciando prueba manual de scraper para Hotel ID: {id_hotel}")
     logger.info(f"Métodos seleccionados: {TEST_METHODS}")
@@ -57,8 +57,8 @@ def main():
         # 2. Obtener Reservas (Grilla)
         if run_all or 2 in TEST_METHODS:
             logger.info("\n--- [2] Obteniendo Grilla de Reservas ---")
-            grid = scraper.get_reservations(target_date)
-            save_json(grid, 'reservations.json')
+            reservations = scraper.get_reservations(target_date)
+            save_json(reservations, 'reservations.json')
 
         # 3. Obtener IDs de Reservas Visibles
         if run_all or 3 in TEST_METHODS:
@@ -84,6 +84,7 @@ def main():
             logger.info(f"\n--- [5] Obteniendo Detalle para Reserva {TEST_RESERVATION_ID} ---")
             if TEST_RESERVATION_ID:
                 detail = scraper.get_reservation_detail(TEST_RESERVATION_ID)
+                logger.info(f"detail: {detail}")
                 if detail:
                     save_json(detail, f'detail_{TEST_RESERVATION_ID}.json')
                 else:
@@ -96,17 +97,6 @@ def main():
     finally:
         scraper.close()
         logger.info("Prueba manual finalizada.")
-
-
-def save_json(data, filename):
-    """Helper para guardar JSON en la carpeta data/"""
-    if config.DEBUG:
-        file_path = config.BASE_DIR / 'data' / filename
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False, default=str)
-        logger.info(f"Datos guardados en: {file_path}")
 
 
 if __name__ == "__main__":
