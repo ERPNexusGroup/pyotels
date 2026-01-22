@@ -364,14 +364,14 @@ class OtelsExtractor:
         self.logger.info(f"Extracción masiva completada. {len(results)} detalles obtenidos.")
         return results
 
-    def get_visible_reservation_ids(self) -> List[str]:
+    def get_visible_reservation_ids(self,target_date_str: str = None) -> List[str]:
         """
         Escanea la página actual del calendario y retorna una lista de todos los IDs de reserva visibles.
         """
         self.start()
         # Asegurar que estamos en el calendario
         if not self.page.url.startswith(self.CALENDAR_URL):
-            self.get_calendar_html()
+            self.get_calendar_html(target_date_str)
 
         try:
             # Seleccionar todos los elementos que tengan el atributo 'resid'
