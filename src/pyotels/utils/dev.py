@@ -11,7 +11,7 @@ def save_html_debug(html_content: str, filename: str):
     Guarda el contenido HTML en disco si DEBUG está activo.
     Limpia líneas vacías y espacios innecesarios para facilitar la lectura.
     """
-    if config.DEBUG:
+    if config.DEBUG and config.SAVE_HTML:
         try:
             html_dir = config.get_html_path()
             html_dir.mkdir(exist_ok=True)
@@ -33,7 +33,7 @@ def save_html_debug(html_content: str, filename: str):
 
 def save_json(data, filename):
     """Helper para guardar JSON en la carpeta data/"""
-    if config.DEBUG:
+    if config.DEBUG and config.SAVE_JSON:
         file_path = config.BASE_DIR / 'data' / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
 

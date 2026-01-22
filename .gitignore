@@ -68,3 +68,6 @@ pip-delete-this-directory.txt
 Thumbs.db
 ia_tools/
 #html/
+
+# --- Pruebas ---
+settings.py
