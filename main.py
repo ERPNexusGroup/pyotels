@@ -1,6 +1,5 @@
 from pyotels.utils.dev import save_json
 from pyotels.utils.logger import logger
-from src.pyotels.config.settings import config
 from src.pyotels.scraper import OtelMSScraper
 
 # --- CONFIGURACIÓN DE PRUEBAS ---
@@ -12,7 +11,7 @@ from src.pyotels.scraper import OtelMSScraper
 # 5: get_reservation_detail (Detalle de una reserva específica o iteración manual)
 # 0: Ejecutar TODOS (en orden lógico)
 
-TEST_METHODS = [2]  # Ejemplo: [1, 2] o [0] o [4]
+TEST_METHODS = [0]  # Ejemplo: [1, 2] o [0] o [4]
 
 # ID de reserva específico para probar el méto.do 5 (si se selecciona)
 TEST_RESERVATION_ID = '22810'
@@ -33,10 +32,7 @@ def main():
     scraper = OtelMSScraper(
         id_hotel=id_hotel,
         username=username,
-        password=password,
-        use_cache=False,
-        return_dict=True,
-        headless=False
+        password=password
     )
 
     try:
@@ -63,7 +59,7 @@ def main():
         # 3. Obtener IDs de Reservas Visibles
         if run_all or 3 in TEST_METHODS:
             logger.info("\n--- [3] Obteniendo IDs de Reservas Visibles ---")
-            ids = scraper.get_reservations_ids(target_date)
+            ids = scraper.get_ids_reservation(target_date)
             logger.info(f"IDs encontrados: {ids}")
             save_json(ids, 'visible_ids.json')
 
@@ -71,7 +67,7 @@ def main():
         if run_all or 4 in TEST_METHODS:
             logger.info("\n--- [4] Obteniendo Todos los Modales Visibles ---")
             # Nota: Este mét.odo ya navega y extrae
-            modals_details = scraper.get_all_reservation_modals()
+            modals_details = scraper.get_reservations(start_date=target_date, strategy='partial')
 
             # Convertir lista de objetos a lista de dicts para JSON
             details_data = [d for d in modals_details]
@@ -80,10 +76,11 @@ def main():
             logger.info(f"Se extrajeron {len(details_data)} detalles de modales.")
 
         # 5. Obtener Detalle de Reserva Específica
-        if 5 in TEST_METHODS:  # No incluido en run_all por defecto para no saturar si no hay ID
+        logger.warning(f"TEST_METHODS: {TEST_METHODS}")
+        if run_all or 5 in TEST_METHODS:  # No incluido en run_all por defecto para no saturar si no hay ID
             logger.info(f"\n--- [5] Obteniendo Detalle para Reserva {TEST_RESERVATION_ID} ---")
             if TEST_RESERVATION_ID:
-                detail = scraper.get_reservation_detail(TEST_RESERVATION_ID)
+                detail = scraper.get_reservation_detail(TEST_RESERVATION_ID,strategy='full')
                 logger.info(f"detail: {detail}")
                 if detail:
                     save_json(detail, f'detail_{TEST_RESERVATION_ID}.json')
