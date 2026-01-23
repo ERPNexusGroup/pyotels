@@ -65,16 +65,16 @@ def normalize_date(value: Optional[str],
     return dt if return_datetime else result
 
 
-if __name__ == '__main__':
-    print(normalize_date("Jueves - 2026-02-05 14:00"))
-    print(normalize_date("2026-01-23", with_time=True))
-    print(normalize_date("Sábado - 2026-02-07 12:00", with_time=False))
-    print(normalize_date("Domingo - 2026-02-08 12:00", only_time=True))
-    print(normalize_date(
-        "Reserva creada el Domingo - 2026-02-08 12:00",
-        output_format="%d/%m/%Y %H:%M"
-    ))
-    print(normalize_date(
-        "Texto random 2026-02-05 14:00 bla bla",
-        return_datetime=True
-    ))
+# if __name__ == '__main__':
+#     print(normalize_date("Jueves - 2026-02-05 14:00"))
+#     print(normalize_date("2026-01-23", with_time=True))
+#     print(normalize_date("Sábado - 2026-02-07 12:00", with_time=False))
+#     print(normalize_date("Domingo - 2026-02-08 12:00", only_time=True))
+#     print(normalize_date(
+#         "Reserva creada el Domingo - 2026-02-08 12:00",
+#         output_format="%d/%m/%Y %H:%M"
+#     ))
+#     print(normalize_date(
+#         "Texto random 2026-02-05 14:00 bla bla",
+#         return_datetime=True
+#     ))
