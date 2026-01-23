@@ -779,7 +779,7 @@ class OtelsProcessadorData:
     def extract_payments_list(self, html_content: Optional[str] = None) -> List[PaymentTransaction]:
         self.logger.debug(f"Method: extract_payments_list")
         soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        self.logger.debug(f"soup: {soup}")
+        # self.logger.debug(f"soup: {soup}")
 
         payments = []
 
