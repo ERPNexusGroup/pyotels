@@ -1,9 +1,8 @@
 # src/pyotels/scarper.py
 from typing import Optional, List, Dict, Union, Any, Literal
 
-from pyotels.core.data_processor import OtelsProcessadorData
 from pyotels.core.models import (
-    CalendarReservation, CalendarCategories, ReservationModalDetail, ReservationDetail
+    CalendarReservation, CalendarCategories, ReservationDetail
 )
 from pyotels.utils.logger import get_logger
 from . import config
@@ -59,7 +58,7 @@ class OtelMSScraper:
             raise ParsingError(f"Error al extraer categorías: {e}")
 
     def get_reservations(self, start_date: Optional[str] = None, as_dict: Optional[bool] = None,
-                         strategy: Literal['basic','partial','full'] = 'basic') -> Union[
+                         strategy: Literal['basic', 'partial', 'full'] = 'basic') -> Union[
         CalendarReservation, Dict[str, Any]]:
         try:
             return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, strategy=strategy)
@@ -74,7 +73,9 @@ class OtelMSScraper:
             if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
-    def get_reservation_detail(self, reservation_id: Union[str, List[str]], as_dict: Optional[bool] = None) -> Union[
+    def get_reservation_detail(self, reservation_id: Union[str, List[str]],
+                               strategy: Literal['basic', 'partial', 'full'] = 'basic',
+                               as_dict: Optional[bool] = None) -> Union[
         ReservationDetail, List[ReservationDetail], Dict[str, Any], List[Dict[str, Any]], None]:
         """
         Obtiene los detalles de una o varias reservas.
@@ -87,7 +88,7 @@ class OtelMSScraper:
         self.logger.info(f"Fetching details for reservation {reservation_id}")
         try:
             return self.service.get_reservation_data(
-                reservation_id=reservation_id, as_dict=as_dict
+                reservation_id=reservation_id, as_dict=as_dict, strategy=strategy
             )
         except DataNotFoundError:
             self.logger.warning(f"Reserva {reservation_id} no encontrada.")
