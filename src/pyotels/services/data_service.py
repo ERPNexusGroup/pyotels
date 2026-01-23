@@ -71,7 +71,7 @@ class OtelsDataServices:
         guest = self.processor.extract_guest_details(guest_html, as_dict=as_dict)
         # 1. Información General (Basic Info)
         basic_info = self.processor.extract_basic_info_from_detail()
-        self.logger.debug(f"basic_info: {basic_info}")
+        # self.logger.debug(f"basic_info: {basic_info}")
 
         for key in ['legal_entity', 'source', 'user']:
             val = basic_info.get(key)
@@ -80,7 +80,7 @@ class OtelsDataServices:
                 guest[key] = val
             else:
                 setattr(guest, key, val)
-        self.logger.debug(f"guest ({type(guest)}): {guest}")
+        # self.logger.debug(f"guest ({type(guest)}): {guest}")
 
         accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
         # self.logger.debug(f"accommodation_html: {accommodation_html}")
