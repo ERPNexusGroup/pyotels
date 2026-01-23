@@ -50,6 +50,8 @@ class OtelsDataServices:
             html_content = self.extractor.get_calendar_html(start_date)
             processor = OtelsProcessadorData(html_content)
             return processor.extract_categories(as_dict=self._resolve_as_dict(as_dict))
+        except (NetworkError, AuthenticationError):
+            raise
         except Exception as e:
             self.logger.error(f"Error al extraer categorías: {e}")
             raise ParsingError(f"Error al extraer categorías: {e}")
@@ -59,83 +61,94 @@ class OtelsDataServices:
     """
 
     def _get_reservation_full_data(self, reservation_id: Optional[str] = None, as_dict: bool = False):
-        html_reservation_details = self.extractor.get_reservation_detail_html(reservation_id)
-        save_html_debug(html_reservation_details, f"detail_{reservation_id}.html")
+        try:
+            html_reservation_details = self.extractor.get_reservation_detail_html(reservation_id)
+            save_html_debug(html_reservation_details, f"detail_{reservation_id}.html")
 
-        self.processor.html_content = html_reservation_details
-        id_guest = self.processor.extract_guest_id()
-        self.logger.debug(f"id_guest: {id_guest}")
+            self.processor.html_content = html_reservation_details
+            id_guest = self.processor.extract_guest_id()
+            self.logger.debug(f"id_guest: {id_guest}")
 
-        guest_html = self.extractor.get_guest_detail_html(id_guest)
-        # self.logger.debug(f"guest_html: {guest_html}")
-        guest = self.processor.extract_guest_details(guest_html, as_dict=as_dict)
-        # 1. Información General (Basic Info)
-        basic_info = self.processor.extract_basic_info_from_detail()
-        # self.logger.debug(f"basic_info: {basic_info}")
+            guest_html = self.extractor.get_guest_detail_html(id_guest)
+            # self.logger.debug(f"guest_html: {guest_html}")
+            guest = self.processor.extract_guest_details(guest_html, as_dict=as_dict)
+            # 1. Información General (Basic Info)
+            basic_info = self.processor.extract_basic_info_from_detail()
+            # self.logger.debug(f"basic_info: {basic_info}")
 
-        for key in ['legal_entity', 'source', 'user']:
-            val = basic_info.get(key)
+            for key in ['legal_entity', 'source', 'user']:
+                val = basic_info.get(key)
 
-            if isinstance(guest, dict):
-                guest[key] = val
-            else:
-                setattr(guest, key, val)
-        # self.logger.debug(f"guest ({type(guest)}): {guest}")
+                if isinstance(guest, dict):
+                    guest[key] = val
+                else:
+                    setattr(guest, key, val)
+            # self.logger.debug(f"guest ({type(guest)}): {guest}")
 
-        accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
-        # self.logger.debug(f"accommodation_html: {accommodation_html}")
-        accommodation = self.processor.extract_accommodation_details(accommodation_html, as_dict=as_dict)
-        self.logger.debug(f"accommodation ({type(accommodation)}): {accommodation}")
+            accommodation_html = self.extractor.get_reservation_accommodation_detail_html(reservation_id)
+            # self.logger.debug(f"accommodation_html: {accommodation_html}")
+            accommodation = self.processor.extract_accommodation_details(accommodation_html, as_dict=as_dict)
+            self.logger.debug(f"accommodation ({type(accommodation)}): {accommodation}")
 
-        guests = self.processor.extract_guests_list()
-        self.logger.debug(f"guests ({len(guests)}): {guests}")
+            guests = self.processor.extract_guests_list()
+            self.logger.debug(f"guests ({len(guests)}): {guests}")
 
-        services = self.processor.extract_services_list()
-        self.logger.debug(f"services ({len(services)}): {services}")
+            services = self.processor.extract_services_list()
+            self.logger.debug(f"services ({len(services)}): {services}")
 
-        payments = self.processor.extract_payments_list()
-        self.logger.debug(f"payments ({len(payments)}): {payments}")
+            payments = self.processor.extract_payments_list()
+            self.logger.debug(f"payments ({len(payments)}): {payments}")
 
-        cars = self.processor.extract_cars_list()
-        self.logger.debug(f"cars ({len(cars)}): {cars}")
+            cars = self.processor.extract_cars_list()
+            self.logger.debug(f"cars ({len(cars)}): {cars}")
 
-        notes = self.processor.extract_notes_list()
-        self.logger.debug(f"notes ({len(notes)}): {notes}")
+            notes = self.processor.extract_notes_list()
+            self.logger.debug(f"notes ({len(notes)}): {notes}")
 
-        tariffs = self.processor.extract_daily_tariffs_list()
-        self.logger.debug(f"tariffs ({len(tariffs)}): {tariffs}")
+            tariffs = self.processor.extract_daily_tariffs_list()
+            self.logger.debug(f"tariffs ({len(tariffs)}): {tariffs}")
 
-        logs = self.processor.extract_change_log_list()
-        self.logger.debug(f"logs ({len(logs)}): {logs}")
+            logs = self.processor.extract_change_log_list()
+            self.logger.debug(f"logs ({len(logs)}): {logs}")
 
-        detail = ReservationDetail(
-            reservation_number=reservation_id,
-            guest=guest,
-            accommodation=accommodation,
-            guests=guests,
-            services=services,
-            payments=payments,
-            cars=cars,
-            notes=notes,
-            daily_tariffs=tariffs,
-            change_log=logs
-        )
-        return detail
+            detail = ReservationDetail(
+                reservation_number=reservation_id,
+                guest=guest,
+                accommodation=accommodation,
+                guests=guests,
+                services=services,
+                payments=payments,
+                cars=cars,
+                notes=notes,
+                daily_tariffs=tariffs,
+                change_log=logs
+            )
+            return detail
+        except (NetworkError, AuthenticationError):
+            raise
+        except Exception as e:
+            raise ParsingError(f"Error procesando datos completos de reserva {reservation_id}: {e}")
 
     def _get_reservation_basic_data(self, as_dict: bool = False, start_date: Optional[str] = None) -> Union[
         ReservationDetail, Dict[str, Any], None]:
-        html_content = self.extractor.get_calendar_html(start_date)
-        save_html_debug(html_content, f"calendar_{start_date or 'default'}.html")
-        self.processor.html_content = html_content
-        return self.processor.extract_reservations(as_dict=self._resolve_as_dict(as_dict))
+        try:
+            html_content = self.extractor.get_calendar_html(start_date)
+            save_html_debug(html_content, f"calendar_{start_date or 'default'}.html")
+            self.processor.html_content = html_content
+            return self.processor.extract_reservations(as_dict=self._resolve_as_dict(as_dict))
+        except (NetworkError, AuthenticationError):
+            raise
+        except Exception as e:
+            raise ParsingError(f"Error procesando datos básicos de reserva: {e}")
 
     def _get_reservation_partial_data(self, as_dict: bool = False):
         try:
             html_content = self.extractor.collect_all_reservation_modals()
             self.processor.html_content = html_content
             return self.processor.extract_all_reservation_modals(as_dict=as_dict)
+        except (NetworkError, AuthenticationError):
+            raise
         except Exception as e:
-            if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer modales: {e}")
 
     def get_reservation_data(self, reservation_id: Optional[str] = None,
@@ -171,6 +184,8 @@ class OtelsDataServices:
                 pass
 
             return reservations
+        except (NetworkError, AuthenticationError, ParsingError):
+            raise
         except Exception as e:
             self.logger.error(f"Failed to fetch details for {reservation_id}: {e}")
             raise DataNotFoundError(f"Failed to fetch details for {reservation_id}")
@@ -180,4 +195,9 @@ class OtelsDataServices:
     """
 
     def get_ids_reservation(self, start_date: Optional[str] = None):
-        return self.extractor.get_visible_reservation_ids(start_date)
+        try:
+            return self.extractor.get_visible_reservation_ids(start_date)
+        except (NetworkError, AuthenticationError):
+            raise
+        except Exception as e:
+            raise ParsingError(f"Error obteniendo IDs de reserva: {e}")

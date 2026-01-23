@@ -4,7 +4,7 @@ from typing import Optional, List, Dict
 
 import diskcache as dc
 import requests
-from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -193,9 +193,10 @@ class OtelsExtractor:
             return html_content
         except PlaywrightTimeoutError:
             raise NetworkError("Timeout al cargar el calendario con Playwright.")
-        except Exception as e:
-            if isinstance(e, AuthenticationError): raise
-            raise NetworkError(f"Error al obtener HTML del calendario: {e}")
+        except PlaywrightError as e:
+            raise NetworkError(f"Error de Playwright al obtener calendario: {e}")
+        except AuthenticationError:
+            raise
 
     def get_reservation_detail_html(self, reservation_id: str) -> str:
         """
@@ -232,9 +233,12 @@ class OtelsExtractor:
                 self.cache.set(cache_key, html_content)
 
             return html_content
-        except Exception as e:
-            if isinstance(e, AuthenticationError): raise
-            raise NetworkError(f"Error al obtener HTML de detalle: {e}")
+        except PlaywrightTimeoutError:
+            raise NetworkError(f"Timeout al cargar detalle de reserva {reservation_id}")
+        except PlaywrightError as e:
+            raise NetworkError(f"Error de Playwright al obtener detalle: {e}")
+        except AuthenticationError:
+            raise
 
     def get_reservation_accommodation_detail_html(self, reservation_id: str) -> str:
         """
@@ -295,8 +299,9 @@ class OtelsExtractor:
 
             return html_content
 
-        except Exception as e:
-            if isinstance(e, AuthenticationError): raise
+        except AuthenticationError:
+            raise
+        except (PlaywrightError, PlaywrightTimeoutError) as e:
             self.logger.error(f"Error interactuando con modal de alojamiento {reservation_id}: {e}")
             # Intentar cerrar modal por si acaso quedó abierto tras error
             try:
@@ -340,9 +345,10 @@ class OtelsExtractor:
                 self.cache.set(cache_key, html_content)
 
             return html_content
-        except Exception as e:
-            if isinstance(e, AuthenticationError): raise
+        except PlaywrightError as e:
             raise NetworkError(f"Error al obtener HTML de detalle de huésped: {e}")
+        except AuthenticationError:
+            raise
 
     def get_multiple_reservation_details_html(self, reservation_ids: List[str]) -> Dict[str, str]:
         """
@@ -357,9 +363,12 @@ class OtelsExtractor:
                 self.logger.debug(f"Procesando reserva {i + 1}/{len(reservation_ids)}: {res_id}")
                 html = self.get_reservation_detail_html(res_id)
                 results[res_id] = html
-            except Exception as e:
+            except NetworkError as e:
                 self.logger.error(f"Error obteniendo detalle para reserva {res_id}: {e}")
+                # No interrumpimos todo el proceso, pero logueamos el error.
                 continue
+            except AuthenticationError:
+                raise
 
         self.logger.info(f"Extracción masiva completada. {len(results)} detalles obtenidos.")
         return results
@@ -385,9 +394,9 @@ class OtelsExtractor:
             unique_ids = list(set(ids))
             self.logger.info(f"Encontrados {len(unique_ids)} IDs de reserva visibles en el calendario.")
             return unique_ids
-        except Exception as e:
+        except PlaywrightError as e:
             self.logger.error(f"Error obteniendo IDs de reservas: {e}")
-            return []
+            raise NetworkError(f"Error al obtener IDs de reservas: {e}")
 
     def get_reservation_modal_html(self, reservation_id: str) -> str:
         """
@@ -440,10 +449,15 @@ class OtelsExtractor:
             else:
                 raise NetworkError("El modal se abrió pero no se pudo obtener su contenido.")
 
-        except Exception as e:
+        except AuthenticationError:
+            raise
+        except (PlaywrightError, PlaywrightTimeoutError) as e:
             self.logger.error(f"Error interactuando con el modal de reserva {reservation_id}: {e}")
             # Intentar cerrar modal por si acaso quedó abierto tras error
-            self.page.keyboard.press("Escape")
+            try:
+                self.page.keyboard.press("Escape")
+            except:
+                pass
             raise NetworkError(f"Error obteniendo modal de reserva: {e}")
 
     def collect_all_reservation_modals(self) -> Dict[str, str]:
@@ -464,9 +478,11 @@ class OtelsExtractor:
                 results[res_id] = html
                 # Pequeña pausa para no saturar la UI del navegador
                 time.sleep(0.2)
-            except Exception as e:
+            except NetworkError as e:
                 self.logger.error(f"Saltando reserva {res_id} debido a error: {e}")
                 continue
+            except AuthenticationError:
+                raise
 
         self.logger.info(f"Extracción masiva completada. {len(results)} modales obtenidos.")
         return results

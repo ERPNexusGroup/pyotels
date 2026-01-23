@@ -46,6 +46,8 @@ class OtelMSScraper:
         except AuthenticationError:
             self.logger.error("Fallo en autenticación.")
             raise
+        except NetworkError:
+            raise
         except Exception as e:
             self.logger.error(f"Error inesperado en login: {e}")
             raise NetworkError(f"Error en login: {e}")
@@ -53,8 +55,9 @@ class OtelMSScraper:
     def get_categories(self, as_dict: Optional[bool] = None) -> Union[CalendarCategories, Dict[str, Any]]:
         try:
             return self.service.get_categories_data(as_dict=as_dict)
+        except (NetworkError, AuthenticationError, ParsingError):
+            raise
         except Exception as e:
-            if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer categorías: {e}")
 
     def get_reservations(self, start_date: Optional[str] = None, as_dict: Optional[bool] = None,
@@ -62,15 +65,17 @@ class OtelMSScraper:
         CalendarReservation, Dict[str, Any]]:
         try:
             return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, strategy=strategy)
+        except (NetworkError, AuthenticationError, ParsingError):
+            raise
         except Exception as e:
-            if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
     def get_ids_reservation(self, target_date_str: str = None) -> List[int]:
         try:
             return self.service.get_ids_reservation(target_date_str)
+        except (NetworkError, AuthenticationError, ParsingError):
+            raise
         except Exception as e:
-            if isinstance(e, (NetworkError, AuthenticationError)): raise
             raise ParsingError(f"Error al extraer grilla: {e}")
 
     def get_reservation_detail(self, reservation_id: Union[str, List[str]],
@@ -93,6 +98,8 @@ class OtelMSScraper:
         except DataNotFoundError:
             self.logger.warning(f"Reserva {reservation_id} no encontrada.")
             return None
+        except (NetworkError, AuthenticationError, ParsingError):
+            raise
         except Exception as e:
             self.logger.error(f"Failed to fetch details for {reservation_id}: {e}")
             return None

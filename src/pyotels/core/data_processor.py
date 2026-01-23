@@ -16,6 +16,7 @@ from pyotels.core.models import (
 from pyotels.utils.dev import save_html_debug
 from pyotels.utils.logger import get_logger
 from pyotels.utils.normalizations import normalize_float, normalize_date
+from pyotels.exceptions import ParsingError
 
 
 class OtelsProcessadorData:
@@ -68,30 +69,36 @@ class OtelsProcessadorData:
     def extract_categories(self, as_dict: bool = False) -> Union[CalendarCategories, Dict[str, Any]]:
         """Extrae solo las categorías y habitaciones."""
         self.logger.info("Extrayendo categorías...")
-        self._extract_categories_internal()
+        try:
+            self._extract_categories_internal()
 
-        result = CalendarCategories(
-            categories=self.categories
-        )
-        return result.model_dump() if as_dict else result
+            result = CalendarCategories(
+                categories=self.categories
+            )
+            return result.model_dump() if as_dict else result
+        except Exception as e:
+            raise ParsingError(f"Error al extraer categorías: {e}")
 
     def extract_reservations(self, as_dict: bool = False) -> Union[CalendarReservation, Dict[str, Any]]:
         """Extrae solo la grilla de reservaciones (celdas)."""
         self.logger.info("Extrayendo grilla de reservaciones...")
 
-        if not self.categories:
-            self._extract_categories_internal()
+        try:
+            if not self.categories:
+                self._extract_categories_internal()
 
-        self._extract_rooms_data()
-        self._extract_date_range()
+            self._extract_rooms_data()
+            self._extract_date_range()
 
-        result = CalendarReservation(
-            reservation_data=self.rooms_data,
-            date_range=self.date_range,
-            extracted_at=datetime.now().isoformat(),
-            day_id_to_date=self.day_id_to_date
-        )
-        return result.model_dump() if as_dict else result
+            result = CalendarReservation(
+                reservation_data=self.rooms_data,
+                date_range=self.date_range,
+                extracted_at=datetime.now().isoformat(),
+                day_id_to_date=self.day_id_to_date
+            )
+            return result.model_dump() if as_dict else result
+        except Exception as e:
+            raise ParsingError(f"Error al extraer reservaciones: {e}")
 
     def extract_all_reservation_modals(self, as_dict: bool = False) -> Union[
         List[ReservationModalDetail], List[Dict[str, Any]]]:
@@ -134,7 +141,7 @@ class OtelsProcessadorData:
             return result.model_dump() if as_dict else result
         except Exception as e:
             self.logger.error(f"❌ Error crítico extrayendo datos del calendario: {e}", exc_info=True)
-            raise
+            raise ParsingError(f"Error crítico extrayendo datos del calendario: {e}")
 
     @staticmethod
     def normalize_balance(balance_raw: Optional[str], total_raw: Optional[str],
@@ -157,152 +164,155 @@ class OtelsProcessadorData:
         """
         Extrae información del modal de reserva (HTML parcial) y devuelve un ReservationModalDetail.
         """
-        soup = BeautifulSoup(html_content, 'html.parser')
-        extracted = {}
-        FIELDS_MAP: Final[dict] = {
-            "Huésped": "guest_name",
-            "Fuente": "source",
-            "Llegada": "check_in",
-            "Salida": "check_out",
-            "Teléfono": "phone",
-            "e-mail": "email",
-            "Notas": "comments",
-            "Usuario": "user",
-            "Total": "total",
-            "Pagado": "paid",
-            "Importe de los servicios por el día actual": "balance",
-            'Número de huéspedes': 'guest_count',
-            'Tipo de habitación': 'room_type',
-            'Habitación': 'room',
-            'Tarifa': 'rate',
-        }
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            extracted = {}
+            FIELDS_MAP: Final[dict] = {
+                "Huésped": "guest_name",
+                "Fuente": "source",
+                "Llegada": "check_in",
+                "Salida": "check_out",
+                "Teléfono": "phone",
+                "e-mail": "email",
+                "Notas": "comments",
+                "Usuario": "user",
+                "Total": "total",
+                "Pagado": "paid",
+                "Importe de los servicios por el día actual": "balance",
+                'Número de huéspedes': 'guest_count',
+                'Tipo de habitación': 'room_type',
+                'Habitación': 'room',
+                'Tarifa': 'rate',
+            }
 
-        # 1. Reservation Number
-        status = None
-        reservation_number = None
-        h2 = soup.find('h2', class_='nameofgroup') or soup.find('h2')
-        if h2:
-            text = h2.get_text(strip=True)
-            # self.logger.debug(f"text: {text}")
-            match = re.findall(r'(?:Reserva|Salida|Alojamiento)|\d+', text)
-            # self.logger.debug(f"match: {match}")
-            if match and len(match) > 1:
-                status = StatusReservation.from_text(match[0].strip())
-                # self.logger.debug(f"status: {status}")
-                reservation_number = str(match[1])
-                # self.logger.debug(f"reservation_number {type(reservation_number)}: {reservation_number}")
+            # 1. Reservation Number
+            status = None
+            reservation_number = None
+            h2 = soup.find('h2', class_='nameofgroup') or soup.find('h2')
+            if h2:
+                text = h2.get_text(strip=True)
+                # self.logger.debug(f"text: {text}")
+                match = re.findall(r'(?:Reserva|Salida|Alojamiento)|\d+', text)
+                # self.logger.debug(f"match: {match}")
+                if match and len(match) > 1:
+                    status = StatusReservation.from_text(match[0].strip())
+                    # self.logger.debug(f"status: {status}")
+                    reservation_number = str(match[1])
+                    # self.logger.debug(f"reservation_number {type(reservation_number)}: {reservation_number}")
 
-        # 2. Balance
-        balance_div = soup.find('div', class_='balans')
-        balance: Optional[float] = None
-        if balance_div:
-            balance_text = balance_div.get_text(strip=True).replace('Saldo:', '').strip()
-            try:
-                balance = float(balance_text.replace(',', ''))
-            except (ValueError, TypeError):
-                pass
+            # 2. Balance
+            balance_div = soup.find('div', class_='balans')
+            balance: Optional[float] = None
+            if balance_div:
+                balance_text = balance_div.get_text(strip=True).replace('Saldo:', '').strip()
+                try:
+                    balance = float(balance_text.replace(',', ''))
+                except (ValueError, TypeError):
+                    pass
 
-        # 3. Mapeo de campos clave-valor
-        data_map = {}
+            # 3. Mapeo de campos clave-valor
+            data_map = {}
 
-        for label in soup.find_all('span', class_='incolor'):
-            key = label.get_text(strip=True)
-            parent = label.find_parent('div')
-            if not parent:
-                continue
+            for label in soup.find_all('span', class_='incolor'):
+                key = label.get_text(strip=True)
+                parent = label.find_parent('div')
+                if not parent:
+                    continue
 
-            value_div = parent.find_next_sibling('div', class_='text-right')
+                value_div = parent.find_next_sibling('div', class_='text-right')
 
-            if value_div:
-                if value_div.find('img') and 'dc_logo/dc_logo_1.png' in value_div.find('img').get('src', ''):
-                    # self.logger.debug(f"key: {key} \t source: {value_div.find('img')}")
-                    data_map[key] = "booking"
+                if value_div:
+                    if value_div.find('img') and 'dc_logo/dc_logo_1.png' in value_div.find('img').get('src', ''):
+                        # self.logger.debug(f"key: {key} \t source: {value_div.find('img')}")
+                        data_map[key] = "booking"
+                    else:
+                        # self.logger.debug(f"key: {key} \t value: {" ".join(value_div.stripped_strings)}")
+                        data_map[key] = " ".join(value_div.stripped_strings)
+
+            extracted["fields"] = data_map
+            # self.logger.debug(f"data_map: {data_map}")
+
+            mapped = {}
+
+            for label, value in data_map.items():
+                field = FIELDS_MAP.get(label)
+                if field:
+                    # self.logger.debug(f"key: {field} \t value: {value}")
+                    mapped[field] = value
                 else:
-                    # self.logger.debug(f"key: {key} \t value: {" ".join(value_div.stripped_strings)}")
-                    data_map[key] = " ".join(value_div.stripped_strings)
+                    # self.logger.debug(f"Exclude key: {label} \t value: {value}")
+                    continue
+            guest_list = []
 
-        extracted["fields"] = data_map
-        # self.logger.debug(f"data_map: {data_map}")
+            guest_label = soup.find('span', class_='incolor', string='Lista de huéspedes')
+            if guest_label:
+                parent = guest_label.find_parent('div')
+                if parent:
+                    guest_div = parent.find_next_sibling('div', class_='text-right')
+                    if guest_div:
+                        guest_list = list(guest_div.stripped_strings)
 
-        mapped = {}
+            # self.logger.debug(f"guest_list: {guest_list}")
 
-        for label, value in data_map.items():
-            field = FIELDS_MAP.get(label)
-            if field:
-                # self.logger.debug(f"key: {field} \t value: {value}")
-                mapped[field] = value
-            else:
-                # self.logger.debug(f"Exclude key: {label} \t value: {value}")
-                continue
-        guest_list = []
+            mapped["guest_name"] = data_map['Huésped'] if 'Huésped' in data_map else guest_list[0] if guest_list else None
+            mapped["guest_count"] = data_map['Número de huéspedes'].split(' ')[
+                0] if 'Número de huéspedes' in data_map else len(guest_list) or None
 
-        guest_label = soup.find('span', class_='incolor', string='Lista de huéspedes')
-        if guest_label:
-            parent = guest_label.find_parent('div')
-            if parent:
-                guest_div = parent.find_next_sibling('div', class_='text-right')
-                if guest_div:
-                    guest_list = list(guest_div.stripped_strings)
+            balance_div = soup.find('div', class_='balans')
+            if balance_div:
+                mapped["balance"] = balance_div.get_text(strip=True)
 
-        # self.logger.debug(f"guest_list: {guest_list}")
+            for key, value in data_map.items():
+                if "habitación" in key.lower():
+                    mapped["room"] = value
 
-        mapped["guest_name"] = data_map['Huésped'] if 'Huésped' in data_map else guest_list[0] if guest_list else None
-        mapped["guest_count"] = data_map['Número de huéspedes'].split(' ')[
-            0] if 'Número de huéspedes' in data_map else len(guest_list) or None
+                if "tipo" in key.lower():
+                    mapped["room_type"] = value
 
-        balance_div = soup.find('div', class_='balans')
-        if balance_div:
-            mapped["balance"] = balance_div.get_text(strip=True)
+                if "cread" in key.lower():
+                    mapped["created_at"] = value
 
-        for key, value in data_map.items():
-            if "habitación" in key.lower():
-                mapped["room"] = value
+            normalized = dict()
 
-            if "tipo" in key.lower():
-                mapped["room_type"] = value
+            normalized["balance"] = self.normalize_balance(
+                mapped.get("balance") if mapped.get("balance") else balance,
+                mapped.get("total"),
+                mapped.get("paid")
+            )
 
-            if "cread" in key.lower():
-                mapped["created_at"] = value
+            normalized["total"] = normalize_float(mapped.get("total"))
+            normalized["paid"] = normalize_float(mapped.get("paid"))
+            normalized["rate"] = normalize_float(mapped.get("rate"))
 
-        normalized = dict()
+            normalized["check_in"] = normalize_date(mapped.get("check_in"))
+            normalized["check_out"] = normalize_date(mapped.get("check_out"))
+            normalized["created_at"] = normalize_date(mapped.get("created_at"))
 
-        normalized["balance"] = self.normalize_balance(
-            mapped.get("balance") if mapped.get("balance") else balance,
-            mapped.get("total"),
-            mapped.get("paid")
-        )
+            # --- Construcción del objeto ---
+            detail = ReservationModalDetail(
+                reservation_number=reservation_number if reservation_number else kwargs.get('id'),
+                status=status,
+                guest_name=mapped.get("guest_name"),
+                check_in=normalized.get("check_in"),
+                check_out=normalized.get("check_out"),
+                created_at=normalized.get("created_at"),
+                guest_count=mapped.get("guest_count"),
+                balance=normalized.get("balance"),
+                total=normalized.get("total"),
+                paid=normalized.get("paid"),
+                rate=normalized.get("rate"),
+                phone=mapped.get("phone"),
+                email=mapped.get("email"),
+                user=mapped.get("user"),
+                comments=mapped.get("comments"),
+                room_type=mapped.get("room_type"),
+                room=mapped.get("room"),
+                source=mapped.get("source"),
+            )
 
-        normalized["total"] = normalize_float(mapped.get("total"))
-        normalized["paid"] = normalize_float(mapped.get("paid"))
-        normalized["rate"] = normalize_float(mapped.get("rate"))
-
-        normalized["check_in"] = normalize_date(mapped.get("check_in"))
-        normalized["check_out"] = normalize_date(mapped.get("check_out"))
-        normalized["created_at"] = normalize_date(mapped.get("created_at"))
-
-        # --- Construcción del objeto ---
-        detail = ReservationModalDetail(
-            reservation_number=reservation_number if reservation_number else kwargs.get('id'),
-            status=status,
-            guest_name=mapped.get("guest_name"),
-            check_in=normalized.get("check_in"),
-            check_out=normalized.get("check_out"),
-            created_at=normalized.get("created_at"),
-            guest_count=mapped.get("guest_count"),
-            balance=normalized.get("balance"),
-            total=normalized.get("total"),
-            paid=normalized.get("paid"),
-            rate=normalized.get("rate"),
-            phone=mapped.get("phone"),
-            email=mapped.get("email"),
-            user=mapped.get("user"),
-            comments=mapped.get("comments"),
-            room_type=mapped.get("room_type"),
-            room=mapped.get("room"),
-            source=mapped.get("source"),
-        )
-
-        return detail.model_dump(exclude_none=True) if as_dict else detail
+            return detail.model_dump(exclude_none=True) if as_dict else detail
+        except Exception as e:
+            raise ParsingError(f"Error parseando modal de reserva: {e}")
 
     def extract_guest_id(self, html_content: Optional[str] = None) -> Optional[int]:
         """
@@ -310,185 +320,196 @@ class OtelsProcessadorData:
         Busca un enlace del tipo /reservation_c2/foliogroup/0
         """
         self.logger.debug(f"Method: extract_guest_id")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug(f"soup: {soup}")
-        link = soup.find('a', href=re.compile(r'/guestfolio/(\d+)'))
-        self.logger.debug(f"link: {link}")
-        if link:
-            match = re.search(r'/guestfolio/(\d+)', link.get('href'))
-            if match:
-                return int(match.group(1))
-        return None
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug(f"soup: {soup}")
+            link = soup.find('a', href=re.compile(r'/guestfolio/(\d+)'))
+            self.logger.debug(f"link: {link}")
+            if link:
+                match = re.search(r'/guestfolio/(\d+)', link.get('href'))
+                if match:
+                    return int(match.group(1))
+            return None
+        except Exception as e:
+            self.logger.error(f"Error extrayendo ID de huésped: {e}")
+            return None
 
     def extract_guest_details(self, html_content: Optional[str] = None, as_dict: bool = False) -> Guest:
         """
         Extrae los detalles completos del huésped desde el HTML de su tarjeta.
         """
         self.logger.debug(f"Method: extract_guest_details")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug(f"soup: {soup}")
-        guest_data = {}
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug(f"soup: {soup}")
+            guest_data = {}
 
-        # Extraer ID del header si existe
-        header_time = soup.find('span', class_='header-time')
-        if header_time:
-            text = header_time.get_text(" ", strip=True)
-            match = re.search(r'ID:\s*(\d+)', text)
-            if match:
-                guest_data['id'] = match.group(1)
+            # Extraer ID del header si existe
+            header_time = soup.find('span', class_='header-time')
+            if header_time:
+                text = header_time.get_text(" ", strip=True)
+                match = re.search(r'ID:\s*(\d+)', text)
+                if match:
+                    guest_data['id'] = match.group(1)
 
-        # Buscar el panel de "Tarjeta de huésped"
-        panel = None
-        for p in soup.find_all('div', class_='panel'):
-            heading = p.find('div', class_='panel-heading')
-            if heading and 'Tarjeta de huésped' in heading.get_text():
-                panel = p
-                break
+            # Buscar el panel de "Tarjeta de huésped"
+            panel = None
+            for p in soup.find_all('div', class_='panel'):
+                heading = p.find('div', class_='panel-heading')
+                if heading and 'Tarjeta de huésped' in heading.get_text():
+                    panel = p
+                    break
 
-        if not panel:
-            # Fallback: buscar por ID de widget si es consistente
-            panel = soup.find('div', {'data-widget': lambda x: x and 'wiget1' in x})
+            if not panel:
+                # Fallback: buscar por ID de widget si es consistente
+                panel = soup.find('div', {'data-widget': lambda x: x and 'wiget1' in x})
 
-        if panel:
-            body = panel.find('div', class_='panel-body')
-            if body:
-                # Buscar dentro de folio1 si existe, o directamente en body
-                container = body.find('div', class_='folio1') or body
-                cols = container.find_all('div', class_='col-md-2')
+            if panel:
+                body = panel.find('div', class_='panel-body')
+                if body:
+                    # Buscar dentro de folio1 si existe, o directamente en body
+                    container = body.find('div', class_='folio1') or body
+                    cols = container.find_all('div', class_='col-md-2')
 
-                for col in cols:
-                    b_tag = col.find('b')
-                    if not b_tag:
-                        continue
+                    for col in cols:
+                        b_tag = col.find('b')
+                        if not b_tag:
+                            continue
 
-                    # Extraer la clave del tag <b>
-                    key_text = b_tag.get_text(strip=True).rstrip(':')
-                    key = key_text.lower()
+                        # Extraer la clave del tag <b>
+                        key_text = b_tag.get_text(strip=True).rstrip(':')
+                        key = key_text.lower()
 
-                    # Extraer el valor: iterar sobre los hermanos siguientes al tag <b>
-                    val = ""
-                    curr = b_tag.next_sibling
-                    while curr:
-                        if isinstance(curr, str):
-                            val += curr
-                        elif curr.name == 'br':
-                            pass
-                        else:
-                            val += curr.get_text(" ", strip=True)
-                        curr = curr.next_sibling
+                        # Extraer el valor: iterar sobre los hermanos siguientes al tag <b>
+                        val = ""
+                        curr = b_tag.next_sibling
+                        while curr:
+                            if isinstance(curr, str):
+                                val += curr
+                            elif curr.name == 'br':
+                                pass
+                            else:
+                                val += curr.get_text(" ", strip=True)
+                            curr = curr.next_sibling
 
-                    val = val.strip()
+                        val = val.strip()
 
-                    if 'nombre' == key:
-                        guest_data['first_name'] = val
-                    elif 'apellido' == key:
-                        guest_data['last_name'] = val
-                    elif 'segundo nombre' == key:
-                        guest_data['middle_name'] = val
-                    elif 'género' == key:
-                        guest_data['gender'] = val
-                    elif 'fecha de nacimiento' == key:
-                        guest_data['dob'] = val
-                    elif 'teléfono' == key:
-                        guest_data['phone'] = val
-                    elif 'email' == key:
-                        guest_data['email'] = val
-                    elif 'lenguaje' in key:
-                        guest_data['language'] = val
-                    elif 'país' == key:
-                        guest_data['country'] = val
-                    elif 'ciudad' == key:
-                        guest_data['city'] = val
-                    elif 'calle' == key:
-                        guest_data['street'] = val
-                    elif 'casa' == key:
-                        guest_data['house'] = val
-                    elif 'código postal' == key:
-                        guest_data['zip_code'] = val
-                    elif 'tipo de documento' == key:
-                        guest_data['document_type'] = val
-                    elif 'documento número' == key:
-                        guest_data['document_number'] = val
-                    elif 'número de documento' == key:
-                        guest_data['document_number'] = val
-                    elif 'fecha de emisión' == key:
-                        guest_data['issue_date'] = val
-                    elif 'validez' == key:
-                        guest_data['expiration_date'] = val
-                    elif 'emitido por' == key:
-                        guest_data['issued_by'] = val
+                        if 'nombre' == key:
+                            guest_data['first_name'] = val
+                        elif 'apellido' == key:
+                            guest_data['last_name'] = val
+                        elif 'segundo nombre' == key:
+                            guest_data['middle_name'] = val
+                        elif 'género' == key:
+                            guest_data['gender'] = val
+                        elif 'fecha de nacimiento' == key:
+                            guest_data['dob'] = val
+                        elif 'teléfono' == key:
+                            guest_data['phone'] = val
+                        elif 'email' == key:
+                            guest_data['email'] = val
+                        elif 'lenguaje' in key:
+                            guest_data['language'] = val
+                        elif 'país' == key:
+                            guest_data['country'] = val
+                        elif 'ciudad' == key:
+                            guest_data['city'] = val
+                        elif 'calle' == key:
+                            guest_data['street'] = val
+                        elif 'casa' == key:
+                            guest_data['house'] = val
+                        elif 'código postal' == key:
+                            guest_data['zip_code'] = val
+                        elif 'tipo de documento' == key:
+                            guest_data['document_type'] = val
+                        elif 'documento número' == key:
+                            guest_data['document_number'] = val
+                        elif 'número de documento' == key:
+                            guest_data['document_number'] = val
+                        elif 'fecha de emisión' == key:
+                            guest_data['issue_date'] = val
+                        elif 'validez' == key:
+                            guest_data['expiration_date'] = val
+                        elif 'emitido por' == key:
+                            guest_data['issued_by'] = val
 
-        # Construir nombre completo si es posible
-        parts = [guest_data.get('first_name'), guest_data.get('middle_name'), guest_data.get('last_name')]
-        full_name = " ".join([p for p in parts if p])
-        if full_name:
-            guest_data['name'] = full_name
+            # Construir nombre completo si es posible
+            parts = [guest_data.get('first_name'), guest_data.get('middle_name'), guest_data.get('last_name')]
+            full_name = " ".join([p for p in parts if p])
+            if full_name:
+                guest_data['name'] = full_name
 
-        return Guest(**guest_data).model_dump() if as_dict else Guest(**guest_data)
+            return Guest(**guest_data).model_dump() if as_dict else Guest(**guest_data)
+        except Exception as e:
+            raise ParsingError(f"Error parseando detalles de huésped: {e}")
 
     # --- Métodos de Extracción de Detalles ---
 
     def extract_basic_info_from_detail(self, html_content: Optional[str] = None) -> Dict[str, Any]:
         self.logger.debug(f"Method: extract_basic_info_from_detail")
-        info = {}
+        try:
+            info = {}
 
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug(f"soup: {soup}")
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug(f"soup: {soup}")
 
-        # Buscar el panel de Información básica
-        panel = soup.find('div', id='anchors_main_information')
-        if not panel:
-            # Fallback si no tiene ID
-            for p in soup.find_all('div', class_='panel'):
-                h2 = p.find('h2')
-                if h2 and 'Información básica' in h2.get_text():
-                    panel = p
-                    break
+            # Buscar el panel de Información básica
+            panel = soup.find('div', id='anchors_main_information')
+            if not panel:
+                # Fallback si no tiene ID
+                for p in soup.find_all('div', class_='panel'):
+                    h2 = p.find('h2')
+                    if h2 and 'Información básica' in h2.get_text():
+                        panel = p
+                        break
 
-        if panel:
-            body = panel.find('div', class_='panel-body')
-            if body:
-                cols = body.find_all('div', class_='col-md-3')
-                for col in cols:
-                    b_tag = col.find('b')
-                    if not b_tag: continue
+            if panel:
+                body = panel.find('div', class_='panel-body')
+                if body:
+                    cols = body.find_all('div', class_='col-md-3')
+                    for col in cols:
+                        b_tag = col.find('b')
+                        if not b_tag: continue
 
-                    key = b_tag.get_text(strip=True).lower().replace(':', '')
+                        key = b_tag.get_text(strip=True).lower().replace(':', '')
 
-                    # Extraer valor (texto después de <b>)
-                    val = ""
-                    curr = b_tag.next_sibling
-                    while curr:
-                        if isinstance(curr, str):
-                            val += curr
-                        elif curr.name == 'a':
-                            val += curr.get_text(" ", strip=True)
-                        elif curr.name == 'br':
-                            pass
-                        else:
-                            # Ignorar iconos de edición
-                            if 'fa-edit' not in str(curr):
+                        # Extraer valor (texto después de <b>)
+                        val = ""
+                        curr = b_tag.next_sibling
+                        while curr:
+                            if isinstance(curr, str):
+                                val += curr
+                            elif curr.name == 'a':
                                 val += curr.get_text(" ", strip=True)
-                        curr = curr.next_sibling
+                            elif curr.name == 'br':
+                                pass
+                            else:
+                                # Ignorar iconos de edición
+                                if 'fa-edit' not in str(curr):
+                                    val += curr.get_text(" ", strip=True)
+                            curr = curr.next_sibling
 
-                    val = val.strip()
+                        val = val.strip()
 
-                    if 'cliente' in key:
-                        info['guest_name'] = val
-                    elif 'teléfono' in key:
-                        info['phone'] = val
-                    elif 'email' in key:
-                        info['email'] = val
-                    elif 'pagador' in key:
-                        info['payer'] = val
-                    elif 'entidad legal' in key:
-                        info['legal_entity'] = val
-                    elif 'fuente' in key:
-                        info['source'] = val
-                    elif 'usuario' in key:
-                        info['user'] = val
+                        if 'cliente' in key:
+                            info['guest_name'] = val
+                        elif 'teléfono' in key:
+                            info['phone'] = val
+                        elif 'email' in key:
+                            info['email'] = val
+                        elif 'pagador' in key:
+                            info['payer'] = val
+                        elif 'entidad legal' in key:
+                            info['legal_entity'] = val
+                        elif 'fuente' in key:
+                            info['source'] = val
+                        elif 'usuario' in key:
+                            info['user'] = val
 
-        return info
+            return info
+        except Exception as e:
+            self.logger.error(f"Error extrayendo info básica: {e}")
+            return {}
 
     def _extract_accommodation_info(self, soup: BeautifulSoup) -> Optional[AccommodationInfo]:
         self.logger.debug(f"Method: _extract_accommodation_info")
@@ -578,219 +599,384 @@ class OtelsProcessadorData:
         """
         Extrae información detallada del alojamiento desde el modal de edición (HTML con inputs).
         """
-        soup = BeautifulSoup(html_content, 'html.parser')
-        info = {}
-
-        def get_val(selector: str) -> Optional[str]:
-            el = soup.select_one(selector)
-            return el.get('value') if el else None
-
-        def get_sel_val(selector: str) -> Optional[str]:
-            el = soup.select_one(f"{selector} option[selected]")
-            return el.get('value') if el else None
-
-        def get_sel_text(selector: str) -> Optional[str]:
-            el = soup.select_one(f"{selector} option[selected]")
-            return el.get_text(strip=True) if el else None
-
-        # Fechas
-        info['check_in'] = get_val('#datein')
-        info['check_in_hour'] = get_sel_val('#checkintime')
-        info['check_out'] = get_val('#dateout')
-        info['check_out_hour'] = get_sel_val('#checkouttime')
-
-        # Duración
         try:
-            info['nights'] = int(get_val('#duration') or 0)
-        except ValueError:
-            pass
+            soup = BeautifulSoup(html_content, 'html.parser')
+            info = {}
 
-        # Habitación
-        info['room_number'] = get_sel_text('#room_id')
-        info['room_type'] = get_sel_text('#category')
+            def get_val(selector: str) -> Optional[str]:
+                el = soup.select_one(selector)
+                return el.get('value') if el else None
 
-        # Huéspedes
-        try:
-            adults = int(get_sel_val('#adults') or 0)
-            baby1 = int(get_sel_val('#baby_places') or 0)
-            baby2 = int(get_sel_val('#babyplace2') or 0)
-            info['adults_count'] = adults
-            info['children_count'] = baby1
-            info['babies_count'] = baby2
-        except ValueError:
-            pass
+            def get_sel_val(selector: str) -> Optional[str]:
+                el = soup.select_one(f"{selector} option[selected]")
+                return el.get('value') if el else None
 
-        # Tarifa y Categoría
-        info['rate_name'] = get_sel_text('#price_type').split(' ')[0]
+            def get_sel_text(selector: str) -> Optional[str]:
+                el = soup.select_one(f"{selector} option[selected]")
+                return el.get_text(strip=True) if el else None
 
-        rate_cat = get_sel_text('#ud_price_category')
-        if rate_cat and rate_cat != '---':
-            info['rate_category'] = rate_cat
+            # Fechas
+            info['check_in'] = get_val('#datein')
+            info['check_in_hour'] = get_sel_val('#checkintime')
+            info['check_out'] = get_val('#dateout')
+            info['check_out_hour'] = get_sel_val('#checkouttime')
 
-        # Tipo de precio (Por tarifa, Fijo, Diario)
-        price_mode = get_sel_val('#ny_ismanual')
-        price_modes = {'0': 'Por tarifa', '1': 'Fijo', '2': 'Diario'}
-        if price_mode in price_modes:
-            info['price_type'] = price_modes[price_mode]
+            # Duración
+            try:
+                info['nights'] = int(get_val('#duration') or 0)
+            except ValueError:
+                pass
 
-        # Descuento
-        info['discount'] = get_val('#discount')
+            # Habitación
+            info['room_number'] = get_sel_text('#room_id')
+            info['room_type'] = get_sel_text('#category')
 
-        # Total e Impuestos
-        el_total = soup.select_one('#FO_total')
-        if el_total:
-            info['total_price'] = el_total.get_text(strip=True)
+            # Huéspedes
+            try:
+                adults = int(get_sel_val('#adults') or 0)
+                baby1 = int(get_sel_val('#baby_places') or 0)
+                baby2 = int(get_sel_val('#babyplace2') or 0)
+                info['adults_count'] = adults
+                info['children_count'] = baby1
+                info['babies_count'] = baby2
+            except ValueError:
+                pass
 
-        el_taxes = soup.select_one('#TF_total')
-        if el_taxes:
-            info['taxes_surcharges'] = el_taxes.get_text(strip=True)
+            # Tarifa y Categoría
+            info['rate_name'] = get_sel_text('#price_type').split(' ')[0]
 
-        # Filtrar None
-        info = {k: v for k, v in info.items() if v is not None}
+            rate_cat = get_sel_text('#ud_price_category')
+            if rate_cat and rate_cat != '---':
+                info['rate_category'] = rate_cat
 
-        if as_dict:
-            return info
+            # Tipo de precio (Por tarifa, Fijo, Diario)
+            price_mode = get_sel_val('#ny_ismanual')
+            price_modes = {'0': 'Por tarifa', '1': 'Fijo', '2': 'Diario'}
+            if price_mode in price_modes:
+                info['price_type'] = price_modes[price_mode]
 
-        return AccommodationInfo(**info)
+            # Descuento
+            info['discount'] = get_val('#discount')
+
+            # Total e Impuestos
+            el_total = soup.select_one('#FO_total')
+            if el_total:
+                info['total_price'] = el_total.get_text(strip=True)
+
+            el_taxes = soup.select_one('#TF_total')
+            if el_taxes:
+                info['taxes_surcharges'] = el_taxes.get_text(strip=True)
+
+            # Filtrar None
+            info = {k: v for k, v in info.items() if v is not None}
+
+            if as_dict:
+                return info
+
+            return AccommodationInfo(**info)
+        except Exception as e:
+            raise ParsingError(f"Error parseando detalles de alojamiento: {e}")
 
     def extract_guests_list(self, html_content: Optional[str] = None) -> List[Guest]:
         self.logger.debug(f"Method: extract_guests_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        guests = []
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            guests = []
 
-        # Intentar encontrar la tabla en varios contenedores posibles
-        table = None
+            # Intentar encontrar la tabla en varios contenedores posibles
+            table = None
 
-        # 1. Panel de residentes (común en la vista de detalles)
-        panel = soup.find('div', id='anchors_info_residents')
-        if panel:
-            table = panel.find('table')
+            # 1. Panel de residentes (común en la vista de detalles)
+            panel = soup.find('div', id='anchors_info_residents')
+            if panel:
+                table = panel.find('table')
 
-        # 2. Formulario de impresión (guest_template_print) - Caso del HTML proporcionado
-        if not table:
-            form = soup.find('form', id='guest_template_print')
-            if form:
-                table = form.find('table', class_='add-line-table')
+            # 2. Formulario de impresión (guest_template_print) - Caso del HTML proporcionado
+            if not table:
+                form = soup.find('form', id='guest_template_print')
+                if form:
+                    table = form.find('table', class_='add-line-table')
 
-        # 3. Búsqueda genérica por clase
-        if not table:
-            table = soup.find('table', class_='add-line-table')
+            # 3. Búsqueda genérica por clase
+            if not table:
+                table = soup.find('table', class_='add-line-table')
 
-        if table:
-            rows = []
-            # IMPORTANTE: La tabla puede tener múltiples <tbody> (uno por huésped).
-            # Usamos find_all('tbody') para obtener todos, ya que find() solo devuelve el primero.
-            tbodies = table.find_all('tbody')
-            if tbodies:
-                for tbody in tbodies:
-                    rows.extend(tbody.find_all('tr'))
-            else:
-                # Fallback si no hay tbodies
-                rows = table.find_all('tr')
-
-            for row in rows:
-                cols = row.find_all('td')
-                if len(cols) < 4: continue
-
-                g = {}
-                # Nombre (Link)
-                name_link = cols[0].find('a')
-                if name_link:
-                    g['name'] = name_link.get_text(strip=True)
-                    href = name_link.get('href')
-                    match = re.search(r'/guestfolio/(\d+)', href)
-                    if match: g['id'] = match.group(1)
+            if table:
+                rows = []
+                # IMPORTANTE: La tabla puede tener múltiples <tbody> (uno por huésped).
+                # Usamos find_all('tbody') para obtener todos, ya que find() solo devuelve el primero.
+                tbodies = table.find_all('tbody')
+                if tbodies:
+                    for tbody in tbodies:
+                        rows.extend(tbody.find_all('tr'))
                 else:
-                    g['name'] = cols[0].get_text(strip=True)
+                    # Fallback si no hay tbodies
+                    rows = table.find_all('tr')
 
-                # Email
-                g['email'] = cols[2].get_text(strip=True)
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) < 4: continue
 
-                # Fecha nacimiento
-                g['dob'] = cols[3].get_text(strip=True)
+                    g = {}
+                    # Nombre (Link)
+                    name_link = cols[0].find('a')
+                    if name_link:
+                        g['name'] = name_link.get_text(strip=True)
+                        href = name_link.get('href')
+                        match = re.search(r'/guestfolio/(\d+)', href)
+                        if match: g['id'] = match.group(1)
+                    else:
+                        g['name'] = cols[0].get_text(strip=True)
 
-                guests.append(Guest(**g))
-        return guests
+                    # Email
+                    g['email'] = cols[2].get_text(strip=True)
+
+                    # Fecha nacimiento
+                    g['dob'] = cols[3].get_text(strip=True)
+
+                    guests.append(Guest(**g))
+            return guests
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de huéspedes: {e}")
+            return []
 
     def extract_services_list(self, html_content: Optional[str] = None) -> List[Service]:
         self.logger.debug(f"Method: extract_services_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
 
-        services = []
+            services = []
 
-        # Estrategia 1: Buscar panel por título
-        target_panel = None
-        for p in soup.find_all('div', class_='panel'):
-            h2 = p.find('h2')
-            if h2 and 'Servicios' in h2.get_text():
-                target_panel = p
-                break
-
-        table = None
-        if target_panel:
-            table = target_panel.find('table', class_='add-line-table') or target_panel.find('table')
-
-        # Estrategia 2: Si no hay panel o tabla en panel, buscar tabla por encabezado característico
-        if not table:
-            for t in soup.find_all('table', class_='add-line-table'):
-                if t.find('th', string=re.compile(r'Fecha y hora')):
-                    table = t
+            # Estrategia 1: Buscar panel por título
+            target_panel = None
+            for p in soup.find_all('div', class_='panel'):
+                h2 = p.find('h2')
+                if h2 and 'Servicios' in h2.get_text():
+                    target_panel = p
                     break
 
-        if table:
-            rows = []
-            tbodies = table.find_all('tbody')
-            if tbodies:
-                for tbody in tbodies:
-                    rows.extend(tbody.find_all('tr'))
-            else:
-                rows = table.find_all('tr')
+            table = None
+            if target_panel:
+                table = target_panel.find('table', class_='add-line-table') or target_panel.find('table')
 
-            for row in rows:
-                cols = row.find_all('td')
-                if len(cols) < 8: continue
+            # Estrategia 2: Si no hay panel o tabla en panel, buscar tabla por encabezado característico
+            if not table:
+                for t in soup.find_all('table', class_='add-line-table'):
+                    if t.find('th', string=re.compile(r'Fecha y hora')):
+                        table = t
+                        break
 
-                # Evitar filas de totales o vacías
-                # La columna 1 es el ID (№), si está vacía suele ser fila de totales o separador
-                if not cols[1].get_text(strip=True):
-                    continue
+            if table:
+                rows = []
+                tbodies = table.find_all('tbody')
+                if tbodies:
+                    for tbody in tbodies:
+                        rows.extend(tbody.find_all('tr'))
+                else:
+                    rows = table.find_all('tr')
 
-                s = {}
-                s['date'] = cols[0].get_text(strip=True)
-                s['id'] = cols[1].get_text(strip=True)
-                s['title'] = cols[2].get_text(strip=True)
-                s['legal_entity'] = cols[3].get_text(strip=True)
-                s['description'] = cols[4].get_text(strip=True)
-                s['number'] = cols[5].get_text(strip=True)
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) < 8: continue
 
-                try:
-                    s['price'] = float(cols[6].get_text(strip=True).replace(',', ''))
-                except:
-                    s['price'] = 0.0
+                    # Evitar filas de totales o vacías
+                    # La columna 1 es el ID (№), si está vacía suele ser fila de totales o separador
+                    if not cols[1].get_text(strip=True):
+                        continue
 
-                try:
-                    s['quantity'] = float(cols[7].get_text(strip=True).replace(',', ''))
-                except:
-                    s['quantity'] = 0.0
+                    s = {}
+                    s['date'] = cols[0].get_text(strip=True)
+                    s['id'] = cols[1].get_text(strip=True)
+                    s['title'] = cols[2].get_text(strip=True)
+                    s['legal_entity'] = cols[3].get_text(strip=True)
+                    s['description'] = cols[4].get_text(strip=True)
+                    s['number'] = cols[5].get_text(strip=True)
 
-                services.append(Service(**s))
-        return services
+                    try:
+                        s['price'] = float(cols[6].get_text(strip=True).replace(',', ''))
+                    except:
+                        s['price'] = 0.0
+
+                    try:
+                        s['quantity'] = float(cols[7].get_text(strip=True).replace(',', ''))
+                    except:
+                        s['quantity'] = 0.0
+
+                    services.append(Service(**s))
+            return services
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de servicios: {e}")
+            return []
 
     def extract_payments_list(self, html_content: Optional[str] = None) -> List[PaymentTransaction]:
         self.logger.debug(f"Method: extract_payments_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug(f"soup: {soup}")
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug(f"soup: {soup}")
 
-        payments = []
+            payments = []
 
-        panel = soup.find('div', id='anchors_list_payments')
-        # Nota: En el HTML proporcionado hay dos paneles con id="anchors_list_payments".
-        # El primero es "Lista de pagos", el segundo "Lista de tarjetas de pago".
-        # BeautifulSoup find encontrará el primero.
+            panel = soup.find('div', id='anchors_list_payments')
+            # Nota: En el HTML proporcionado hay dos paneles con id="anchors_list_payments".
+            # El primero es "Lista de pagos", el segundo "Lista de tarjetas de pago".
+            # BeautifulSoup find encontrará el primero.
 
-        if panel:
-            h2 = panel.find('h2')
-            if h2 and 'Lista de pagos' in h2.get_text():
+            if panel:
+                h2 = panel.find('h2')
+                if h2 and 'Lista de pagos' in h2.get_text():
+                    table = panel.find('table')
+                    if table:
+                        tbody = table.find('tbody')
+                        if tbody:
+                            rows = tbody.find_all('tr')
+                            for row in rows:
+                                cols = row.find_all('td')
+                                if len(cols) < 8: continue
+
+                                p = {}
+                                p['date'] = cols[0].get_text(strip=True)
+                                p['created_at'] = cols[1].get_text(strip=True)
+                                p['number'] = cols[2].get_text(strip=True)
+                                p['legal_entity'] = cols[3].get_text(strip=True)
+                                p['description'] = cols[4].get_text(strip=True)
+                                p['type'] = cols[5].get_text(strip=True)
+
+                                try:
+                                    p['amount'] = float(cols[6].get_text(strip=True).replace(',', ''))
+                                except:
+                                    p['amount'] = 0.0
+
+                                p['method'] = cols[7].get_text(strip=True)
+
+                                if len(cols) > 8: p['vpos_card_number'] = cols[8].get_text(strip=True)
+                                if len(cols) > 9: p['vpos_status'] = cols[9].get_text(strip=True)
+                                if len(cols) > 10: p['fiscal_check'] = cols[10].get_text(strip=True)
+
+                                payments.append(PaymentTransaction(**p))
+
+            return payments
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de pagos: {e}")
+            return []
+
+    def extract_cars_list(self, html_content: Optional[str] = None) -> List[CarInfo]:
+        self.logger.debug(f"Method: extract_cars_list")
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug(f"soup: {soup}")
+
+            cars = []
+            # Buscar panel Coche
+            panels = soup.find_all('div', class_='panel')
+            target_panel = None
+            for p in panels:
+                h2 = p.find('h2')
+                if h2 and 'Coche' in h2.get_text():
+                    target_panel = p
+                    break
+
+            if target_panel:
+                table = target_panel.find('table')
+                if table:
+                    tbody = table.find('tbody')
+                    if tbody:
+                        rows = tbody.find_all('tr')
+                        for row in rows:
+                            cols = row.find_all('td')
+                            if len(cols) < 3: continue
+
+                            c = {}
+                            c['brand'] = cols[0].get_text(strip=True)
+                            c['color'] = cols[1].get_text(strip=True)
+                            c['plate'] = cols[2].get_text(strip=True)
+                            cars.append(CarInfo(**c))
+            return cars
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de coches: {e}")
+            return []
+
+    def extract_notes_list(self, html_content: Optional[str] = None) -> List[NoteInfo]:
+        self.logger.debug("Method: _extract_notes_list")
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug("soup: {soup}")
+
+            notes = []
+            # Buscar panel Notas
+            panels = soup.find_all('div', class_='panel')
+            target_panel = None
+            for p in panels:
+                h2 = p.find('h2')
+                if h2 and 'Notas' in h2.get_text():
+                    target_panel = p
+                    break
+
+            if target_panel:
+                table = target_panel.find('table')
+                if table:
+                    tbody = table.find('tbody')
+                    if tbody:
+                        rows = tbody.find_all('tr')
+                        for row in rows:
+                            cols = row.find_all('td')
+                            if len(cols) < 3: continue
+
+                            n = {}
+                            n['date'] = cols[0].get_text(strip=True)
+                            n['user'] = cols[1].get_text(strip=True)
+                            n['note'] = cols[2].get_text(strip=True)
+                            notes.append(NoteInfo(**n))
+            return notes
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de notas: {e}")
+            return []
+
+    def extract_daily_tariffs_list(self, html_content: Optional[str] = None) -> List[DailyTariff]:
+        self.logger.debug("Method: _extract_notes_list")
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug("soup: {soup}")
+
+            tariffs = []
+            panel = soup.find('div', id='anchors_billing_days')
+
+            if panel:
+                table = panel.find('table')
+                if table:
+                    tbody = table.find('tbody')
+                    if tbody:
+                        rows = tbody.find_all('tr')
+                        for row in rows:
+                            # Ignorar encabezados
+                            if row.find('th'): continue
+
+                            cols = row.find_all('td')
+                            if len(cols) < 3: continue
+
+                            t = {}
+                            t['date'] = cols[0].get_text(strip=True)
+                            t['description'] = cols[1].get_text(strip=True)
+                            try:
+                                t['price'] = float(cols[2].get_text(strip=True).replace(',', ''))
+                            except:
+                                t['price'] = 0.0
+
+                            tariffs.append(DailyTariff(**t))
+            return tariffs
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de tarifas: {e}")
+            return []
+
+    def extract_change_log_list(self, html_content: Optional[str] = None) -> List[ChangeLog]:
+        self.logger.debug("Method: _extract_notes_list")
+        try:
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            # self.logger.debug("soup: {soup}")
+
+            logs = []
+            panel = soup.find('div', id='anchors_log')
+
+            if panel:
                 table = panel.find('table')
                 if table:
                     tbody = table.find('tbody')
@@ -798,156 +984,22 @@ class OtelsProcessadorData:
                         rows = tbody.find_all('tr')
                         for row in rows:
                             cols = row.find_all('td')
-                            if len(cols) < 8: continue
+                            if len(cols) < 7: continue
 
-                            p = {}
-                            p['date'] = cols[0].get_text(strip=True)
-                            p['created_at'] = cols[1].get_text(strip=True)
-                            p['number'] = cols[2].get_text(strip=True)
-                            p['legal_entity'] = cols[3].get_text(strip=True)
-                            p['description'] = cols[4].get_text(strip=True)
-                            p['type'] = cols[5].get_text(strip=True)
+                            l = {}
+                            l['date'] = cols[0].get_text(strip=True)
+                            l['number'] = cols[1].get_text(strip=True)
+                            l['user'] = cols[2].get_text(strip=True)
+                            l['type'] = cols[3].get_text(strip=True)
+                            l['action'] = cols[4].get_text(strip=True)
+                            l['quantity'] = cols[5].get_text(strip=True)
+                            l['description'] = cols[6].get_text(strip=True)
 
-                            try:
-                                p['amount'] = float(cols[6].get_text(strip=True).replace(',', ''))
-                            except:
-                                p['amount'] = 0.0
-
-                            p['method'] = cols[7].get_text(strip=True)
-
-                            if len(cols) > 8: p['vpos_card_number'] = cols[8].get_text(strip=True)
-                            if len(cols) > 9: p['vpos_status'] = cols[9].get_text(strip=True)
-                            if len(cols) > 10: p['fiscal_check'] = cols[10].get_text(strip=True)
-
-                            payments.append(PaymentTransaction(**p))
-
-        return payments
-
-    def extract_cars_list(self, html_content: Optional[str] = None) -> List[CarInfo]:
-        self.logger.debug(f"Method: extract_cars_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug(f"soup: {soup}")
-
-        cars = []
-        # Buscar panel Coche
-        panels = soup.find_all('div', class_='panel')
-        target_panel = None
-        for p in panels:
-            h2 = p.find('h2')
-            if h2 and 'Coche' in h2.get_text():
-                target_panel = p
-                break
-
-        if target_panel:
-            table = target_panel.find('table')
-            if table:
-                tbody = table.find('tbody')
-                if tbody:
-                    rows = tbody.find_all('tr')
-                    for row in rows:
-                        cols = row.find_all('td')
-                        if len(cols) < 3: continue
-
-                        c = {}
-                        c['brand'] = cols[0].get_text(strip=True)
-                        c['color'] = cols[1].get_text(strip=True)
-                        c['plate'] = cols[2].get_text(strip=True)
-                        cars.append(CarInfo(**c))
-        return cars
-
-    def extract_notes_list(self, html_content: Optional[str] = None) -> List[NoteInfo]:
-        self.logger.debug("Method: _extract_notes_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug("soup: {soup}")
-
-        notes = []
-        # Buscar panel Notas
-        panels = soup.find_all('div', class_='panel')
-        target_panel = None
-        for p in panels:
-            h2 = p.find('h2')
-            if h2 and 'Notas' in h2.get_text():
-                target_panel = p
-                break
-
-        if target_panel:
-            table = target_panel.find('table')
-            if table:
-                tbody = table.find('tbody')
-                if tbody:
-                    rows = tbody.find_all('tr')
-                    for row in rows:
-                        cols = row.find_all('td')
-                        if len(cols) < 3: continue
-
-                        n = {}
-                        n['date'] = cols[0].get_text(strip=True)
-                        n['user'] = cols[1].get_text(strip=True)
-                        n['note'] = cols[2].get_text(strip=True)
-                        notes.append(NoteInfo(**n))
-        return notes
-
-    def extract_daily_tariffs_list(self, html_content: Optional[str] = None) -> List[DailyTariff]:
-        self.logger.debug("Method: _extract_notes_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug("soup: {soup}")
-
-        tariffs = []
-        panel = soup.find('div', id='anchors_billing_days')
-
-        if panel:
-            table = panel.find('table')
-            if table:
-                tbody = table.find('tbody')
-                if tbody:
-                    rows = tbody.find_all('tr')
-                    for row in rows:
-                        # Ignorar encabezados
-                        if row.find('th'): continue
-
-                        cols = row.find_all('td')
-                        if len(cols) < 3: continue
-
-                        t = {}
-                        t['date'] = cols[0].get_text(strip=True)
-                        t['description'] = cols[1].get_text(strip=True)
-                        try:
-                            t['price'] = float(cols[2].get_text(strip=True).replace(',', ''))
-                        except:
-                            t['price'] = 0.0
-
-                        tariffs.append(DailyTariff(**t))
-        return tariffs
-
-    def extract_change_log_list(self, html_content: Optional[str] = None) -> List[ChangeLog]:
-        self.logger.debug("Method: _extract_notes_list")
-        soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-        # self.logger.debug("soup: {soup}")
-
-        logs = []
-        panel = soup.find('div', id='anchors_log')
-
-        if panel:
-            table = panel.find('table')
-            if table:
-                tbody = table.find('tbody')
-                if tbody:
-                    rows = tbody.find_all('tr')
-                    for row in rows:
-                        cols = row.find_all('td')
-                        if len(cols) < 7: continue
-
-                        l = {}
-                        l['date'] = cols[0].get_text(strip=True)
-                        l['number'] = cols[1].get_text(strip=True)
-                        l['user'] = cols[2].get_text(strip=True)
-                        l['type'] = cols[3].get_text(strip=True)
-                        l['action'] = cols[4].get_text(strip=True)
-                        l['quantity'] = cols[5].get_text(strip=True)
-                        l['description'] = cols[6].get_text(strip=True)
-
-                        logs.append(ChangeLog(**l))
-        return logs
+                            logs.append(ChangeLog(**l))
+            return logs
+        except Exception as e:
+            self.logger.error(f"Error extrayendo lista de logs: {e}")
+            return []
 
     # --- Métodos Internos del Calendario (Legacy) ---
 
