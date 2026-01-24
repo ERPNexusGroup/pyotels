@@ -324,7 +324,7 @@ class OtelsProcessadorData:
             soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
             # self.logger.debug(f"soup: {soup}")
             link = soup.find('a', href=re.compile(r'/guestfolio/(\d+)'))
-            self.logger.debug(f"link: {link}")
+            # self.logger.debug(f"link: {link}")
             if link:
                 match = re.search(r'/guestfolio/(\d+)', link.get('href'))
                 if match:

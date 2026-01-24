@@ -64,6 +64,7 @@ class OtelMSScraper:
                          strategy: Literal['basic', 'partial', 'full'] = 'basic') -> Union[
         CalendarReservation, Dict[str, Any]]:
         try:
+            self.logger.debug(f"Parameters: {{\"start_date\": {start_date}, \"as_dict\": {as_dict}, \"strategy\": {strategy}}} ")
             return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, strategy=strategy)
         except (NetworkError, AuthenticationError, ParsingError):
             raise

@@ -1,9 +1,11 @@
 # src/services/data_service.py
-from typing import Union, Dict, Any, Optional, Literal
+from typing import Union, Dict, Any, Optional, Literal, TypeAlias
 
+from pyotels import ReservationModalDetail
 from pyotels.core.models import ReservationDetail
 from .. import OtelsExtractor, OtelsProcessadorData, ParsingError, NetworkError, AuthenticationError
 from ..config.settings import config
+from ..core.enums import StatusReservation
 from ..exceptions import DataNotFoundError
 from ..utils.dev import save_html_debug
 from ..utils.logger import get_logger
@@ -40,25 +42,6 @@ class OtelsDataServices:
     def _resolve_as_dict(self, as_dict: Optional[bool]) -> bool:
         """Resuelve si se debe retornar un diccionario o un objeto."""
         return as_dict if as_dict is not None else self.return_dict
-
-    # -------------------------------------------------
-    #                  METODOS PUBLICOS               #
-    # -------------------------------------------------
-    def get_categories_data(self, start_date: Optional[str] = None, as_dict: Optional[bool] = None):
-        """ Obtener la lista de categorias y habitaciones relacionadas"""
-        try:
-            html_content = self.extractor.get_calendar_html(start_date)
-            processor = OtelsProcessadorData(html_content)
-            return processor.extract_categories(as_dict=self._resolve_as_dict(as_dict))
-        except (NetworkError, AuthenticationError):
-            raise
-        except Exception as e:
-            self.logger.error(f"Error al extraer categorías: {e}")
-            raise ParsingError(f"Error al extraer categorías: {e}")
-
-    """
-        Metodos para extraer los datos de la reserva
-    """
 
     def _get_reservation_full_data(self, reservation_id: Optional[str] = None, as_dict: bool = False):
         try:
@@ -151,50 +134,89 @@ class OtelsDataServices:
         except Exception as e:
             raise ParsingError(f"Error al extraer modales: {e}")
 
+    # -------------------------------------------------
+    #                  METODOS PUBLICOS               #
+    # -------------------------------------------------
+    @staticmethod
+    def get_status_reservation_data():
+        return StatusReservation.to_dict()
+
+    def get_categories_data(self, start_date: Optional[str] = None, as_dict: Optional[bool] = None):
+        """ Obtener la lista de categorias y habitaciones relacionadas"""
+        try:
+            html_content = self.extractor.get_calendar_html(start_date)
+            self.processor.html_content = html_content
+            return self.processor.extract_categories(as_dict=self._resolve_as_dict(as_dict))
+        except (NetworkError, AuthenticationError):
+            raise
+        except Exception as e:
+            self.logger.error(f"Error al extraer categorías: {e}")
+            raise ParsingError(f"Error al extraer categorías: {e}")
+
+    ReservationReturn: TypeAlias = (
+            None
+            | ReservationDetail
+            | dict[str, Any]
+            | list[ReservationModalDetail]
+            | list[dict[str, Any]]
+    )
+
     def get_reservation_data(self, reservation_id: Optional[str] = None,
                              strategy: Literal['basic', 'partial', 'full'] = 'basic',
-                             as_dict: bool = False, start_date: Optional[str] = None) -> Union[
-        ReservationDetail, Dict[str, Any], None]:
+                             as_dict: bool = False, start_date: Optional[str] = None
+                             ) -> ReservationReturn:
+
         """ obtener la data de cada segmento del detalle de las reservas """
         # Validar la devolucion de datos en objeto o diccionario
         return_dict = self._resolve_as_dict(as_dict)
 
-        self.logger.info(f"Iniciando proceso de recuperacion de datos de reservacion 'get_reservation_data'")
-        if reservation_id and strategy != 'full':
-            self.logger.warning("La configuracion de reservation_id y fulldata es incorrecta")
-            return None
+        self.logger.info("Iniciando get_reservation_data | strategy=%s | reservation_id=%s | as_dict=%s",
+                         strategy, reservation_id, return_dict, )
+
+        if strategy == 'full' and not reservation_id:
+            raise ValueError("reservation_id es obligatorio cuando strategy='full'")
+
+        if strategy != 'full' and reservation_id:
+            raise ValueError("reservation_id solo puede usarse con strategy='full'")
 
         try:
+            match strategy:
+                case 'basic':
+                    return self._get_reservation_basic_data(
+                        as_dict=return_dict,
+                        start_date=start_date,
+                    )
 
-            if strategy == 'basic':
-                reservations = self._get_reservation_basic_data(
-                    as_dict=return_dict,
-                    start_date=start_date
-                )
-            elif strategy == 'partial':
-                reservations = self._get_reservation_partial_data(
-                    as_dict=return_dict
-                )
-            elif strategy == 'full':
-                reservations = self._get_reservation_full_data(
-                    reservation_id=reservation_id,
-                    as_dict=return_dict
-                )
-            else:
-                pass
+                case 'partial':
+                    return self._get_reservation_partial_data(
+                        as_dict=return_dict,
+                    )
 
-            return reservations
-        except (NetworkError, AuthenticationError, ParsingError):
-            raise
+                case 'full':
+                    return self._get_reservation_full_data(
+                        reservation_id=reservation_id,
+                        as_dict=return_dict,
+                    )
+
+                case _:
+                    # Por seguridad futura
+                    raise ValueError(f"Strategy no soportada: {strategy}")
         except Exception as e:
-            self.logger.error(f"Failed to fetch details for {reservation_id}: {e}")
-            raise DataNotFoundError(f"Failed to fetch details for {reservation_id}")
-
-    """
-        Metodos para extraer los ids
-    """
+            self.logger.exception(
+                "Error obteniendo datos de reservación | reservation_id=%s",
+                reservation_id,
+            )
+            raise DataNotFoundError(
+                f"Failed to fetch details for {reservation_id}"
+            ) from e
 
     def get_ids_reservation(self, start_date: Optional[str] = None):
+        """
+        Metodos para extraer los ids
+
+        :param start_date:
+        :return:
+        """
         try:
             return self.extractor.get_visible_reservation_ids(start_date)
         except (NetworkError, AuthenticationError):

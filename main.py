@@ -76,7 +76,6 @@ def main():
             logger.info(f"Se extrajeron {len(details_data)} detalles de modales.")
 
         # 5. Obtener Detalle de Reserva Específica
-        logger.warning(f"TEST_METHODS: {TEST_METHODS}")
         if run_all or 5 in TEST_METHODS:  # No incluido en run_all por defecto para no saturar si no hay ID
             logger.info(f"\n--- [5] Obteniendo Detalle para Reserva {TEST_RESERVATION_ID} ---")
             if TEST_RESERVATION_ID:
