@@ -38,6 +38,7 @@ class Config(BaseSettings):
     SAVE_JSON: bool = False
     PRINT_DEBUG: bool = False
     PRINT_HTML: bool = False
+    FORCE_COLOR:bool = False
 
     # -----------------------
     # Scraping / negocio
