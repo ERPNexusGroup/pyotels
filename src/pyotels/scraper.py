@@ -27,7 +27,6 @@ class OtelMSScraper:
         self.id_hotel = id_hotel
 
         # Inicializar Extractor (Maneja Playwright y Sesión)
-        # self.extractor = OtelsExtractor(self.BASE_URL, headless=is_headless, use_cache=use_cache)
         self.service = OtelsDataServices(
             id_hotel=self.id_hotel,
             username=self.username,
@@ -53,31 +52,15 @@ class OtelMSScraper:
             raise NetworkError(f"Error en login: {e}")
 
     def get_categories(self, as_dict: Optional[bool] = None) -> Union[CalendarCategories, Dict[str, Any]]:
-        try:
-            return self.service.get_categories_data(as_dict=as_dict)
-        except (NetworkError, AuthenticationError, ParsingError):
-            raise
-        except Exception as e:
-            raise ParsingError(f"Error al extraer categorías: {e}")
+        return self.service.get_categories_data(as_dict=as_dict)
 
     def get_reservations(self, start_date: Optional[str] = None, as_dict: Optional[bool] = None,
                          strategy: Literal['basic', 'partial', 'full'] = 'basic') -> Union[
         CalendarReservation, Dict[str, Any]]:
-        try:
-            self.logger.debug(f"Parameters: {{\"start_date\": {start_date}, \"as_dict\": {as_dict}, \"strategy\": {strategy}}} ")
-            return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, strategy=strategy)
-        except (NetworkError, AuthenticationError, ParsingError):
-            raise
-        except Exception as e:
-            raise ParsingError(f"Error al extraer grilla: {e}")
+        return self.service.get_reservation_data(as_dict=as_dict, start_date=start_date, strategy=strategy)
 
     def get_ids_reservation(self, target_date_str: str = None) -> List[int]:
-        try:
-            return self.service.get_ids_reservation(target_date_str)
-        except (NetworkError, AuthenticationError, ParsingError):
-            raise
-        except Exception as e:
-            raise ParsingError(f"Error al extraer grilla: {e}")
+        return self.service.get_ids_reservation(target_date_str)
 
     def get_reservation_detail(self, reservation_id: Union[str, List[str]],
                                strategy: Literal['basic', 'partial', 'full'] = 'basic',
@@ -88,10 +71,7 @@ class OtelMSScraper:
         Si reservation_id es una lista, retorna una lista de detalles.
         Si es un solo ID, retorna un solo objeto detalle.
         """
-        self.logger.debug(f"Method: get_reservation_detail")
-        self.logger.debug(f"Parameters: {{\"reservation_id\": {reservation_id}, \"as_dict\": {as_dict}}}")
-
-        self.logger.info(f"Fetching details for reservation {reservation_id}")
+        # self.logger.debug(f"Fetching details for reservation {reservation_id}")
         try:
             return self.service.get_reservation_data(
                 reservation_id=reservation_id, as_dict=as_dict, strategy=strategy

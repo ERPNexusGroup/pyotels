@@ -18,6 +18,26 @@ from pyotels.utils.logger import get_logger
 from pyotels.utils.normalizations import normalize_float, normalize_date
 from pyotels.exceptions import ParsingError
 
+# --- Compiled Regex Patterns ---
+RE_RESERVATION_STATUS = re.compile(r'(?:Reserva|Salida|Alojamiento)|\d+')
+RE_GUEST_FOLIO_LINK = re.compile(r'/guestfolio/(\d+)')
+RE_GUEST_ID_HEADER = re.compile(r'ID:\s*(\d+)')
+RE_DATETIME_RANGE = re.compile(r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}')
+RE_DIGITS = re.compile(r'\d+')
+RE_SERVICE_HEADER = re.compile(r'Fecha y hora')
+
+# Tooltip Regexes
+RE_TT_GUEST = re.compile(r'Huésped:\s*([^<]+)')
+RE_TT_CHECKIN = re.compile(r'Llegada:\s*(\d{4}-\d{2}-\d{2})')
+RE_TT_CHECKOUT = re.compile(r'Salida:\s*(\d{4}-\d{2}-\d{2})')
+RE_TT_CREATED = re.compile(r'fecha de creación:\s*(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', re.IGNORECASE)
+RE_TT_GUEST_COUNT = re.compile(r'Cantidad de huéspedes:\s*(\d+)')
+RE_TT_BALANCE = re.compile(r'Balance:\s*([+-]?\d+\.?\d*)')
+RE_TT_PHONE = re.compile(r'Teléfono:\s*([^<]*)')
+RE_TT_EMAIL = re.compile(r'Email:\s*([^<]*)')
+RE_TT_USER = re.compile(r'Usuario:\s*([^<]*)')
+RE_TT_COMMENTS = re.compile(r'Comentarios:\s*(.*?)<')
+
 
 class OtelsProcessadorData:
     """Procesa datos estructurados del calendario HTML de OtelMS."""
@@ -46,14 +66,23 @@ class OtelsProcessadorData:
         self.modals_data = {}
         self.soup = None
 
+        # Prefer lxml if available, fallback to html.parser
+        parser = 'lxml'
+
         if content is None:
             pass
         elif isinstance(content, dict):
             self.modals_data = content
-            self.soup = BeautifulSoup("", 'html.parser')
+            # Dummy soup for dict mode
+            self.soup = BeautifulSoup("", parser)
             self.logger.debug(f"Contenido actualizado con {len(self.modals_data)} modales.")
         else:
-            self.soup = BeautifulSoup(content, 'html.parser')
+            try:
+                self.soup = BeautifulSoup(content, parser)
+            except Exception:
+                self.logger.warning("lxml no disponible o falló, usando html.parser")
+                self.soup = BeautifulSoup(content, 'html.parser')
+            
             self.logger.debug(f"Contenido HTML actualizado. Longitud: {len(content)} caracteres.")
 
         # Reiniciar estado interno
@@ -62,9 +91,6 @@ class OtelsProcessadorData:
         self.date_range = {}
         self.room_id_to_category = {}
         self.day_id_to_date = {}
-
-        # if self.soup and self.soup.text:
-        #     self._build_date_mapping()
 
     def extract_categories(self, as_dict: bool = False) -> Union[CalendarCategories, Dict[str, Any]]:
         """Extrae solo las categorías y habitaciones."""
@@ -165,7 +191,12 @@ class OtelsProcessadorData:
         Extrae información del modal de reserva (HTML parcial) y devuelve un ReservationModalDetail.
         """
         try:
-            soup = BeautifulSoup(html_content, 'html.parser')
+            # Usar lxml si es posible para fragmentos también
+            try:
+                soup = BeautifulSoup(html_content, 'lxml')
+            except:
+                soup = BeautifulSoup(html_content, 'html.parser')
+
             extracted = {}
             FIELDS_MAP: Final[dict] = {
                 "Huésped": "guest_name",
@@ -191,9 +222,7 @@ class OtelsProcessadorData:
             h2 = soup.find('h2', class_='nameofgroup') or soup.find('h2')
             if h2:
                 text = h2.get_text(strip=True)
-                # self.logger.debug(f"text: {text}")
-                match = re.findall(r'(?:Reserva|Salida|Alojamiento)|\d+', text)
-                # self.logger.debug(f"match: {match}")
+                match = RE_RESERVATION_STATUS.findall(text)
                 if match and len(match) > 1:
                     status = StatusReservation.from_text(match[0].strip())
                     # self.logger.debug(f"status: {status}")
@@ -321,12 +350,10 @@ class OtelsProcessadorData:
         """
         self.logger.debug(f"Method: extract_guest_id")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-            # self.logger.debug(f"soup: {soup}")
-            link = soup.find('a', href=re.compile(r'/guestfolio/(\d+)'))
-            # self.logger.debug(f"link: {link}")
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
+            link = soup.find('a', href=RE_GUEST_FOLIO_LINK)
             if link:
-                match = re.search(r'/guestfolio/(\d+)', link.get('href'))
+                match = RE_GUEST_FOLIO_LINK.search(link.get('href'))
                 if match:
                     return int(match.group(1))
             return None
@@ -340,15 +367,14 @@ class OtelsProcessadorData:
         """
         self.logger.debug(f"Method: extract_guest_details")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-            # self.logger.debug(f"soup: {soup}")
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             guest_data = {}
 
             # Extraer ID del header si existe
             header_time = soup.find('span', class_='header-time')
             if header_time:
                 text = header_time.get_text(" ", strip=True)
-                match = re.search(r'ID:\s*(\d+)', text)
+                match = RE_GUEST_ID_HEADER.search(text)
                 if match:
                     guest_data['id'] = match.group(1)
 
@@ -450,8 +476,7 @@ class OtelsProcessadorData:
         try:
             info = {}
 
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
-            # self.logger.debug(f"soup: {soup}")
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
 
             # Buscar el panel de Información básica
             panel = soup.find('div', id='anchors_main_information')
@@ -533,7 +558,7 @@ class OtelsProcessadorData:
                     if not b_tag: continue
 
                     key = b_tag.get_text(strip=True).lower().replace(':', '')
-                    self.logger.debug(f"Key: {key}")
+                    # self.logger.debug(f"Key: {key}")
 
                     # Extraer valor
                     val_parts = []
@@ -558,7 +583,7 @@ class OtelsProcessadorData:
                     val = " ".join(val_parts).strip()
 
                     if 'período de estancia' in key:
-                        dates = re.findall(r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}', val)
+                        dates = RE_DATETIME_RANGE.findall(val)
                         if len(dates) >= 1: info['check_in'], info['check_in_hour'] = dates[0].split(" ")
                         if len(dates) >= 2: info['check_out'], info['check_out_hour'] = dates[1].split(" ")
                     elif 'noches' in key:
@@ -576,7 +601,7 @@ class OtelsProcessadorData:
                                 info['room_type'] = " ".join(parts[1:])
                     elif 'huéspedes' in key:
                         # Sumar números encontrados
-                        nums = re.findall(r'\d+', val)
+                        nums = RE_DIGITS.findall(val)
                         total = sum(int(n) for n in nums)
                         info['guest_count'] = total
                     elif 'tarificación por categoría' in key:
@@ -600,7 +625,11 @@ class OtelsProcessadorData:
         Extrae información detallada del alojamiento desde el modal de edición (HTML con inputs).
         """
         try:
-            soup = BeautifulSoup(html_content, 'html.parser')
+            try:
+                soup = BeautifulSoup(html_content, 'lxml')
+            except:
+                soup = BeautifulSoup(html_content, 'html.parser')
+                
             info = {}
 
             def get_val(selector: str) -> Optional[str]:
@@ -680,7 +709,7 @@ class OtelsProcessadorData:
     def extract_guests_list(self, html_content: Optional[str] = None) -> List[Guest]:
         self.logger.debug(f"Method: extract_guests_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             guests = []
 
             # Intentar encontrar la tabla en varios contenedores posibles
@@ -723,7 +752,7 @@ class OtelsProcessadorData:
                     if name_link:
                         g['name'] = name_link.get_text(strip=True)
                         href = name_link.get('href')
-                        match = re.search(r'/guestfolio/(\d+)', href)
+                        match = RE_GUEST_FOLIO_LINK.search(href)
                         if match: g['id'] = match.group(1)
                     else:
                         g['name'] = cols[0].get_text(strip=True)
@@ -743,7 +772,7 @@ class OtelsProcessadorData:
     def extract_services_list(self, html_content: Optional[str] = None) -> List[Service]:
         self.logger.debug(f"Method: extract_services_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
 
             services = []
 
@@ -762,7 +791,7 @@ class OtelsProcessadorData:
             # Estrategia 2: Si no hay panel o tabla en panel, buscar tabla por encabezado característico
             if not table:
                 for t in soup.find_all('table', class_='add-line-table'):
-                    if t.find('th', string=re.compile(r'Fecha y hora')):
+                    if t.find('th', string=RE_SERVICE_HEADER):
                         table = t
                         break
 
@@ -811,7 +840,7 @@ class OtelsProcessadorData:
     def extract_payments_list(self, html_content: Optional[str] = None) -> List[PaymentTransaction]:
         self.logger.debug(f"Method: extract_payments_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             # self.logger.debug(f"soup: {soup}")
 
             payments = []
@@ -862,7 +891,7 @@ class OtelsProcessadorData:
     def extract_cars_list(self, html_content: Optional[str] = None) -> List[CarInfo]:
         self.logger.debug(f"Method: extract_cars_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             # self.logger.debug(f"soup: {soup}")
 
             cars = []
@@ -898,7 +927,7 @@ class OtelsProcessadorData:
     def extract_notes_list(self, html_content: Optional[str] = None) -> List[NoteInfo]:
         self.logger.debug("Method: _extract_notes_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             # self.logger.debug("soup: {soup}")
 
             notes = []
@@ -934,7 +963,7 @@ class OtelsProcessadorData:
     def extract_daily_tariffs_list(self, html_content: Optional[str] = None) -> List[DailyTariff]:
         self.logger.debug("Method: _extract_notes_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             # self.logger.debug("soup: {soup}")
 
             tariffs = []
@@ -970,7 +999,7 @@ class OtelsProcessadorData:
     def extract_change_log_list(self, html_content: Optional[str] = None) -> List[ChangeLog]:
         self.logger.debug("Method: _extract_notes_list")
         try:
-            soup = self.soup if not html_content else BeautifulSoup(html_content, 'html.parser')
+            soup = self.soup if not html_content else BeautifulSoup(html_content, 'lxml')
             # self.logger.debug("soup: {soup}")
 
             logs = []
@@ -1158,43 +1187,42 @@ class OtelsProcessadorData:
             if tooltip_html:
                 decoded_html = html.unescape(tooltip_html)
 
-                guest_match = re.search(r'Huésped:\s*([^<]+)', decoded_html)
+                guest_match = RE_TT_GUEST.search(decoded_html)
                 if guest_match: data['guest_name'] = guest_match.group(1).strip()
 
-                check_in_match = re.search(r'Llegada:\s*(\d{4}-\d{2}-\d{2})', decoded_html)
+                check_in_match = RE_TT_CHECKIN.search(decoded_html)
                 if check_in_match: data['check_in'] = check_in_match.group(1)
 
-                check_out_match = re.search(r'Salida:\s*(\d{4}-\d{2}-\d{2})', decoded_html)
+                check_out_match = RE_TT_CHECKOUT.search(decoded_html)
                 if check_out_match: data['check_out'] = check_out_match.group(1)
 
-                created_match = re.search(r'fecha de creación:\s*(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', decoded_html,
-                                          re.IGNORECASE)
+                created_match = RE_TT_CREATED.search(decoded_html)
                 if created_match: data['created_at'] = created_match.group(1)
 
-                guest_count_match = re.search(r'Cantidad de huéspedes:\s*(\d+)', decoded_html)
+                guest_count_match = RE_TT_GUEST_COUNT.search(decoded_html)
                 if guest_count_match:
                     try:
                         data['guest_count'] = int(guest_count_match.group(1))
                     except:
                         data['guest_count'] = 0
 
-                balance_match = re.search(r'Balance:\s*([+-]?\d+\.?\d*)', decoded_html)
+                balance_match = RE_TT_BALANCE.search(decoded_html)
                 if balance_match:
                     try:
                         data['balance'] = float(balance_match.group(1))
                     except:
                         data['balance'] = 0.0
 
-                phone_match = re.search(r'Teléfono:\s*([^<]*)', decoded_html)
+                phone_match = RE_TT_PHONE.search(decoded_html)
                 if phone_match: data['phone'] = phone_match.group(1).strip()
 
-                email_match = re.search(r'Email:\s*([^<]*)', decoded_html)
+                email_match = RE_TT_EMAIL.search(decoded_html)
                 if email_match: data['email'] = email_match.group(1).strip()
 
-                user_match = re.search(r'Usuario:\s*([^<]*)', decoded_html)
+                user_match = RE_TT_USER.search(decoded_html)
                 if user_match: data['user'] = user_match.group(1).strip()
 
-                comments_match = re.search(r'Comentarios:\s*(.*?)<', decoded_html)
+                comments_match = RE_TT_COMMENTS.search(decoded_html)
                 if comments_match: data['comments'] = comments_match.group(1).strip()
 
         return data
