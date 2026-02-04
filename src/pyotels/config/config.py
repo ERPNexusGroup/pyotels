@@ -20,8 +20,10 @@ class Config(BaseSettings):
     # -----------------------
     DEBUG: bool = False
     HEADLESS: bool = True
-    USE_CACHE: bool = False
+    USE_CACHE: bool = True
     RETURN_DICT: bool = True
+
+    CACHE_TIME: int = 60 * 30  # 30 minutos
 
     LOG_LEVEL: Optional[str] = "INFO"
     LOG_BACKUP_COUNT: int = 10
@@ -38,7 +40,7 @@ class Config(BaseSettings):
     SAVE_JSON: bool = False
     PRINT_DEBUG: bool = False
     PRINT_HTML: bool = False
-    FORCE_COLOR:bool = False
+    FORCE_COLOR: bool = False
 
     # -----------------------
     # Scraping / negocio

@@ -42,7 +42,7 @@ class OtelsExtractor:
         # Configuración de caché
         # La caché se habilita si config.DEBUG es True Y use_cache es True
         self._cache_enabled = config.DEBUG and use_cache
-        self._cache_duration = 60 * 60
+        self._cache_duration = config.CACHE_TIME or 60 * 60
 
         if self._cache_enabled:
             cache_dir = config.BASE_DIR / "cache"
@@ -73,15 +73,20 @@ class OtelsExtractor:
         if self.playwright: return
 
         self.logger.info("Iniciando Playwright...")
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=self.headless)
+        try:
+            self.playwright = sync_playwright().start()
+            self.browser = self.playwright.chromium.launch(headless=self.headless)
 
-        # Crear contexto con User-Agent definido
-        self.context = self.browser.new_context(
-            user_agent=config.USER_AGENT,
-            viewport={'width': 1920, 'height': 1080}
-        )
-        self.page = self.context.new_page()
+            # Crear contexto con User-Agent definido
+            self.context = self.browser.new_context(
+                user_agent=config.USER_AGENT,
+                viewport={'width': 1920, 'height': 1080}
+            )
+            self.page = self.context.new_page()
+        except Exception as e:
+            self.logger.error(f"Error fatal iniciando Playwright: {e}")
+            self.close()  # Asegurar limpieza si falla la inicialización
+            raise e
 
     def login(self, username: Optional[str] = None, password: Optional[str] = None) -> bool:
         """
@@ -488,12 +493,27 @@ class OtelsExtractor:
         return results
 
     def close(self):
-        """Cierra todos los recursos."""
-        if self.page: self.page.close()
-        if self.context: self.context.close()
-        if self.browser: self.browser.close()
-        if self.playwright: self.playwright.stop()
-        self.session.close()
+        """Cierra todos los recursos de forma segura."""
+        # Helper para cerrar recursos ignorando errores
+        def safe_close(resource, name):
+            if resource:
+                try:
+                    if hasattr(resource, 'close'):
+                        resource.close()
+                    elif hasattr(resource, 'stop'):
+                        resource.stop()
+                except Exception as e:
+                    self.logger.warning(f"Error cerrando {name}: {e}")
+
+        safe_close(self.page, "page")
+        safe_close(self.context, "context")
+        safe_close(self.browser, "browser")
+        safe_close(self.playwright, "playwright")
+
+        try:
+            self.session.close()
+        except Exception as e:
+            self.logger.warning(f"Error cerrando session: {e}")
 
         self.page = None
         self.context = None
