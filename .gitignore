@@ -32,6 +32,7 @@ env/
 .env
 .env.local
 .env.*
+!.env.example
 
 # --- IDEs y Editores ---
 # JetBrains (PyCharm, IntelliJ)
@@ -44,19 +45,25 @@ env/
 # --- Logs y Debug ---
 *.log
 scrapy_debug.log
+logs/
 
 # --- Base de Datos ---
 *.db
 *.sqlite3
 reservations.db
 
-# --- Archivos Generados por el Proyecto ---
-# Carpeta de extracción (HTMLs guardados, JSONs, etc.)
-#extract/
+# --- Caches de Herramientas ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Runtime del Proyecto ---
+http_cache/
+test_cache/
 
 # --- Gestores de Paquetes ---
-# uv (si usas uv para gestión de paquetes)
-uv.lock
 # Poetry
 poetry.lock
 # Pip
@@ -67,7 +74,6 @@ pip-delete-this-directory.txt
 .DS_Store
 Thumbs.db
 ia_tools/
-#html/
 
 # --- Pruebas ---
 settings.py
