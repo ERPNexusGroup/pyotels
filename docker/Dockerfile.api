@@ -1,0 +1,75 @@
+# Dockerfile para API (FastAPI + Uvicorn)
+FROM python:3.12-slim-bookworm AS base
+
+# Instalar dependencias del sistema + Firefox para Camoufox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libgtk-3-0 \
+    libxshmfence1 \
+    libxcb1 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxext6 \
+    libxrender1 \
+    libxi6 \
+    libxtst6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Crear usuario no-root
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser
+
+# Directorio de trabajo
+WORKDIR /app
+
+# Instalar uv para gestión de dependencias rápida
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Copiar archivos de dependencias Y código fuente (necesario para build con src layout)
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+
+# Instalar dependencias de producción + scraping (necesario para imports)
+RUN uv pip install --system --no-cache . "camoufox>=0.5.4" "playwright>=1.50.0"
+
+# Instalar Camoufox y descargar binario de Firefox en cache compartida (XDG_CACHE_HOME)
+ENV XDG_CACHE_HOME=/usr/local/share/cache
+RUN mkdir -p /usr/local/share/cache && python -m camoufox fetch
+
+# Crear directorio de logs y dar permisos al usuario appuser
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app /usr/local/share/cache
+
+# Cambiar a usuario no-root
+USER appuser
+
+# Variables de entorno
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    CAMOUFOX_HEADLESS=1 \
+    PATH="/home/appuser/.local/bin:${PATH}"
+
+# Exponer puerto
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Comando por defecto
+CMD ["uvicorn", "otelms.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

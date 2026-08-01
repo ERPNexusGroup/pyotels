@@ -1,0 +1,201 @@
+# Docker Compose para desarrollo y producción
+# Uso: docker compose -f docker/docker-compose.yml up -d
+
+services:
+  # ============================================================
+  # PostgreSQL Database
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: otelms-postgres
+    environment:
+      POSTGRES_DB: otelms
+      POSTGRES_USER: otelms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-otelms_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otelms -d otelms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - otelms-network
+    restart: unless-stopped
+
+  # ============================================================
+  # Redis (Cache + Celery Broker)
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: otelms-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - otelms-network
+    restart: unless-stopped
+
+  # ============================================================
+  # API Server (FastAPI + Uvicorn)
+  # ============================================================
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: otelms-api
+    environment:
+      - APP_ENV=development
+      - APP_DEBUG=true
+      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - API_KEY=${API_KEY:-changeme-secure-api-key-here}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme-jwt-secret-key-min-32-chars}
+      - OTELMS_DEFAULT_HOTEL_ID=${OTELMS_DEFAULT_HOTEL_ID:-118510}
+      - OTELMS_DEFAULT_USERNAME=${OTELMS_DEFAULT_USERNAME:-gerencia@harmonyhotelgroup.com}
+      - OTELMS_DEFAULT_PASSWORD=${OTELMS_DEFAULT_PASSWORD:-changeme}
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      - METRICS_ENABLED=true
+    ports:
+      - "8002:8000"
+      - "9091:9090"  # Prometheus metrics
+    volumes:
+      - ../src:/app/src:ro  # Hot reload: cambios en src/ se reflejan al instante
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - otelms-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+
+  # ============================================================
+  # Celery Worker (Scraping Tasks)
+  # ============================================================
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: otelms-worker
+    environment:
+      - APP_ENV=development
+      - APP_DEBUG=true
+      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - OTELMS_DEFAULT_HOTEL_ID=${OTELMS_DEFAULT_HOTEL_ID:-18330}
+      - OTELMS_DEFAULT_USERNAME=${OTELMS_DEFAULT_USERNAME:-gerencia@harmonyhotelgroup.com}
+      - OTELMS_DEFAULT_PASSWORD=${OTELMS_DEFAULT_PASSWORD:-changeme}
+      - SCRAPER_HEADLESS=true
+      - BROWSER_HEADLESS=true
+      - BROWSER_POOL_SIZE=2
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - otelms-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 1G
+          cpus: "1.0"
+
+  # ============================================================
+  # Celery Beat (Scheduler)
+  # ============================================================
+  beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: otelms-beat
+    command: celery -A otelms.tasks.celery_app beat --loglevel=info --scheduler redbeat.RedBeatScheduler
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SYNC_CALENDAR_CRON=*/15 * * * *
+      - SYNC_CATEGORIES_CRON=0 * * * *
+      - SYNC_FULL_DETAIL_CRON=0 3 * * *
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - otelms-network
+    restart: unless-stopped
+
+  # ============================================================
+  # Nginx Reverse Proxy (Opcional - para producción con SSL)
+  # ============================================================
+  nginx:
+    image: nginx:alpine
+    container_name: otelms-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - otelms-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+# ============================================================
+# Volumes
+# ============================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ============================================================
+# Networks
+# ============================================================
+networks:
+  otelms-network:
+    driver: bridge
+    name: otelms-network

@@ -1,23 +1,160 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyotels"
-version = "0.6.0"
-description = "Librería para scraping de OtelMS"
+name = "otelms-api"
+version = "1.0.0"
+description = "Unofficial API for OtelMS - Scraping + REST API"
+readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "Walter Cun", email = "walter.cun@example.com"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
-    "beautifulsoup4>=4.14.3",
-    "diskcache>=5.6.3",
-    "lxml>=6.0.2",
-    "playwright>=1.57.0",
-    "pydantic-settings>=2.12.0",
-    "requests>=2.32.5",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.10.0",
+    "python-dotenv>=1.0.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.3.0",
+    "httpx>=0.28.0",
+    "sqlalchemy>=2.0.30",
+    "alembic>=1.14.0",
+    "aiosqlite>=0.20.0",
+    "asyncpg>=0.29.0",
+    "redis>=5.2.0",
+    "celery>=5.4.0",
+    "diskcache>=5.6.0",
+    "structlog>=24.1.0",
+    "prometheus-client>=0.20.0",
+    "opentelemetry-api>=1.27.0",
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-exporter-prometheus>=0.44.0",
+    "tenacity>=8.5.0",
+    "python-dateutil>=2.9.0",
+    "pyyaml>=6.0.0",
+    "rich>=13.9.0",
+    "typer>=0.12.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "pyotp>=2.9.0",
+]
+
+[project.optional-dependencies]
+scraping = [
+    "camoufox>=0.5.4",
+    "playwright>=1.50.0",
+]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "testcontainers>=4.10.0",
+    "ruff>=0.8.0",
+    "mypy>=1.10.0",
+    "pre-commit>=4.0.0",
+    "faker>=25.0.0",
+    "locust>=2.30.0",
+]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.26.0",
 ]
 
 [project.scripts]
-pyotels = "pyotels.cli:main"
+otelms = "otelms.cli:app"
+otelms-api = "otelms.cli:api"
+otelms-scraper = "otelms.cli:scraper"
+otelms-sync = "otelms.cli:sync"
+otelms-worker = "otelms.tasks.celery_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["otelms*"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "testcontainers>=4.10.0",
+    "ruff>=0.8.0",
+    "mypy>=1.10.0",
+    "pre-commit>=4.0.0",
+    "faker>=25.0.0",
+    "locust>=2.30.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+indent-style = "space"
+indent-width = 4
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "T20", "ARG", "PTH", "ERA", "PL", "TRY"]
+ignore = ["E501", "B008", "ARG001", "ARG002"]
+per-file-ignores = { "tests/*" = ["S101", "S106", "B011"], "scripts/*" = ["S101", "T201"] }
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true
+enable_error_code = ["unused-ignore", "redundant-cast"]
+exclude = ["*/migrations/*", "*/.venv/*", "*/build/*", "*/dist/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "unit = \"Unit tests\"",
+    "integration = \"Integration tests (require DB/Redis)\"",
+    "e2e = \"End-to-end tests (require live browser)\"",
+    "slow = \"Slow tests\"",
+]
+
+[tool.coverage.run]
+source = ["src/otelms"]
+omit = ["*/tests/*", "*/migrations/*", "*/scripts/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+precision = 2
+
+[tool.alembic]
+script_location = "migrations"
+file_template = "%%Y%%m%%d_%%H%%M_%%(rev)s_%%(slug)s"
