@@ -273,10 +273,7 @@ class ReservationDetailParser:
         fields_map = {}
         for label in soup.find_all("span", class_="incolor"):
             key = label.get_text(strip=True)
-            parent = label.find_parent("div")
-            if not parent:
-                continue
-            value_div = parent.find_next_sibling("div", class_="text-right")
+            value_div = label.find_next("div", class_="text-right")
             if value_div:
                 img = value_div.find("img")
                 if img and "dc_logo" in img.get("src", ""):
@@ -284,7 +281,8 @@ class ReservationDetailParser:
                 else:
                     fields_map[key] = " ".join(value_div.stripped_strings)
 
-        data["fields"] = fields_map
+        if fields_map:
+            data["fields"] = fields_map
 
         # Mapear campos conocidos
         field_mapping = {
@@ -470,10 +468,7 @@ class ModalParser:
         fields_map = {}
         for label in soup.find_all("span", class_="incolor"):
             key = label.get_text(strip=True)
-            parent = label.find_parent("div")
-            if not parent:
-                continue
-            value_div = parent.find_next_sibling("div", class_="text-right")
+            value_div = label.find_next("div", class_="text-right")
             if value_div:
                 img = value_div.find("img")
                 if img and "dc_logo" in img.get("src", ""):
@@ -481,7 +476,8 @@ class ModalParser:
                 else:
                     fields_map[key] = " ".join(value_div.stripped_strings)
 
-        data["fields"] = fields_map
+        if fields_map:
+            data["fields"] = fields_map
 
         # Mapear
         field_mapping = {

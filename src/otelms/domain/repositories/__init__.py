@@ -294,7 +294,10 @@ class GuestRepository(BaseRepository):
         if guest:
             return guest, False
 
+        import hashlib
+        guest_id = f"guest_{hashlib.sha256(name.encode()).hexdigest()[:12]}"
         guest = Guest(
+            id=guest_id,
             hotel_id=hotel_id,
             first_name=first_name,
             last_name=last_name,
@@ -451,10 +454,16 @@ class ReservationRepository(BaseRepository):
         """
         import hashlib
         import json
+        from datetime import datetime, timezone
 
         reservation_id = data.get("id") or data.get("reservation_number")
         if not reservation_id:
             raise ValueError("Reservation ID es requerido")
+
+        # Normalizar fechas ISO a datetime (SQLite no acepta strings)
+        for field in ("check_in", "check_out", "otelms_created_at", "otelms_updated_at"):
+            if isinstance(data.get(field), str):
+                data[field] = datetime.fromisoformat(data[field])
 
         # Calcular hash para detectar cambios
         relevant_fields = {
@@ -519,8 +528,11 @@ class ServiceRepository(BaseRepository):
         )
 
         # Insertar nuevos
+        from datetime import datetime
         for svc in services:
             svc["reservation_id"] = reservation_id
+            if isinstance(svc.get("date"), str):
+                svc["date"] = datetime.fromisoformat(svc["date"])
             obj = Service(**svc)
             self.session.add(obj)
 
@@ -565,8 +577,11 @@ class PaymentRepository(BaseRepository):
             delete(Payment).where(Payment.reservation_id == reservation_id)
         )
 
+        from datetime import datetime
         for pmt in payments:
             pmt["reservation_id"] = reservation_id
+            if isinstance(pmt.get("date"), str):
+                pmt["date"] = datetime.fromisoformat(pmt["date"])
             obj = Payment(**pmt)
             self.session.add(obj)
 
