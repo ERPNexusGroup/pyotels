@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.config.settings import settings
-from otelms.domain.repositories.database import get_db_session, db
+from otelms.domain.repositories.database import get_db_session
 from otelms.domain.repositories import (
     HotelRepository,
     CategoryRepository,
@@ -177,7 +177,6 @@ async def optional_api_key(
 # ============================================================
 # RATE LIMITING DEPENDENCY
 # ============================================================
-from otelms.scraping.rate_limiter import rate_limiter, RateLimiter
 
 
 async def get_rate_limiter() -> RateLimiter:

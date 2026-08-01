@@ -2,7 +2,6 @@
 CLI principal con Typer - Comandos para API, Scraper, Sync, Worker.
 """
 import asyncio
-from contextlib import asynccontextmanager
 from typing import Optional
 
 import typer
@@ -293,7 +292,6 @@ def db_seed(
     from otelms.domain.entities import Hotel, ApiKey
     from otelms.config.settings import settings
     import hashlib
-    import secrets
 
     setup_app()
 

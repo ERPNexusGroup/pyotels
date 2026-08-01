@@ -2,14 +2,11 @@
 Repositorio base con operaciones CRUD comunes.
 """
 from typing import Generic, TypeVar, Sequence
-from uuid import uuid4
 
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from otelms.domain.entities import Base
-from otelms.domain.repositories.database import get_db_session
 
 ModelType = TypeVar("ModelType", bound=Base)
 

@@ -1,11 +1,10 @@
 """
 Hotel management endpoints.
 """
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.api.dependencies import get_db, verify_api_key, get_hotel_repo
+from otelms.api.dependencies import verify_api_key, get_hotel_repo
 from otelms.api.schemas import HotelResponse, HotelCreate, HotelBase
 from otelms.domain.repositories import HotelRepository
 from otelms.domain.entities import Hotel

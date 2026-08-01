@@ -1,7 +1,6 @@
 """
 WebSocket endpoints for real-time sync progress.
 """
-import asyncio
 import json
 from typing import Dict, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends

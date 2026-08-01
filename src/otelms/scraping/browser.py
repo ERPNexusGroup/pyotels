@@ -12,7 +12,7 @@ from playwright.async_api import Browser, BrowserContext, Page
 
 from otelms.config.settings import settings
 from otelms.utils.logging import get_logger
-from otelms.scraping.exceptions import BrowserError, NavigationError
+from otelms.scraping.exceptions import BrowserError
 
 logger = get_logger(__name__)
 
@@ -192,7 +192,6 @@ class BrowserPool:
     async def _cleanup_idle(self) -> None:
         """Cierra instancias que llevan mucho tiempo inactivas."""
         async with self._lock:
-            now = asyncio.get_event_loop().time()
             to_remove = []
 
             for instance in self._instances:

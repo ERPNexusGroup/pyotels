@@ -2,7 +2,6 @@
 Celery tasks for scraping operations.
 """
 import asyncio
-from datetime import date
 from typing import Optional
 
 from celery import shared_task
@@ -10,7 +9,6 @@ from celery.utils.log import get_task_logger
 
 from otelms.config.settings import settings
 from otelms.services.sync_service import SyncService
-from otelms.scraping.orchestrator import ScrapingOrchestrator
 
 logger = get_task_logger(__name__)
 

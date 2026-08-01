@@ -4,7 +4,6 @@ API Schemas - Request/Response models for FastAPI endpoints.
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List
-from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
 

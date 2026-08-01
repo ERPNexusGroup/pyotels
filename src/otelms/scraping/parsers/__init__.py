@@ -9,9 +9,8 @@ from typing import Any, Optional
 
 from bs4 import BeautifulSoup
 
-from otelms.config.constants import Patterns, ReservationStatus
+from otelms.config.constants import ReservationStatus
 from otelms.utils.logging import get_logger
-from otelms.scraping.exceptions import ParsingError
 
 logger = get_logger(__name__)
 

@@ -3,9 +3,8 @@ Guest endpoints.
 """
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.api.dependencies import get_db, verify_api_key, get_guest_repo
+from otelms.api.dependencies import verify_api_key, get_guest_repo
 from otelms.api.schemas import GuestResponse, GuestBase
 from otelms.domain.repositories import GuestRepository
 from otelms.utils.logging import get_logger

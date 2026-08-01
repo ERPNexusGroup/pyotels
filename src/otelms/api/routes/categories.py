@@ -1,12 +1,11 @@
 """
 Category endpoints.
 """
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.api.dependencies import get_db, verify_api_key, get_category_repo, get_room_repo
-from otelms.api.schemas import CategoryResponse, CategoryBase
+from otelms.api.dependencies import verify_api_key, get_category_repo, get_room_repo
+from otelms.api.schemas import CategoryResponse
 from otelms.domain.repositories import CategoryRepository
 from otelms.utils.logging import get_logger
 

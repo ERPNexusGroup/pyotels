@@ -5,7 +5,6 @@ Incluye rate limiting adaptativo que ajusta RPM basado en éxito/error.
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import redis.asyncio as redis
 

@@ -25,8 +25,7 @@ logger = get_logger(__name__)
 # Prometheus metrics
 def create_metrics():
     """Create Prometheus metrics, handling duplicate registration."""
-    from prometheus_client import Counter, Histogram, REGISTRY
-    from prometheus_client.metrics_core import Metric
+    from prometheus_client import REGISTRY
     
     # Check if metrics already exist
     existing_names = set()

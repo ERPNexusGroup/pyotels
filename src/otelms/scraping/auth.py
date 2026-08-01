@@ -5,21 +5,17 @@ Maneja login híbrido (requests + Playwright), persistencia de cookies, auto-rel
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
-from playwright.async_api import BrowserContext, Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import BrowserContext, TimeoutError as PlaywrightTimeoutError
 
 from otelms.config.settings import settings
 from otelms.config.constants import OtelMSUrls, Timeouts
 from otelms.utils.logging import get_logger
 from otelms.scraping.exceptions import (
     AuthenticationError,
-    SessionExpiredError,
-    NavigationError,
-    BrowserError,
 )
-from otelms.scraping.retry import with_retry, login_retry
 
 logger = get_logger(__name__)
 

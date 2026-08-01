@@ -355,7 +355,6 @@ class ReservationRepository(BaseRepository):
     ) -> Sequence:
         """Obtiene reservas de un hotel con filtros."""
         from otelms.domain.entities import Reservation
-        from sqlalchemy import and_
         from datetime import datetime
 
         stmt = select(Reservation).where(Reservation.hotel_id == hotel_id)
@@ -420,7 +419,8 @@ class ReservationRepository(BaseRepository):
     async def get_today_checkins(self, hotel_id: str) -> Sequence:
         """Obtiene check-ins de hoy."""
         from otelms.domain.entities import Reservation
-        from datetime import datetime, date
+        from datetime import date
+
         today = date.today()
         stmt = select(Reservation).where(
             Reservation.hotel_id == hotel_id,
@@ -433,7 +433,8 @@ class ReservationRepository(BaseRepository):
     async def get_today_checkouts(self, hotel_id: str) -> Sequence:
         """Obtiene check-outs de hoy."""
         from otelms.domain.entities import Reservation
-        from datetime import datetime, date
+        from datetime import date
+
         today = date.today()
         stmt = select(Reservation).where(
             Reservation.hotel_id == hotel_id,
@@ -448,7 +449,6 @@ class ReservationRepository(BaseRepository):
         Upsert desde datos del scraper.
         Retorna (objeto, creado: bool, actualizado: bool).
         """
-        from otelms.domain.entities import Reservation
         import hashlib
         import json
 
@@ -509,8 +509,6 @@ class ServiceRepository(BaseRepository):
     async def bulk_upsert(self, reservation_id: str, services: list[dict]) -> int:
         """Bulk upsert de servicios para una reserva."""
         from otelms.domain.entities import Service
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
         if not services:
             return 0
@@ -624,7 +622,6 @@ class SyncLogRepository(BaseRepository):
         errors: list[str] | None = None,
     ) -> None:
         """Completa un log de sincronización."""
-        from otelms.domain.entities import SyncLog
         from datetime import datetime, timezone
 
         import json

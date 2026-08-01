@@ -1,12 +1,10 @@
 """
 Reservation endpoints.
 """
-from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.api.dependencies import get_db, verify_api_key, get_reservation_repo, get_sync_service
+from otelms.api.dependencies import verify_api_key, get_reservation_repo, get_sync_service
 from otelms.api.schemas import (
     ReservationResponse,
     ReservationListResponse,

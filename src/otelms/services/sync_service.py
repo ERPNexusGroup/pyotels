@@ -6,10 +6,9 @@ from datetime import datetime, date, timezone
 from typing import Optional
 from dataclasses import dataclass, field
 
-from otelms.config.settings import settings
 from otelms.utils.logging import get_logger
 from otelms.utils.telemetry import record_celery_metric
-from otelms.scraping.orchestrator import ScrapingOrchestrator, ScrapingResult
+from otelms.scraping.orchestrator import ScrapingOrchestrator
 from otelms.domain.repositories.database import get_db_session
 from otelms.domain.repositories import (
     HotelRepository,
@@ -21,7 +20,7 @@ from otelms.domain.repositories import (
     PaymentRepository,
     SyncLogRepository,
 )
-from otelms.domain.entities import Hotel, Category, Room, Guest, Reservation, Service, Payment, SyncLog
+from otelms.domain.entities import Hotel
 from otelms.utils.crypto import credential_encryption  # For password decryption
 
 logger = get_logger(__name__)
@@ -103,7 +102,6 @@ class SyncService:
 
     async def _create_hotel_in_db(self, session) -> Hotel:
         """Crea hotel en BD si no existe."""
-        from otelms.config.settings import settings
         import hashlib
 
         hotel_repo = HotelRepository(session)

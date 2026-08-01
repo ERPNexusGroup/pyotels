@@ -103,8 +103,6 @@ dev-dependencies = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-indent-style = "space"
-indent-width = 4
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "T20", "ARG", "PTH", "ERA", "PL", "TRY"]
 ignore = ["E501", "B008", "ARG001", "ARG002"]
 per-file-ignores = { "tests/*" = ["S101", "S106", "B011"], "scripts/*" = ["S101", "T201"] }

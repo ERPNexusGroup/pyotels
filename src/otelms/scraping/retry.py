@@ -6,13 +6,11 @@ from typing import Callable, TypeVar
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
-    before_sleep_log,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
     wait_fixed,
 )
-from tenacity.stop import stop_base
 
 from otelms.config.settings import settings
 from otelms.scraping.exceptions import (

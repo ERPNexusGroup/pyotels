@@ -2,12 +2,10 @@
 Orquestador principal de scraping.
 Coordina browser pool, auth, extractors, parsers y rate limiting.
 """
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from otelms.config.settings import settings
 from otelms.config.constants import OtelMSUrls
 from otelms.utils.logging import get_logger
 from otelms.utils.telemetry import record_scraping_metric
@@ -27,7 +25,6 @@ from otelms.scraping.parsers import (
     ModalParser,
 )
 from otelms.scraping.exceptions import (
-    ScrapingError,
     AuthenticationError,
     NavigationError,
 )

@@ -5,15 +5,14 @@ Cada extractor maneja un tipo de página específico.
 import asyncio
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Optional
 
 from bs4 import BeautifulSoup
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
-from otelms.config.constants import OtelMSSelectors, OtelMSUrls, Patterns, ReservationStatus, CellStatus
+from otelms.config.constants import OtelMSSelectors, OtelMSUrls, ReservationStatus, CellStatus
 from otelms.utils.logging import get_logger
-from otelms.scraping.exceptions import ExtractionError, NavigationError, ElementNotFoundError
+from otelms.scraping.exceptions import ExtractionError, NavigationError
 from otelms.scraping.retry import with_retry, navigation_retry
 
 logger = get_logger(__name__)

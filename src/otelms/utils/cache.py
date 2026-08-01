@@ -1,10 +1,8 @@
 """
 Cache wrapper con soporte para Redis y diskcache fallback.
 """
-import json
 import pickle
-from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
 import diskcache
 import redis.asyncio as redis
