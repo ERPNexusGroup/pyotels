@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from otelms.api.dependencies import verify_api_key, get_hotel_repo
 from otelms.api.schemas import HotelResponse, HotelCreate, HotelBase
 from otelms.domain.repositories import HotelRepository
-from otelms.domain.entities import Hotel
 from otelms.utils.logging import get_logger
 
 router = APIRouter(prefix="/hotels", tags=["hotels"], dependencies=[Depends(verify_api_key)])
@@ -59,16 +58,9 @@ async def create_hotel(
         )
 
     pwd_hash = hashlib.sha256(hotel_data.password.encode()).hexdigest()
-    hotel = Hotel(
-        id=hotel_data.id,
-        name=hotel_data.name,
-        domain=hotel_data.domain,
-        username=hotel_data.username,
-        password_hash=pwd_hash,
-        is_active=True,
-    )
-
-    await hotel_repo.create(**hotel.__dict__)
+    payload = hotel_data.model_dump(exclude={"password"})
+    payload["password_hash"] = pwd_hash
+    hotel = await hotel_repo.create(**payload)
     return hotel
 
 
