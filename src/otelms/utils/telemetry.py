@@ -45,7 +45,7 @@ scraping_duration_seconds = Histogram(
 sync_records_processed = Counter(
     "otelms_sync_records_processed_total",
     "Total records processed during sync",
-    ["operation", "hotel_id", "type"],  # type: created, updated
+    ["operation", "hotel_id", "type"],  # label values: created, updated
 )
 
 active_browsers = Gauge(
