@@ -270,6 +270,45 @@
   .flex { display: flex; gap: 10px; align-items: center; }
   .grow { flex: 1; }
 
+  /* ===== HOTEL DETAIL ===== */
+  .sub-table-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 12px;
+  }
+  .sub-table-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .sub-table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sub-table-label {
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .sub-table-count {
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+  .sub-table-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
   /* ===== MODAL ===== */
   .modal-overlay {
     position: fixed;
@@ -637,6 +676,7 @@ async function renderHotels() {
                 <td>
                   <button class="btn-sync btn-small" data-sync="${esc(h.id)}" data-type="full">Sync full</button>
                   <button class="btn-sync btn-small" data-sync="${esc(h.id)}" data-type="calendar">Calendario</button>
+                  <button class="btn-ghost btn-small" data-detail="${esc(h.id)}">👁 Detalle</button>
                 </td>
               </tr>`).join("")}
           </tbody>
@@ -645,6 +685,82 @@ async function renderHotels() {
     c.querySelectorAll("[data-sync]").forEach((btn) => {
       btn.addEventListener("click", () => triggerSync(btn.dataset.sync, btn.dataset.type));
     });
+  } catch (err) {
+    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  }
+}
+
+} catch (err) {
+    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  }
+}
+
+/* ===== HOTEL DETAIL ===== */
+async function renderHotelDetail(hotelId) {
+  const c = $("#content");
+  c.innerHTML = '<div class="loading">Cargando detalle del hotel…</div>';
+  try {
+    const data = await api(`/admin/api/hotels/${hotelId}/detail`);
+    const hotel = data;
+    const subTables = hotel.sub_tables || [];
+    const counts = hotel.counts || {};
+
+    // Build sub-table cards
+    const subTableCards = subTables.map((st) => `
+      <div class="sub-table-card">
+        <div class="sub-table-header">
+          <span class="sub-table-label">${esc(st.label)}</span>
+          <span class="sub-table-count">${st.count}</span>
+        </div>
+        <div class="sub-table-actions">
+          <button class="btn-ghost btn-small" data-nav-table="${esc(st.slug)}" data-nav-hotel="${esc(hotel.id)}">Ver ${esc(st.label.toLowerCase())}</button>
+        </div>
+      </div>
+    `).join("");
+
+    c.innerHTML = `
+      <div class="flex" style="gap: 16px; margin-bottom: 20px; align-items: center;">
+        <button class="btn-ghost btn-small" id="btnBackHotels">← Volver a Hoteles</button>
+        <div class="grow"></div>
+        <h2 style="margin: 0;">${esc(hotel.name)} (${esc(hotel.id)})</h2>
+      </div>
+      <div class="panel" style="margin-bottom: 20px;">
+        <h3>Información del Hotel</h3>
+        <div class="flex" style="gap: 24px; flex-wrap: wrap;">
+          <div><strong>ID:</strong> <span class="mono">${esc(hotel.id)}</span></div>
+          <div><strong>Nombre:</strong> ${esc(hotel.name)}</div>
+          <div><strong>Dominio:</strong> <span class="mono muted">${esc(hotel.use_custom_domain ? (hotel.custom_domain || "—") : hotel.domain)}</span></div>
+          <div><strong>Usuario:</strong> <span class="mono muted">${esc(hotel.username)}</span></div>
+          <div><strong>Estado:</strong> <span class="pill ${hotel.is_active ? 'ok' : 'off'}">${hotel.is_active ? "activo" : "inactivo"}</span></div>
+          <div><strong>Rate limit:</strong> <span class="mono">${hotel.scraper_rate_limit_rpm} rpm</span></div>
+          <div><strong>Headless:</strong> ${hotel.scraper_headless ? "✓" : "✗"}</div>
+          <div><strong>Último sync:</strong> <span class="mono muted">${esc(fmtDate(hotel.last_sync_at))}</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Sub-tablas (${subTables.length})</h3>
+        <div class="sub-table-grid">${subTableCards}</div>
+      </div>
+    `;
+
+    // Add event listeners
+    $("#btnBackHotels").addEventListener("click", () => switchView("hotels"));
+    c.querySelectorAll("[data-nav-table]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tableSlug = btn.dataset.navTable;
+        const hotelId = btn.dataset.navHotel;
+        switchView("tables");
+        // Set table selector and hotel filter
+        setTimeout(() => {
+          $("#tableSelect").value = tableSlug;
+          $("#fltHotel").value = hotelId;
+          // Trigger change events
+          $("#tableSelect").dispatchEvent(new Event("change"));
+          $("#fltHotel").dispatchEvent(new Event("change"));
+        }, 100);
+      });
+    });
+
   } catch (err) {
     c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
   }

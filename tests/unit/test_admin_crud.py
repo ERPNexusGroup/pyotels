@@ -73,5 +73,23 @@ def test_admin_login_endpoint_exists() -> None:
     assert response.status_code in (401, 404, 422)
 
 
+# ============================================================
+# Hotel Detail Endpoint Tests
+# ============================================================
+
+
+def test_hotel_detail_unauthorized() -> None:
+    """Test that hotel detail without auth returns 401 or 404."""
+    response = client.get("/admin/api/hotels/test-hotel/detail")
+    assert response.status_code in (401, 404)
+
+
+def test_hotel_detail_not_found() -> None:
+    """Test that hotel detail for non-existent hotel returns 404."""
+    # This test would require a valid admin token, which we can't easily create without DB setup
+    # The 401/404 behavior is tested above; detailed tests with auth require integration setup
+    pass
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

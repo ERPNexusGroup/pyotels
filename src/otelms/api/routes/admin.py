@@ -28,7 +28,7 @@ from sqlalchemy.sql.selectable import Select
 from starlette.responses import Response
 
 from otelms.config.settings import settings
-from otelms.domain.entities import ApiKey, Category, Guest, Hotel, Reservation, Room, SyncLog
+from otelms.domain.entities import ApiKey, Category, Guest, Hotel, Payment, Reservation, Room, Service, SyncLog
 from otelms.domain.entities import Base as EntityBase
 from otelms.domain.repositories import HotelRepository
 from otelms.domain.repositories.database import get_db_session
@@ -338,6 +338,111 @@ async def admin_hotels(
             }
         )
     return out
+
+
+@router.get("/api/hotels/{hotel_id}/detail")
+async def admin_hotel_detail(
+    hotel_id: str,
+    session: AsyncSession = Depends(_get_db),
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Get hotel detail with counts of all related entities."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    # Fetch hotel
+    stmt = select(Hotel).where(Hotel.id == hotel_id)
+    result = await session.execute(stmt)
+    hotel = result.scalar_one_or_none()
+
+    if not hotel:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hotel not found")
+
+    # Count categories
+    categories_result = await session.execute(
+        select(func.count()).select_from(Category).where(Category.hotel_id == hotel_id)
+    )
+    categories_count = int(categories_result.scalar_one())
+
+    # Count rooms
+    rooms_result = await session.execute(
+        select(func.count()).select_from(Room).where(Room.hotel_id == hotel_id)
+    )
+    rooms_count = int(rooms_result.scalar_one())
+
+    # Count reservations
+    reservations_result = await session.execute(
+        select(func.count()).select_from(Reservation).where(Reservation.hotel_id == hotel_id)
+    )
+    reservations_count = int(reservations_result.scalar_one())
+
+    # Count guests
+    guests_result = await session.execute(
+        select(func.count()).select_from(Guest).where(Guest.hotel_id == hotel_id)
+    )
+    guests_count = int(guests_result.scalar_one())
+
+    # Count sync_logs
+    sync_logs_result = await session.execute(
+        select(func.count()).select_from(SyncLog).where(SyncLog.hotel_id == hotel_id)
+    )
+    sync_logs_count = int(sync_logs_result.scalar_one())
+
+    # Count payments (via reservations)
+    payments_result = await session.execute(
+        select(func.count(Payment.id))
+        .join(Reservation, Payment.reservation_id == Reservation.id)
+        .where(Reservation.hotel_id == hotel_id)
+    )
+    payments_count = int(payments_result.scalar_one())
+
+    # Count services (via reservations)
+    services_result = await session.execute(
+        select(func.count(Service.id))
+        .join(Reservation, Service.reservation_id == Reservation.id)
+        .where(Reservation.hotel_id == hotel_id)
+    )
+    services_count = int(services_result.scalar_one())
+
+    # Build sub-tables metadata for UI
+    sub_tables = [
+        {"slug": "categories", "label": "Categories", "count": categories_count},
+        {"slug": "rooms", "label": "Rooms", "count": rooms_count},
+        {"slug": "reservations", "label": "Reservations", "count": reservations_count},
+        {"slug": "guests", "label": "Guests", "count": guests_count},
+        {"slug": "payments", "label": "Payments", "count": payments_count},
+        {"slug": "services", "label": "Services", "count": services_count},
+        {"slug": "sync_logs", "label": "Sync Logs", "count": sync_logs_count},
+    ]
+
+    return {
+        "id": hotel.id,
+        "name": hotel.name,
+        "domain": hotel.domain,
+        "custom_domain": hotel.custom_domain,
+        "use_custom_domain": hotel.use_custom_domain,
+        "username": hotel.username,
+        "is_active": hotel.is_active,
+        "scraper_headless": hotel.scraper_headless,
+        "scraper_rate_limit_rpm": hotel.scraper_rate_limit_rpm,
+        "scraper_burst": hotel.scraper_burst,
+        "scraper_timeout_ms": hotel.scraper_timeout_ms,
+        "scraper_navigation_timeout_ms": hotel.scraper_navigation_timeout_ms,
+        "scraper_selector_timeout_ms": hotel.scraper_selector_timeout_ms,
+        "created_at": hotel.created_at.isoformat() if hotel.created_at else None,
+        "updated_at": hotel.updated_at.isoformat() if hotel.updated_at else None,
+        "last_sync_at": hotel.last_sync_at.isoformat() if hotel.last_sync_at else None,
+        "counts": {
+            "categories": categories_count,
+            "rooms": rooms_count,
+            "reservations": reservations_count,
+            "guests": guests_count,
+            "payments": payments_count,
+            "services": services_count,
+            "sync_logs": sync_logs_count,
+        },
+        "sub_tables": sub_tables,
+    }
 
 
 @router.get("/api/sync-logs")
