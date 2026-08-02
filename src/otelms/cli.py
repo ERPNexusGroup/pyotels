@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import subprocess
+from pathlib import Path
 
 import typer
 import uvicorn
@@ -158,7 +159,7 @@ def run_scraper(
                 console.print(f"[green]✓ Scraping completado: {len(result)} items[/green]")
 
                 if output:
-                    with open(output, "w", encoding="utf-8") as f:
+                    with Path(output).open("w", encoding="utf-8") as f:
                         json.dump(result, f, ensure_ascii=False, indent=2, default=str)
                     console.print(f"[green]✓ Guardado en {output}[/green]")
                 else:
@@ -353,7 +354,7 @@ def run_worker(
         f"--concurrency={concurrency}",
         f"--loglevel={loglevel}",
     ]
-    subprocess.run(cmd)
+    subprocess.run(cmd, check=True)
 
 
 # ============================================================
@@ -375,7 +376,7 @@ def run_beat(
         f"--loglevel={loglevel}",
         "--scheduler", "celery.beat.PersistentScheduler",
     ]
-    subprocess.run(cmd)
+    subprocess.run(cmd, check=True)
 
 
 # ============================================================

@@ -59,10 +59,10 @@ async def websocket_sync_progress(
     api_key: str = Depends(verify_api_key),
 ):
     """WebSocket endpoint for real-time sync progress updates.
-    
+
     Query params:
     - hotel_id: Hotel ID to track progress for
-    
+
     Message format (server -> client):
     {
         "type": "progress|complete|error",

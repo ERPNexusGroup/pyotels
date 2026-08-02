@@ -189,8 +189,6 @@ def record_sync_error(operation: str, hotel_id: str, error_type: str):
 
 def shutdown_telemetry() -> None:
     """Shutdown telemetry providers."""
-    global _tracer_provider, _meter_provider
-
     if _tracer_provider:
         _tracer_provider.shutdown()
     if _meter_provider:

@@ -104,7 +104,13 @@ dev-dependencies = [
 target-version = "py312"
 line-length = 120
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "T20", "ARG", "PTH", "ERA", "PL", "TRY"]
-ignore = ["E501", "B008", "ARG001", "ARG002"]
+# Reglas opinadas de pylint ignoradas deliberadamente:
+# - TRY003/TRY400/TRY300/TRY301: estilo de manejo de excepciones sin valor real
+# - PLR0913/PLR0917: firmas largas intencionales (repositorios/tasks con muchos filtros)
+# - PLW0603: global statement patrón singleton de cache en dependencies
+# - ERA001: falsos positivos con separadores de seccion "=====" y comentarios legítimos
+# - PLR2004: magic values en status codes de negocio (documentados en entidades)
+ignore = ["E501", "B008", "ARG001", "ARG002", "TRY003", "TRY300", "TRY301", "TRY400", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLW0603", "ERA001", "PLR2004"]
 per-file-ignores = { "tests/*" = ["S101", "S106", "B011"], "scripts/*" = ["S101", "T201"] }
 
 [tool.ruff.format]

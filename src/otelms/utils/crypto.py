@@ -55,10 +55,10 @@ class CredentialEncryption:
     def encrypt(self, plaintext: str) -> str:
         """
         Encrypt a plaintext string.
-        
+
         Args:
             plaintext: The string to encrypt
-            
+
         Returns:
             Base64-encoded encrypted string
         """
@@ -74,10 +74,10 @@ class CredentialEncryption:
     def decrypt(self, ciphertext: str) -> str:
         """
         Decrypt an encrypted string.
-        
+
         Args:
             ciphertext: Base64-encoded encrypted string
-            
+
         Returns:
             Decrypted plaintext string
         """

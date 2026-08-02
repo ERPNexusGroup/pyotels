@@ -5,6 +5,9 @@ from celery import Celery
 from celery.schedules import crontab
 
 from otelms.config.settings import settings
+from otelms.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Create Celery app
 celery_app = Celery("otelms")
@@ -78,7 +81,7 @@ celery_app.autodiscover_tasks([
 @celery_app.task(bind=True, ignore_result=True)
 def debug_task(self):
     """Debug task for testing."""
-    print(f"Request: {self.request!r}")
+    logger.info("Debug task request: %r", self.request)
 
 
 def main():
