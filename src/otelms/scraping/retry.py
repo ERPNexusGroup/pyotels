@@ -1,7 +1,7 @@
 """
 Políticas de retry con tenacity para scraping robusto.
 """
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from tenacity import (
@@ -123,7 +123,7 @@ navigation_retry = AsyncRetrying(
 
 
 async def with_retry[T](
-    func: Callable[..., T],
+    func: Callable[..., Awaitable[T]],
     *args,
     retry_policy: AsyncRetrying = scraping_retry,
     **kwargs,

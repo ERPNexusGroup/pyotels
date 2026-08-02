@@ -104,7 +104,8 @@ class CalendarExtractor:
 
         # Las categorías están en filas con class="category_row"
         for cat_row in table.find_all("tr", class_="category_row"):
-            cat_id = cat_row.get("data-category-id") or cat_row.get("id", "").replace("cat_", "")
+            raw_cat_id = cat_row.get("data-category-id")
+            cat_id = str(raw_cat_id) if raw_cat_id else str(cat_row.get("id", "")).replace("cat_", "")
             cat_name_elem = cat_row.find("td", class_="category_name") or cat_row.find("th", class_="category_name")
             cat_name = cat_name_elem.get_text(strip=True) if cat_name_elem else f"Category {cat_id}"
 
@@ -113,7 +114,8 @@ class CalendarExtractor:
             for room_row in cat_row.find_next_siblings("tr", class_="room_row"):
                 if room_row.get("data-category-id") != cat_id:
                     break
-                room_id = room_row.get("data-room-id") or room_row.get("id", "").replace("room_", "")
+                raw_room_id = room_row.get("data-room-id")
+                room_id = str(raw_room_id) if raw_room_id else str(room_row.get("id", "")).replace("room_", "")
                 room_name_elem = room_row.find("td", class_="room_name") or room_row.find("th", class_="room_name")
                 room_name = room_name_elem.get_text(strip=True) if room_name_elem else f"Room {room_id}"
 
@@ -155,7 +157,8 @@ class CalendarExtractor:
 
         # Iterar filas de habitaciones
         for room_row in table.find_all("tr", class_="room_row"):
-            room_id = room_row.get("data-room-id") or room_row.get("id", "").replace("room_", "")
+            raw_room_id = room_row.get("data-room-id")
+            room_id = str(raw_room_id) if raw_room_id else str(room_row.get("id", "")).replace("room_", "")
             room_name_elem = room_row.find("td", class_="room_name") or room_row.find("th", class_="room_name")
             room_name = room_name_elem.get_text(strip=True) if room_name_elem else room_id
 
@@ -163,10 +166,11 @@ class CalendarExtractor:
 
             # Iterar celdas de la fila
             for cell in room_row.find_all("td", class_="calendar_cell"):
-                day_id = cell.get("data-day-id") or cell.get("id", "").replace("cell_", "")
+                raw_day_id = cell.get("data-day-id")
+                day_id = str(raw_day_id) if raw_day_id else str(cell.get("id", "")).replace("cell_", "")
                 cell_date = day_id_to_date.get(day_id, date or "")
-                cell_class = cell.get("class", [])
-                cell_status = CellStatus.from_class(" ".join(cell_class))
+                cell_class = cell.get("class")
+                cell_status = CellStatus.from_class(" ".join(str(c) for c in (cell_class or [])))
 
                 cell_data = CalendarCellData(
                     room_id=room_id,
@@ -184,11 +188,11 @@ class CalendarExtractor:
                     if item:
                         resid = item.get("resid")
                         if resid:
-                            cell_data.reservation_id = resid
+                            cell_data.reservation_id = str(resid)
                             # Extraer tooltip si existe
                             tooltip = item.find("div", class_="tooltip_content")
                             if tooltip:
-                                self._parse_tooltip(tooltip, cell_data)
+                                self._parse_tooltip(tooltip, cell_data)  # type: ignore[arg-type]  # bs4 Tag vs BeautifulSoup, ambos tienen find/find_all
 
                 cells_data.append(cell_data)
 
@@ -202,9 +206,9 @@ class CalendarExtractor:
         if header_row:
             for th in header_row.find_all("th", class_="calendar_date"):
                 day_id = th.get("data-day-id")
-                date_text = th.get("data-date") or th.get_text(strip=True)
+                date_text = str(th.get("data-date") or th.get_text(strip=True))
                 if day_id and date_text:
-                    mapping[day_id] = date_text
+                    mapping[str(day_id)] = date_text
         return mapping
 
     def _parse_tooltip(self, tooltip: BeautifulSoup, cell_data: CalendarCellData) -> None:
@@ -280,7 +284,7 @@ class ReservationDetailExtractor:
         html = await self.page.content()
         soup = BeautifulSoup(html, "lxml")
 
-        data = {}
+        data: dict[str, Any] = {}
 
         # Número de reserva y status
         h2 = soup.find("h2", class_="nameofgroup")
@@ -305,16 +309,16 @@ class ReservationDetailExtractor:
 
         # Campos clave-valor
         fields_map = {}
-        for label in soup.find_all("span", class_="incolor"):
-            key = label.get_text(strip=True)
-            parent = label.find_parent("div")
+        for label_tag in soup.find_all("span", class_="incolor"):
+            key = label_tag.get_text(strip=True)
+            parent = label_tag.find_parent("div")
             if not parent:
                 continue
             value_div = parent.find_next_sibling("div", class_="text-right")
             if value_div:
                 # Verificar si es imagen (source)
                 img = value_div.find("img")
-                if img and "dc_logo" in img.get("src", ""):
+                if img and "dc_logo" in str(img.get("src", "")):
                     fields_map[key] = "booking"
                 else:
                     fields_map[key] = " ".join(value_div.stripped_strings)
@@ -340,13 +344,13 @@ class ReservationDetailExtractor:
             "Tarifa": "rate",
         }
 
-        for label, value in fields_map.items():
-            field = field_mapping.get(label)
+        for field_label, value in fields_map.items():
+            field = field_mapping.get(field_label)
             if field:
                 data[field] = value
 
         # Lista de huéspedes
-        guest_label = soup.find("span", class_="incolor", string="Lista de huéspedes")
+        guest_label = soup.find("span", class_="incolor", string="Lista de huéspedes")  # type: ignore[call-overload]  # bs4 acepta string= en kwargs
         if guest_label:
             parent = guest_label.find_parent("div")
             if parent:
@@ -458,7 +462,7 @@ class GuestDetailExtractor:
 
         if not panel:
             # Fallback: buscar por widget
-            panel = soup.find("div", {"data-widget": lambda x: x and "wiget1" in x})
+            panel = soup.find("div", attrs={"data-widget": lambda x: bool(x and "wiget1" in str(x))})
 
         if panel:
             body = panel.find("div", class_="panel-body")
