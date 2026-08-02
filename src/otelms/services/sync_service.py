@@ -6,6 +6,8 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from otelms.domain.entities import Hotel
 from otelms.domain.repositories import (
     CategoryRepository,
@@ -102,7 +104,7 @@ class SyncService:
             username=hotel.username,
             password=password,
             headless=hotel.scraper_headless,
-            base_domain=hotel.custom_domain if hotel.use_custom_domain else hotel.domain,
+            base_domain=hotel.custom_domain or hotel.domain,
         )
 
     async def initialize(self) -> None:
@@ -123,7 +125,7 @@ class SyncService:
         self._initialized = True
         logger.info("Sync service initialized", hotel_id=self.hotel_id)
 
-    async def _create_hotel_in_db(self, session) -> Hotel:
+    async def _create_hotel_in_db(self, session: AsyncSession) -> Hotel:
         """Crea hotel en BD si no existe."""
 
         hotel_repo = HotelRepository(session)
@@ -201,7 +203,8 @@ class SyncService:
             result.errors.append(str(e))
             result.duration_ms = self._elapsed_ms(start)
             logger.error("Calendar sync failed", error=str(e))
-            await self._complete_log(log.id, result)
+            if log:
+                await self._complete_log(log.id, result)
             record_celery_metric("sync_calendar", "error", self._elapsed_ms(start) / 1000)
 
         return result
@@ -250,7 +253,8 @@ class SyncService:
             result.errors.append(str(e))
             result.duration_ms = self._elapsed_ms(start)
             logger.error("Categories sync failed", error=str(e))
-            await self._complete_log(log.id, result)
+            if log:
+                await self._complete_log(log.id, result)
             record_celery_metric("sync_categories", "error", self._elapsed_ms(start) / 1000)
 
         return result
@@ -307,7 +311,8 @@ class SyncService:
             result.errors.append(str(e))
             result.duration_ms = self._elapsed_ms(start)
             logger.error("Details sync failed", error=str(e))
-            await self._complete_log(log.id, result)
+            if log:
+                await self._complete_log(log.id, result)
             record_celery_metric("sync_reservation_details", "error", self._elapsed_ms(start) / 1000)
 
         return result
@@ -374,7 +379,8 @@ class SyncService:
             result.errors.append(str(e))
             result.duration_ms = self._elapsed_ms(start)
             logger.error("Full sync failed", error=str(e))
-            await self._complete_log(log.id, result)
+            if log:
+                await self._complete_log(log.id, result)
             record_celery_metric("full_sync", "error", self._elapsed_ms(start) / 1000)
 
         return result
@@ -384,7 +390,7 @@ class SyncService:
     # ============================================================
 
     async def _persist_calendar(
-        self, session, calendar_data: dict
+        self, session: AsyncSession, calendar_data: dict
     ) -> tuple[int, int]:
         """Persiste datos del calendario en BD."""
         cells = calendar_data.get("cells", [])
@@ -468,7 +474,7 @@ class SyncService:
         return created, updated
 
     async def _persist_categories(
-        self, session, categories_data: list[dict]
+        self, session: AsyncSession, categories_data: list[dict]
     ) -> tuple[int, int]:
         """Persiste categorías y habitaciones."""
         created = 0
@@ -499,7 +505,7 @@ class SyncService:
         return created, updated
 
     async def _persist_reservation_details(
-        self, session, details: list[dict]
+        self, session: AsyncSession, details: list[dict]
     ) -> tuple[int, int]:
         """Persiste detalles completos de reservas."""
         created = 0
@@ -559,13 +565,13 @@ class SyncService:
                 updated += 1
 
             # Servicios (si hay en accommodation o basic)
-            services = []
+            services: list[dict] = []
             # TODO: extraer servicios del accommodation modal
             if services:
                 await svc_repo.bulk_upsert(res_id, services)
 
             # Pagos
-            payments = []
+            payments: list[dict] = []
             # TODO: extraer pagos
             if payments:
                 await pmt_repo.bulk_upsert(res_id, payments)
