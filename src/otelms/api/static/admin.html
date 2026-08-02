@@ -309,6 +309,35 @@
     justify-content: flex-end;
   }
 
+  /* ===== TASKS TABS ===== */
+  .tasks-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .tasks-tab {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tasks-tab:hover {
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  .tasks-tab.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
   /* ===== CONFIG TABS ===== */
   .config-tabs {
     display: flex;
@@ -503,6 +532,7 @@
       <button data-view="synclogs">🔄 Sync Logs</button>
       <button data-view="config">⚙️ Config</button>
       <button data-view="tables">🗂️ Tablas</button>
+      <button data-view="tasks">📋 Tareas</button>
     </div>
     <div class="content" id="content"></div>
   </div>
@@ -619,7 +649,7 @@ function switchView(view) {
   document.querySelectorAll(".sidebar button").forEach((b) => {
     b.classList.toggle("active", b.dataset.view === view);
   });
-  const renderers = { dashboard: renderDashboard, hotels: renderHotels, synclogs: renderSyncLogs, config: renderConfig, tables: renderTables };
+  const renderers = { dashboard: renderDashboard, hotels: renderHotels, synclogs: renderSyncLogs, config: renderConfig, tables: renderTables, tasks: renderTasks };
   (renderers[view] || renderDashboard)();
 }
 
@@ -714,11 +744,6 @@ async function renderHotels() {
       btn.addEventListener("click", () => triggerSync(btn.dataset.sync, btn.dataset.type));
     });
   } catch (err) {
-    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
-  }
-}
-
-} catch (err) {
     c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
   }
 }
@@ -1612,6 +1637,612 @@ $("#crudForm").addEventListener("submit", async (e) => {
     submitBtn.textContent = "Guardar";
   }
 });
+
+/* ===== TASKS (Date-based operations) ===== */
+async function renderTasks() {
+  const c = $("#content");
+  let currentTab = "close-open";
+  let currentOffset = 0;
+  const LIMIT = 50;
+
+  function render() {
+    c.innerHTML = `
+      <div class="tasks-tabs" style="margin-bottom: 16px;">
+        <button class="tasks-tab active" data-tab="close-open">🔒 Cerrar/Abrir Fechas</button>
+        <button class="tasks-tab" data-tab="availability">📅 Disponibilidad</button>
+        <button class="tasks-tab" data-tab="guests">👥 Huéspedes</button>
+        <button class="tasks-tab" data-tab="reservations">📅 Reservas</button>
+        <button class="tasks-tab" data-tab="move-reservation">🔄 Mover Reserva</button>
+        <button class="tasks-tab" data-tab="notifications">🔔 Notificaciones</button>
+      </div>
+      <div id="tasksTabContent"></div>
+    `;
+
+    c.querySelectorAll(".tasks-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        c.querySelectorAll(".tasks-tab").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentTab = btn.dataset.tab;
+        loadTab();
+      });
+    });
+
+    loadTab();
+  }
+
+  async function loadTab() {
+    const content = $("#tasksTabContent");
+    if (currentTab === "close-open") {
+      await renderCloseOpenTab(content);
+    } else if (currentTab === "availability") {
+      await renderAvailabilityTab(content);
+    } else if (currentTab === "guests") {
+      await renderGuestsTab(content);
+    } else if (currentTab === "reservations") {
+      await renderReservationsTab(content);
+    } else if (currentTab === "move-reservation") {
+      await renderMoveReservationTab(content);
+    } else if (currentTab === "notifications") {
+      await renderNotificationsTab(content);
+    }
+  }
+
+  render();
+}
+
+// ===== CERRAR/ABRIR FECHAS TAB =====
+async function renderCloseOpenTab(content) {
+  content.innerHTML = `
+    <div class="panel">
+      <h3>Bloquear / Desbloquear Habitaciones</h3>
+      <div class="form-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+        <div class="field">
+          <label>Hotel</label>
+          <select id="taskHotel" required><option value="">Cargando…</option></select>
+        </div>
+        <div class="field">
+          <label>Habitaciones (vacío = todas)</label>
+          <select id="taskRooms" multiple style="min-height: 100px;"><option value="">Cargando…</option></select>
+        </div>
+        <div class="field">
+          <label>Fecha Inicio</label>
+          <input type="date" id="taskStartDate" required>
+        </div>
+        <div class="field">
+          <label>Fecha Fin</label>
+          <input type="date" id="taskEndDate" required>
+        </div>
+        <div class="field full-width">
+          <label>Motivo (opcional)</label>
+          <input type="text" id="taskReason" placeholder="maintenance, renovation, private_event…">
+        </div>
+      </div>
+      <div class="flex" style="gap: 8px;">
+        <button class="btn-primary" id="btnCloseDates">🔒 Cerrar Fechas (Bloquear)</button>
+        <button class="btn-danger" id="btnOpenDates">🔓 Abrir Fechas (Desbloquear)</button>
+      </div>
+      <div id="taskResult" style="margin-top: 12px;"></div>
+    </div>
+  `;
+
+  // Load hotels for dropdown
+  try {
+    const hotels = await api("/admin/api/hotels");
+    const sel = $("#taskHotel");
+    sel.innerHTML = hotels.map(h => `<option value="${esc(h.id)}">${esc(h.id)} - ${esc(h.name)}</option>`).join("");
+
+    // Load rooms when hotel changes
+    sel.addEventListener("change", async () => {
+      const hotelId = sel.value;
+      if (!hotelId) return;
+      const rooms = await api(\`/admin/api/tables/rooms?hotel_id=\${hotelId}&limit=500\`);
+      const roomSel = $("#taskRooms");
+      roomSel.innerHTML = rooms.rows.map(r => `<option value="${esc(r.id)}">${esc(r.name || r.id)}</option>`).join("");
+    });
+
+    // Trigger change for first hotel
+    if (hotels.length) {
+      sel.value = hotels[0].id;
+      sel.dispatchEvent(new Event("change"));
+    }
+  } catch (e) {
+    console.error("Failed to load hotels:", e);
+  }
+
+  // Close dates button
+  $("#btnCloseDates").addEventListener("click", async () => {
+    const hotelId = $("#taskHotel").value;
+    const roomIds = Array.from($("#taskRooms").selectedOptions).map(o => o.value);
+    const startDate = $("#taskStartDate").value;
+    const endDate = $("#taskEndDate").value;
+    const reason = $("#taskReason").value;
+
+    if (!hotelId || !startDate || !endDate) {
+      toast("✗ Hotel, fecha inicio y fecha fin son requeridos", "error");
+      return;
+    }
+
+    const res = $("#taskResult");
+    res.innerHTML = '<div class="loading">Procesando…</div>';
+
+    try {
+      const data = await api("/admin/api/tasks/close-dates", {
+        method: "POST",
+        body: JSON.stringify({ hotel_id: hotelId, room_ids: roomIds, start_date: startDate + "T00:00:00", end_date: endDate + "T23:59:59", reason }),
+      });
+      res.innerHTML = `<div style="color: var(--green);">✓ \${data.message}</div>`;
+      toast("✓ " + data.message, "success");
+    } catch (err) {
+      res.innerHTML = `<div style="color: var(--red);">✗ \${err.message}</div>`;
+      toast("✗ " + err.message, "error");
+    }
+  });
+
+  // Open dates button
+  $("#btnOpenDates").addEventListener("click", async () => {
+    const hotelId = $("#taskHotel").value;
+    const roomIds = Array.from($("#taskRooms").selectedOptions).map(o => o.value);
+    const startDate = $("#taskStartDate").value;
+    const endDate = $("#taskEndDate").value;
+
+    if (!hotelId || !startDate || !endDate) {
+      toast("✗ Hotel, fecha inicio y fecha fin son requeridos", "error");
+      return;
+    }
+
+    const res = $("#taskResult");
+    res.innerHTML = '<div class="loading">Procesando…</div>';
+
+    try {
+      const data = await api("/admin/api/tasks/open-dates", {
+        method: "POST",
+        body: JSON.stringify({ hotel_id: hotelId, room_ids: roomIds, start_date: startDate + "T00:00:00", end_date: endDate + "T23:59:59" }),
+      });
+      res.innerHTML = `<div style="color: var(--green);">✓ \${data.message}</div>`;
+      toast("✓ " + data.message, "success");
+    } catch (err) {
+      res.innerHTML = `<div style="color: var(--red);">✗ \${err.message}</div>`;
+      toast("✗ " + err.message, "error");
+    }
+  });
+}
+
+// ===== DISPONIBILIDAD TAB =====
+async function renderAvailabilityTab(content) {
+  let currentOffset = 0;
+  const LIMIT = 50;
+  let allRows = [];
+  let columns = [];
+
+  function render() {
+    content.innerHTML = \`
+      <div class="filters" style="margin-bottom: 16px;">
+        <input type="text" id="availSearch" placeholder="🔍 Buscar hotel/room/reason…" style="width: 260px;">
+        <select id="availBlocked" style="width: 140px;">
+          <option value="">Todos</option>
+          <option value="true">Bloqueadas</option>
+          <option value="false">Abiertas</option>
+        </select>
+        <input type="date" id="availStartFrom">
+        <input type="date" id="availEndBefore">
+      </div>
+      <div class="panel">
+        <div id="availContainer"><div class="loading">Cargando…</div></div>
+        <div class="flex" style="justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
+          <span id="availPaginationInfo">—</span>
+          <div class="flex" style="gap: 6px;">
+            <button class="btn-ghost btn-small" id="availBtnPrev" disabled>← Anterior</button>
+            <button class="btn-ghost btn-small" id="availBtnNext" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    \`;
+
+    $("#availSearch").addEventListener("input", () => filterRows($("#availSearch").value));
+    ["availBlocked", "availStartFrom", "availEndBefore"].forEach(id => {
+      $("#" + id).addEventListener("change", loadTable);
+    });
+    $("#availBtnPrev").addEventListener("click", () => { if (currentOffset > 0) { currentOffset -= LIMIT; loadTable(); } });
+    $("#availBtnNext").addEventListener("click", () => { if (allRows.length > currentOffset + LIMIT) { currentOffset += LIMIT; loadTable(); } });
+
+    loadTable();
+  }
+
+  async function loadTable() {
+    const container = $("#availContainer");
+    container.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const params = new URLSearchParams({ limit: LIMIT.toString(), offset: currentOffset.toString() });
+      if ($("#availBlocked").value !== "") params.set("is_blocked", $("#availBlocked").value);
+      if ($("#availStartFrom").value) params.set("start_from", $("#availStartFrom").value + "T00:00:00");
+      if ($("#availEndBefore").value) params.set("end_before", $("#availEndBefore").value + "T23:59:59");
+
+      const data = await api("/admin/api/tasks/availability?" + params.toString());
+      columns = ["id", "hotel_id", "room_id", "room_name", "start_date", "end_date", "is_blocked", "reason", "created_at"];
+      allRows = data;
+      renderTableGrid();
+    } catch (err) {
+      container.innerHTML = '<div class="empty">Error: ' + esc(err.message) + '</div>';
+      updatePagination(0, 0);
+    }
+  }
+
+  function filterRows(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) { renderTableGrid(allRows); return; }
+    const filtered = allRows.filter(row => Object.values(row).some(v => String(v).toLowerCase().includes(q)));
+    renderTableGrid(filtered);
+  }
+
+  function renderTableGrid(rowsToShow = allRows) {
+    const container = $("#availContainer");
+    if (!rowsToShow.length) { container.innerHTML = '<div class="empty">Sin registros</div>'; updatePagination(0, 0); return; }
+
+    const head = columns.map(col => \`<th>\${esc(col)}</th>\`).join("");
+    const body = rowsToShow.map(row => \`<tr>\${columns.map(col => {
+      let val = row[col];
+      let display = esc(val == null ? "—" : val);
+      if (col === "is_blocked") display = val ? '<span class="pill error">🔒 Bloqueada</span>' : '<span class="pill ok">🔓 Abierta</span>';
+      return \`<td>\${display}</td>\`;
+    }).join("")}</tr>\`).join("");
+
+    container.innerHTML = \`<table><thead><tr>\${head}</tr></thead><tbody>\${body}</tbody></table>\`;
+    updatePagination(rowsToShow.length, allRows.length);
+  }
+
+  function updatePagination(visibleCount, totalCount) {
+    const info = $("#availPaginationInfo");
+    const prev = $("#availBtnPrev");
+    const next = $("#availBtnNext");
+    const start = currentOffset + 1;
+    const end = currentOffset + visibleCount;
+    info.textContent = totalCount ? \`Mostrando \${start}–\${end} de \${totalCount}\` : "Sin datos";
+    prev.disabled = currentOffset === 0;
+    next.disabled = currentOffset + LIMIT >= totalCount;
+  }
+
+  render();
+}
+
+// ===== HUÉSPEDES TAB =====
+async function renderGuestsTab(content) {
+  let currentOffset = 0;
+  const LIMIT = 50;
+  let allRows = [];
+
+  function render() {
+    content.innerHTML = \`
+      <div class="filters" style="margin-bottom: 16px;">
+        <input type="text" id="guestsSearch" placeholder="🔍 Buscar nombre, email, documento…" style="width: 300px;">
+        <select id="guestsHotel" style="width: 200px;"><option value="">Todos los hoteles</option></select>
+      </div>
+      <div class="panel">
+        <div id="guestsContainer"><div class="loading">Cargando…</div></div>
+        <div class="flex" style="justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
+          <span id="guestsPaginationInfo">—</span>
+          <div class="flex" style="gap: 6px;">
+            <button class="btn-ghost btn-small" id="guestsBtnPrev" disabled>← Anterior</button>
+            <button class="btn-ghost btn-small" id="guestsBtnNext" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    \`;
+
+    // Load hotels for filter
+    try {
+      const hotels = await api("/admin/api/hotels");
+      const sel = $("#guestsHotel");
+      sel.innerHTML = '<option value="">Todos los hoteles</option>' + hotels.map(h => \`<option value="\${esc(h.id)}">\${esc(h.id)} - \${esc(h.name)}</option>\`).join("");
+    } catch (e) {}
+
+    $("#guestsSearch").addEventListener("input", () => { currentOffset = 0; loadTable(); });
+    $("#guestsHotel").addEventListener("change", () => { currentOffset = 0; loadTable(); });
+    $("#guestsBtnPrev").addEventListener("click", () => { if (currentOffset > 0) { currentOffset -= LIMIT; loadTable(); } });
+    $("#guestsBtnNext").addEventListener("click", () => { if (allRows.length > currentOffset + LIMIT) { currentOffset += LIMIT; loadTable(); } });
+
+    loadTable();
+  }
+
+  async function loadTable() {
+    const container = $("#guestsContainer");
+    container.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const params = new URLSearchParams({ limit: LIMIT.toString(), offset: currentOffset.toString() });
+      const search = $("#guestsSearch").value.trim();
+      if (search) params.set("search", search);
+      if ($("#guestsHotel").value) params.set("hotel_id", $("#guestsHotel").value);
+
+      const data = await api("/admin/api/tasks/guests?" + params.toString());
+      allRows = data;
+      renderTableGrid();
+    } catch (err) {
+      container.innerHTML = '<div class="empty">Error: ' + esc(err.message) + '</div>';
+      updatePagination(0, 0);
+    }
+  }
+
+  function renderTableGrid(rowsToShow = allRows) {
+    const container = $("#guestsContainer");
+    if (!rowsToShow.length) { container.innerHTML = '<div class="empty">Sin huéspedes</div>'; updatePagination(0, 0); return; }
+
+    const head = ["id", "hotel_id", "first_name", "last_name", "email", "phone", "document_type", "document_number", "nationality", "created_at"]
+      .map(col => \`<th>\${esc(col)}</th>\`).join("");
+    const body = rowsToShow.map(row => \`<tr>\${["id", "hotel_id", "first_name", "last_name", "email", "phone", "document_type", "document_number", "nationality", "created_at"].map(col => \`<td>\${esc(row[col] == null ? "—" : row[col])}</td>\`).join("")}</tr>\`).join("");
+
+    container.innerHTML = \`<table><thead><tr>\${head}</tr></thead><tbody>\${body}</tbody></table>\`;
+    updatePagination(rowsToShow.length, allRows.length);
+  }
+
+  function updatePagination(visibleCount, totalCount) {
+    const info = $("#guestsPaginationInfo");
+    const prev = $("#guestsBtnPrev");
+    const next = $("#guestsBtnNext");
+    const start = currentOffset + 1;
+    const end = currentOffset + visibleCount;
+    info.textContent = totalCount ? \`Mostrando \${start}–\${end} de \${totalCount}\` : "Sin datos";
+    prev.disabled = currentOffset === 0;
+    next.disabled = currentOffset + LIMIT >= totalCount;
+  }
+
+  render();
+}
+
+// ===== RESERVAS TAB =====
+async function renderReservationsTab(content) {
+  let currentOffset = 0;
+  const LIMIT = 50;
+  let allRows = [];
+
+  function render() {
+    content.innerHTML = \`
+      <div class="filters" style="margin-bottom: 16px;">
+        <select id="resHotel" style="width: 200px;"><option value="">Todos los hoteles</option></select>
+        <select id="resStatus" style="width: 140px;">
+          <option value="">Todos los estados</option>
+          <option value="1">Reserva</option>
+          <option value="2">Check-in</option>
+          <option value="3">Check-out</option>
+          <option value="4">Cancelada</option>
+          <option value="5">No-show</option>
+        </select>
+        <input type="date" id="resCheckInFrom" placeholder="Check-in desde">
+        <input type="date" id="resCheckOutBefore" placeholder="Check-out antes">
+      </div>
+      <div class="panel">
+        <div id="resContainer"><div class="loading">Cargando…</div></div>
+        <div class="flex" style="justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
+          <span id="resPaginationInfo">—</span>
+          <div class="flex" style="gap: 6px;">
+            <button class="btn-ghost btn-small" id="resBtnPrev" disabled>← Anterior</button>
+            <button class="btn-ghost btn-small" id="resBtnNext" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    \`;
+
+    // Load hotels for filter
+    try {
+      const hotels = await api("/admin/api/hotels");
+      const sel = $("#resHotel");
+      sel.innerHTML = '<option value="">Todos los hoteles</option>' + hotels.map(h => \`<option value="\${esc(h.id)}">\${esc(h.id)} - \${esc(h.name)}</option>\`).join("");
+    } catch (e) {}
+
+    ["resHotel", "resStatus", "resCheckInFrom", "resCheckOutBefore"].forEach(id => {
+      $("#" + id).addEventListener("change", () => { currentOffset = 0; loadTable(); });
+    });
+    $("#resBtnPrev").addEventListener("click", () => { if (currentOffset > 0) { currentOffset -= LIMIT; loadTable(); } });
+    $("#resBtnNext").addEventListener("click", () => { if (allRows.length > currentOffset + LIMIT) { currentOffset += LIMIT; loadTable(); } });
+
+    loadTable();
+  }
+
+  async function loadTable() {
+    const container = $("#resContainer");
+    container.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const params = new URLSearchParams({ limit: LIMIT.toString(), offset: currentOffset.toString() });
+      if ($("#resHotel").value) params.set("hotel_id", $("#resHotel").value);
+      if ($("#resStatus").value) params.set("status", $("#resStatus").value);
+      if ($("#resCheckInFrom").value) params.set("check_in_from", $("#resCheckInFrom").value + "T00:00:00");
+      if ($("#resCheckOutBefore").value) params.set("check_out_before", $("#resCheckOutBefore").value + "T23:59:59");
+
+      const data = await api("/admin/api/tasks/reservations?" + params.toString());
+      allRows = data;
+      renderTableGrid();
+    } catch (err) {
+      container.innerHTML = '<div class="empty">Error: ' + esc(err.message) + '</div>';
+      updatePagination(0, 0);
+    }
+  }
+
+  function renderTableGrid(rowsToShow = allRows) {
+    const container = $("#resContainer");
+    if (!rowsToShow.length) { container.innerHTML = '<div class="empty">Sin reservas</div>'; updatePagination(0, 0); return; }
+
+    const head = ["id", "hotel_id", "room_id", "room_name", "guest_name", "check_in", "check_out", "status", "adults", "children", "total_price", "currency", "source", "created_at"]
+      .map(col => \`<th>\${esc(col)}</th>\`).join("");
+    const body = rowsToShow.map(row => {
+      let statusDisplay = row.status;
+      if (row.status === 1) statusDisplay = '<span class="pill calendar">Reserva</span>';
+      else if (row.status === 2) statusDisplay = '<span class="pill ok">Check-in</span>';
+      else if (row.status === 3) statusDisplay = '<span class="pill completed">Check-out</span>';
+      else if (row.status === 4) statusDisplay = '<span class="pill error">Cancelada</span>';
+      else if (row.status === 5) statusDisplay = '<span class="pill off">No-show</span>';
+
+      return \`<tr>\${["id", "hotel_id", "room_id", "room_name", "guest_name", "check_in", "check_out"].map(col => \`<td>\${esc(row[col] == null ? "—" : row[col])}</td>\`).join("")}<td>\${statusDisplay}</td><td>\${esc(row.adults)}</td><td>\${esc(row.children)}</td><td class="mono">\${esc(row.total_price != null ? row.total_price + " " + row.currency : "—")}</td><td>\${esc(row.source || "—")}</td><td class="mono muted">\${esc(fmtDate(row.created_at))}</td></tr>\`;
+    }).join("");
+
+    container.innerHTML = \`<table><thead><tr>\${head}</tr></thead><tbody>\${body}</tbody></table>\`;
+    updatePagination(rowsToShow.length, allRows.length);
+  }
+
+  function updatePagination(visibleCount, totalCount) {
+    const info = $("#resPaginationInfo");
+    const prev = $("#resBtnPrev");
+    const next = $("#resBtnNext");
+    const start = currentOffset + 1;
+    const end = currentOffset + visibleCount;
+    info.textContent = totalCount ? \`Mostrando \${start}–\${end} de \${totalCount}\` : "Sin datos";
+    prev.disabled = currentOffset === 0;
+    next.disabled = currentOffset + LIMIT >= totalCount;
+  }
+
+  render();
+}
+
+// ===== MOVER RESERVA TAB =====
+async function renderMoveReservationTab(content) {
+  content.innerHTML = \`
+    <div class="panel">
+      <h3>Mover Reserva a Otra Habitación</h3>
+      <div class="form-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+        <div class="field">
+          <label>ID Reserva</label>
+          <input type="text" id="moveResId" placeholder="ID de la reserva" required>
+        </div>
+        <div class="field">
+          <label>Nueva Habitación</label>
+          <select id="moveNewRoom" required><option value="">Seleccionar…</option></select>
+        </div>
+      </div>
+      <button class="btn-primary" id="btnMoveReservation">🔄 Mover Reserva</button>
+      <div id="moveResult" style="margin-top: 12px;"></div>
+    </div>
+  \`;
+
+  // Load rooms for dropdown
+  try {
+    const hotels = await api("/admin/api/hotels");
+    if (hotels.length) {
+      const rooms = await api(\`/admin/api/tables/rooms?hotel_id=\${hotels[0].id}&limit=500\`);
+      const sel = $("#moveNewRoom");
+      sel.innerHTML = rooms.rows.map(r => \`<option value="\${esc(r.id)}">\${esc(r.name || r.id)}</option>\`).join("");
+    }
+  } catch (e) {}
+
+  $("#btnMoveReservation").addEventListener("click", async () => {
+    const reservationId = $("#moveResId").value.trim();
+    const newRoomId = $("#moveNewRoom").value;
+
+    if (!reservationId || !newRoomId) {
+      toast("✗ Reserva y habitación son requeridos", "error");
+      return;
+    }
+
+    const res = $("#moveResult");
+    res.innerHTML = '<div class="loading">Moviendo…</div>';
+
+    try {
+      const data = await api("/admin/api/tasks/move-reservation", {
+        method: "POST",
+        body: JSON.stringify({ reservation_id: reservationId, new_room_id: newRoomId }),
+      });
+      res.innerHTML = \`<div style="color: var(--green);">✓ \${data.message}</div>\`;
+      toast("✓ " + data.message, "success");
+    } catch (err) {
+      res.innerHTML = \`<div style="color: var(--red);">✗ \${err.message}</div>\`;
+      toast("✗ " + err.message, "error");
+    }
+  });
+}
+
+// ===== NOTIFICACIONES TAB =====
+async function renderNotificationsTab(content) {
+  let currentOffset = 0;
+  const LIMIT = 50;
+  let allRows = [];
+
+  function render() {
+    content.innerHTML = \`
+      <div class="filters" style="margin-bottom: 16px;">
+        <select id="notifSeverity" style="width: 140px;">
+          <option value="">Todos</option>
+          <option value="error">Error</option>
+          <option value="warning">Advertencia</option>
+          <option value="info">Info</option>
+        </select>
+        <select id="notifHotel" style="width: 200px;"><option value="">Todos los hoteles</option></select>
+      </div>
+      <div class="panel">
+        <div id="notifContainer"><div class="loading">Cargando…</div></div>
+        <div class="flex" style="justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
+          <span id="notifPaginationInfo">—</span>
+          <div class="flex" style="gap: 6px;">
+            <button class="btn-ghost btn-small" id="notifBtnPrev" disabled>← Anterior</button>
+            <button class="btn-ghost btn-small" id="notifBtnNext" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    \`;
+
+    // Load hotels for filter
+    try {
+      const hotels = await api("/admin/api/hotels");
+      const sel = $("#notifHotel");
+      sel.innerHTML = '<option value="">Todos los hoteles</option>' + hotels.map(h => \`<option value="\${esc(h.id)}">\${esc(h.id)} - \${esc(h.name)}</option>\`).join("");
+    } catch (e) {}
+
+    ["notifSeverity", "notifHotel"].forEach(id => {
+      $("#" + id).addEventListener("change", () => { currentOffset = 0; loadTable(); });
+    });
+    $("#notifBtnPrev").addEventListener("click", () => { if (currentOffset > 0) { currentOffset -= LIMIT; loadTable(); } });
+    $("#notifBtnNext").addEventListener("click", () => { if (allRows.length > currentOffset + LIMIT) { currentOffset += LIMIT; loadTable(); } });
+
+    loadTable();
+  }
+
+  async function loadTable() {
+    const container = $("#notifContainer");
+    container.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const params = new URLSearchParams({ limit: LIMIT.toString(), offset: currentOffset.toString() });
+      if ($("#notifSeverity").value) params.set("severity", $("#notifSeverity").value);
+      if ($("#notifHotel").value) params.set("hotel_id", $("#notifHotel").value);
+
+      const data = await api("/admin/api/tasks/notifications?" + params.toString());
+      allRows = data;
+      renderTableGrid();
+    } catch (err) {
+      container.innerHTML = '<div class="empty">Error: ' + esc(err.message) + '</div>';
+      updatePagination(0, 0);
+    }
+  }
+
+  function renderTableGrid(rowsToShow = allRows) {
+    const container = $("#notifContainer");
+    if (!rowsToShow.length) { container.innerHTML = '<div class="empty">Sin notificaciones</div>'; updatePagination(0, 0); return; }
+
+    const head = ["id", "type", "hotel_id", "message", "severity", "created_at", "is_read"]
+      .map(col => \`<th>\${esc(col)}</th>\`).join("");
+    const body = rowsToShow.map(row => {
+      let sevDisplay = row.severity;
+      if (row.severity === "error") sevDisplay = '<span class="pill error">Error</span>';
+      else if (row.severity === "warning") sevDisplay = '<span class="pill yellow">Advertencia</span>';
+      else sevDisplay = '<span class="pill ok">Info</span>';
+      return \`<tr>\${["id", "type", "hotel_id", "message", "severity", "created_at", "is_read"].map(col => {
+        let val = row[col];
+        if (col === "severity") val = sevDisplay;
+        return \`<td>\${esc(val == null ? "—" : val)}</td>\`;
+      }).join("")}</tr>\`;
+    }).join("");
+
+    container.innerHTML = \`<table><thead><tr>\${head}</tr></thead><tbody>\${body}</tbody></table>\`;
+    updatePagination(rowsToShow.length, allRows.length);
+  }
+
+  function updatePagination(visibleCount, totalCount) {
+    const info = $("#notifPaginationInfo");
+    const prev = $("#notifBtnPrev");
+    const next = $("#notifBtnNext");
+    const start = currentOffset + 1;
+    const end = currentOffset + visibleCount;
+    info.textContent = totalCount ? \`Mostrando \${start}–\${end} de \${totalCount}\` : "Sin datos";
+    prev.disabled = currentOffset === 0;
+    next.disabled = currentOffset + LIMIT >= totalCount;
+  }
+
+  render();
+}
 
 /* ===== INIT ===== */
 $("#loginForm").addEventListener("submit", doLogin);
