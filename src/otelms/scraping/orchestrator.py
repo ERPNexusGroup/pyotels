@@ -4,7 +4,7 @@ Coordina browser pool, auth, extractors, parsers y rate limiting.
 """
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from otelms.config.constants import OtelMSUrls
@@ -81,7 +81,7 @@ class ScrapingOrchestrator:
 
         self._auth = OtelMSAuth(hotel_id, username, password, base_domain)
         self._initialized = False
-        self._start_time = 0
+        self._start_time = 0.0
 
     @classmethod
     async def from_hotel(cls, hotel: "Hotel") -> "ScrapingOrchestrator":
@@ -94,7 +94,7 @@ class ScrapingOrchestrator:
             username=hotel.username,
             password="",  # Will be set by caller with decrypted password
             headless=hotel.scraper_headless,
-            base_domain=hotel.custom_domain if hotel.use_custom_domain else hotel.domain,
+            base_domain=hotel.custom_domain or hotel.domain,
             rate_limit_rpm=hotel.scraper_rate_limit_rpm,
             burst=hotel.scraper_burst,
             timeout_ms=hotel.scraper_timeout_ms,
@@ -116,7 +116,7 @@ class ScrapingOrchestrator:
         await rate_limiter.client.ping()
 
         # Inicializar auth
-        async with browser_pool.acquire() as page:
+        async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # el pool devuelve BrowserContext/Page según el backend
             await self._auth.login(page.context)
 
         self._initialized = True
@@ -162,7 +162,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:
+            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
                 # Rate limiting - use per-hotel config
                 await rate_limiter.wait_if_needed(self.hotel_id)
 
@@ -204,7 +204,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:
+            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
                 await rate_limiter.wait_if_needed(self.hotel_id)
                 await self._auth.ensure_valid_session(page.context)
 
@@ -237,7 +237,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:
+            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
                 await rate_limiter.wait_if_needed(self.hotel_id)
                 await self._auth.ensure_valid_session(page.context)
 
@@ -296,7 +296,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:
+            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
                 await rate_limiter.wait_if_needed(self.hotel_id)
                 await self._auth.ensure_valid_session(page.context)
 
@@ -332,6 +332,10 @@ class ScrapingOrchestrator:
         """Scraping completo: calendario + categorías + detalles."""
         self._start_timer()
         logger.info("Starting full scrape", hotel_id=self.hotel_id)
+
+        # scrape_reservation_details exige una fecha; sin ella se usa hoy (mismo default del calendario)
+        if target_date is None:
+            target_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
         try:
             await self._ensure_ready()
