@@ -309,6 +309,34 @@
     justify-content: flex-end;
   }
 
+  /* ===== CONFIG TABS ===== */
+  .config-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+  .config-tab {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .config-tab:hover {
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  .config-tab.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
   /* ===== MODAL ===== */
   .modal-overlay {
     position: fixed;
@@ -846,7 +874,39 @@ async function renderSyncLogs() {
 /* ===== CONFIG ===== */
 async function renderConfig() {
   const c = $("#content");
-  c.innerHTML = '<div class="loading">Cargando configuración…</div>';
+  c.innerHTML = `
+    <div class="config-tabs">
+      <button class="config-tab active" data-config-tab="settings">⚙️ Configuración</button>
+      <button class="config-tab" data-config-tab="api-keys">🔑 API Keys</button>
+    </div>
+    <div id="configTabContent"></div>
+  `;
+  
+  // Event listeners for config tabs
+  c.querySelectorAll(".config-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      c.querySelectorAll(".config-tab").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      switchConfigTab(btn.dataset.configTab);
+    });
+  });
+  
+  // Load default tab
+  await switchConfigTab("settings");
+}
+
+async function switchConfigTab(tab) {
+  const content = $("#configTabContent");
+  if (tab === "settings") {
+    await renderConfigSettings();
+  } else if (tab === "api-keys") {
+    await renderApiKeys();
+  }
+}
+
+async function renderConfigSettings() {
+  const content = $("#configTabContent");
+  content.innerHTML = '<div class="loading">Cargando configuración…</div>';
   try {
     const cfg = await api("/admin/api/config");
     const s = cfg.scraper || {};
@@ -865,7 +925,7 @@ async function renderConfig() {
       ["JWT.ALGORITHM", cfg.jwt && cfg.jwt.algorithm, "mono"],
       ["JWT.EXPIRES_MIN", cfg.jwt && cfg.jwt.access_token_expire_minutes, "mono"],
     ];
-    c.innerHTML = `
+    content.innerHTML = `
       <div class="panel">
         <h3>Configuración efectiva (solo debug)</h3>
         <table>
@@ -880,8 +940,210 @@ async function renderConfig() {
         </table>
       </div>`;
   } catch (err) {
-    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+    content.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
   }
+}
+
+async function renderApiKeys() {
+  const content = $("#configTabContent");
+  content.innerHTML = '<div class="loading">Cargando API Keys…</div>';
+  try {
+    const keys = await api("/admin/api/api-keys");
+    if (!keys.length) {
+      content.innerHTML = `
+        <div class="panel">
+          <div class="flex" style="justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3>API Keys</h3>
+            <button class="btn-primary btn-small" id="btnNewApiKey">+ Nueva API Key</button>
+          </div>
+          <div class="empty">No hay API Keys configuradas</div>
+        </div>`;
+      $("#btnNewApiKey").addEventListener("click", () => openApiKeyModal());
+      return;
+    }
+    content.innerHTML = `
+      <div class="panel">
+        <div class="flex" style="justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3>API Keys</h3>
+          <button class="btn-primary btn-small" id="btnNewApiKey">+ Nueva API Key</button>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th>Rate Limit</th><th>Creada</th><th>Último uso</th><th>Expira</th><th></th></tr></thead>
+          <tbody>
+            ${keys.map((k) => `
+              <tr>
+                <td class="mono">${esc(k.id)}</td>
+                <td>${esc(k.name)}</td>
+                <td><span class="pill ${k.is_active ? "ok" : "off"}">${k.is_active ? "activa" : "inactiva"}</span></td>
+                <td class="mono">${k.rate_limit} rpm</td>
+                <td class="mono muted">${esc(fmtDate(k.created_at))}</td>
+                <td class="mono muted">${esc(fmtDate(k.last_used_at))}</td>
+                <td class="mono muted">${esc(k.expires_at ? fmtDate(k.expires_at) : "—")}</td>
+                <td>
+                  <button class="btn-ghost btn-small" data-toggle="${esc(k.id)}" data-active="${k.is_active}">${k.is_active ? "Desactivar" : "Activar"}</button>
+                  <button class="btn-danger btn-small" data-delete="${esc(k.id)}">Eliminar</button>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+    
+    // Event listeners
+    $("#btnNewApiKey").addEventListener("click", () => openApiKeyModal());
+    content.querySelectorAll("[data-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => toggleApiKey(btn.dataset.toggle, btn.dataset.active === "true"));
+    });
+    content.querySelectorAll("[data-delete]").forEach((btn) => {
+      btn.addEventListener("click", () => deleteApiKey(btn.dataset.delete));
+    });
+  } catch (err) {
+    content.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  }
+}
+
+async function toggleApiKey(id, currentActive) {
+  try {
+    const res = await api(`/admin/api/api-keys/${id}/toggle`, { method: "PATCH" });
+    toast("✓ API Key " + (res.is_active ? "activada" : "desactivada"), "success");
+    await renderApiKeys();
+  } catch (err) {
+    toast("✗ Error: " + err.message, "error");
+  }
+}
+
+async function deleteApiKey(id) {
+  if (!confirm("¿Eliminar API Key " + id + "?")) return;
+  try {
+    await api(`/admin/api/api-keys/${id}`, { method: "DELETE" });
+    toast("✓ API Key eliminada", "success");
+    await renderApiKeys();
+  } catch (err) {
+    toast("✗ Error: " + err.message, "error");
+  }
+}
+
+// Modal para crear/editar API Key
+function openApiKeyModal(apiKey = null) {
+  const isEdit = !!apiKey;
+  const title = isEdit ? "Editar API Key" : "Nueva API Key";
+  
+  $("#modalTitle").textContent = title;
+  
+  const form = $("#crudForm");
+  form.innerHTML = `
+    <div class="field" data-column="name">
+      <label for="field_name">Nombre</label>
+      <input type="text" id="field_name" name="name" value="${esc(apiKey?.name || "")}" required>
+      <div class="field-error" id="error_field_name"></div>
+    </div>
+    <div class="field" data-column="rate_limit">
+      <label for="field_rate_limit">Rate Limit (rpm)</label>
+      <input type="number" id="field_rate_limit" name="rate_limit" value="${esc(apiKey?.rate_limit || 60)}" min="1" required>
+      <div class="field-error" id="error_field_rate_limit"></div>
+    </div>
+    <div class="field" data-column="is_active">
+      <div class="checkbox-wrapper">
+        <input type="checkbox" id="field_is_active" name="is_active"${apiKey?.is_active ? " checked" : ""}>
+        <label for="field_is_active">Activa</label>
+      </div>
+      <div class="field-error" id="error_field_is_active"></div>
+    </div>
+    <div class="field" data-column="expires_at">
+      <label for="field_expires_at">Expira (opcional)</label>
+      <input type="datetime-local" id="field_expires_at" name="expires_at" value="${apiKey?.expires_at ? new Date(apiKey.expires_at).toISOString().slice(0, 16) : ""}">
+      <div class="field-error" id="error_field_expires_at"></div>
+    </div>
+  `;
+  
+  // Remove existing submit handler and add new one
+  const newForm = form.cloneNode(true);
+  form.parentNode.replaceChild(newForm, form);
+  
+  newForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const submitBtn = $("#modalSubmit");
+    const data = {
+      name: newForm.querySelector("[name=name]").value,
+      rate_limit: parseInt(newForm.querySelector("[name=rate_limit]").value),
+      is_active: newForm.querySelector("[name=is_active]").checked,
+    };
+    const expiresAt = newForm.querySelector("[name=expires_at]").value;
+    if (expiresAt) data.expires_at = new Date(expiresAt).toISOString();
+    
+    clearFormErrors(newForm);
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Guardando…";
+    
+    try {
+      let result;
+      if (isEdit) {
+        result = await api(`/admin/api/api-keys/${apiKey.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ data }),
+        });
+        toast("✓ API Key actualizada", "success");
+      } else {
+        result = await api("/admin/api/api-keys", {
+          method: "POST",
+          body: JSON.stringify({ data }),
+        });
+        // Show the generated key in a special alert
+        if (result.key) {
+          showApiKeyAlert(result.key);
+        }
+        toast("✓ API Key creada", "success");
+      }
+      closeModal();
+      await renderApiKeys();
+    } catch (err) {
+      toast("✗ Error: " + err.message, "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Guardar";
+    }
+  });
+  
+  $("#crudModal").classList.add("show");
+  newForm.querySelector("input").focus();
+}
+
+function showApiKeyAlert(key) {
+  // Create a modal-like alert for the API key
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay show";
+  overlay.innerHTML = `
+    <div class="modal-card" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3>⚠️ API Key generada (se muestra una sola vez)</h3>
+      </div>
+      <div class="modal-body">
+        <p>Guarda esta clave ahora. No se volverá a mostrar.</p>
+        <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; font-family: var(--mono); word-break: break-all; margin: 16px 0;">
+          ${key}
+        </div>
+        <button class="btn-primary" id="btnCopyKey" style="width: 100%;">Copiar al portapapeles</button>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-primary" id="btnKeyOk">Entendido</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  
+  $("#btnCopyKey").addEventListener("click", () => {
+    navigator.clipboard.writeText(key).then(() => {
+      $("#btnCopyKey").textContent = "¡Copiado!";
+      setTimeout(() => $("#btnCopyKey").textContent = "Copiar al portapapeles", 2000);
+    });
+  });
+  
+  const close = () => {
+    overlay.remove();
+  };
+  $("#btnKeyOk").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
 }
 
 /* ===== TABLES (DJANGO-ADMIN STYLE) ===== */

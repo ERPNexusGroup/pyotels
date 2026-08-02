@@ -59,6 +59,7 @@ class Hotel(Base):
     reservations: Mapped[list["Reservation"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
     guests: Mapped[list["Guest"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
     sync_logs: Mapped[list["SyncLog"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
+    room_availability: Mapped[list["RoomAvailability"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_hotels_is_active", "is_active"),
@@ -304,4 +305,35 @@ class ApiKey(Base):
 
     __table_args__ = (
         Index("ix_api_keys_is_active", "is_active"),
+    )
+
+
+class RoomAvailability(Base):
+    """Disponibilidad/bloqueo de habitaciones por rango de fechas.
+
+    Permite cerrar (bloquear) o abrir (desbloquear) habitaciones específicas
+    o todas las habitaciones de un hotel (room_id = NULL) para un rango de fechas.
+    """
+
+    __tablename__ = "room_availability"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    room_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=True)
+    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_blocked: Mapped[bool] = mapped_column(default=True)  # True = cerrada/no disponible, False = abierta/disponible
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ej: "maintenance", "renovation", "private_event"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relaciones
+    hotel: Mapped["Hotel"] = relationship(back_populates="room_availability")
+    room: Mapped[Optional["Room"]] = relationship()
+
+    __table_args__ = (
+        Index("ix_room_availability_hotel_id", "hotel_id"),
+        Index("ix_room_availability_room_id", "room_id"),
+        Index("ix_room_availability_dates", "start_date", "end_date"),
+        Index("ix_room_availability_is_blocked", "is_blocked"),
     )
