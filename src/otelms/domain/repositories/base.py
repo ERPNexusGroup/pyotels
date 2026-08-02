@@ -1,9 +1,10 @@
 """
 Repositorio base con operaciones CRUD comunes.
 """
-from typing import Generic, TypeVar, Sequence
+from collections.abc import Sequence
+from typing import TypeVar
 
-from sqlalchemy import select, func, update, delete
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.domain.entities import Base
@@ -11,7 +12,7 @@ from otelms.domain.entities import Base
 ModelType = TypeVar("ModelType", bound=Base)
 
 
-class BaseRepository(Generic[ModelType]):
+class BaseRepository[ModelType: Base]:
     """Repositorio base con operaciones CRUD genéricas."""
 
     def __init__(self, session: AsyncSession, model: type[ModelType]):

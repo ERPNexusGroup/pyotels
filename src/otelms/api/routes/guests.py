@@ -1,11 +1,11 @@
 """
 Guest endpoints.
 """
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 
-from otelms.api.dependencies import verify_api_key, get_guest_repo
-from otelms.api.schemas import GuestResponse, GuestBase
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from otelms.api.dependencies import get_guest_repo, verify_api_key
+from otelms.api.schemas import GuestBase, GuestResponse
 from otelms.domain.repositories import GuestRepository
 from otelms.utils.logging import get_logger
 
@@ -13,14 +13,14 @@ router = APIRouter(prefix="/guests", tags=["guests"], dependencies=[Depends(veri
 logger = get_logger(__name__)
 
 
-@router.get("", response_model=List[GuestResponse])
+@router.get("", response_model=list[GuestResponse])
 async def list_guests(
     hotel_id: str = Query(..., description="Hotel ID"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    search: Optional[str] = Query(None, description="Search by name, email, document"),
+    search: str | None = Query(None, description="Search by name, email, document"),
     guest_repo: GuestRepository = Depends(get_guest_repo),
-) -> List[GuestResponse]:
+) -> list[GuestResponse]:
     """Lista huéspedes con búsqueda opcional."""
     if search:
         return await guest_repo.search(hotel_id, search, limit)

@@ -2,32 +2,34 @@
 Orquestador principal de scraping.
 Coordina browser pool, auth, extractors, parsers y rate limiting.
 """
+import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from otelms.config.constants import OtelMSUrls
-from otelms.utils.logging import get_logger
-from otelms.utils.telemetry import record_scraping_metric
-from otelms.scraping.browser import browser_pool
+from otelms.domain.entities import Hotel
 from otelms.scraping.auth import OtelMSAuth
-from otelms.scraping.rate_limiter import rate_limiter
-from otelms.scraping.extractors import (
-    CalendarExtractor,
-    ReservationDetailExtractor,
-    GuestDetailExtractor,
-    ModalExtractor,
-)
-from otelms.scraping.parsers import (
-    CalendarParser,
-    ReservationDetailParser,
-    GuestDetailParser,
-    ModalParser,
-)
+from otelms.scraping.browser import browser_pool
 from otelms.scraping.exceptions import (
     AuthenticationError,
     NavigationError,
 )
+from otelms.scraping.extractors import (
+    CalendarExtractor,
+    GuestDetailExtractor,
+    ModalExtractor,
+    ReservationDetailExtractor,
+)
+from otelms.scraping.parsers import (
+    CalendarParser,
+    GuestDetailParser,
+    ModalParser,
+    ReservationDetailParser,
+)
+from otelms.scraping.rate_limiter import rate_limiter
+from otelms.utils.logging import get_logger
+from otelms.utils.telemetry import record_scraping_metric
 
 logger = get_logger(__name__)
 
@@ -37,7 +39,7 @@ class ScrapingResult:
     """Resultado de una operación de scraping."""
     success: bool
     data: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     duration_ms: int = 0
     hotel_id: str = ""
     operation: str = ""
@@ -136,7 +138,7 @@ class ScrapingOrchestrator:
         self,
         success: bool,
         data: Any = None,
-        error: Optional[str] = None,
+        error: str | None = None,
         operation: str = "",
     ) -> ScrapingResult:
         return ScrapingResult(
@@ -151,7 +153,7 @@ class ScrapingOrchestrator:
     # ============================================================
     # CALENDAR / GRID
     # ============================================================
-    async def scrape_calendar(self, target_date: Optional[str] = None) -> ScrapingResult:
+    async def scrape_calendar(self, target_date: str | None = None) -> ScrapingResult:
         """Scraping del calendario (grid de reservas)."""
         self._start_timer()
         logger.info("Scraping calendar", hotel_id=self.hotel_id, date=target_date)
@@ -193,7 +195,7 @@ class ScrapingOrchestrator:
             record_scraping_metric("calendar", self.hotel_id, "error", 0)
             return self._make_result(False, error=str(e), operation="calendar")
 
-    async def scrape_categories(self, target_date: Optional[str] = None) -> ScrapingResult:
+    async def scrape_categories(self, target_date: str | None = None) -> ScrapingResult:
         """Scraping solo de categorías y habitaciones."""
         self._start_timer()
         logger.info("Scraping categories", hotel_id=self.hotel_id)
@@ -256,7 +258,6 @@ class ScrapingOrchestrator:
                 guest_id = basic_info.get("fields", {}).get("Huésped")
                 if guest_id:
                     # Extraer guest_id real del enlace
-                    import re
                     page_html = await page.content()
                     match = re.search(r'/guestfolio/(\d+)', page_html)
                     if match:
@@ -285,7 +286,7 @@ class ScrapingOrchestrator:
     async def scrape_reservation_details(
         self,
         target_date: str,
-        reservation_ids: Optional[list[str]] = None,
+        reservation_ids: list[str] | None = None,
     ) -> ScrapingResult:
         """Scraping de detalles de múltiples reservas."""
         self._start_timer()
@@ -326,7 +327,7 @@ class ScrapingOrchestrator:
     # ============================================================
     # FULL SYNC
     # ============================================================
-    async def full_scrape(self, target_date: Optional[str] = None) -> ScrapingResult:
+    async def full_scrape(self, target_date: str | None = None) -> ScrapingResult:
         """Scraping completo: calendario + categorías + detalles."""
         self._start_timer()
         logger.info("Starting full scrape", hotel_id=self.hotel_id)

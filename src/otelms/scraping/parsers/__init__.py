@@ -5,7 +5,7 @@ Convierte HTML crudo en estructuras de datos tipadas.
 import re
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from bs4 import BeautifulSoup
 
@@ -15,7 +15,7 @@ from otelms.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def normalize_float(value: Optional[str]) -> Optional[float]:
+def normalize_float(value: str | None) -> float | None:
     """Normaliza string a float."""
     if not value:
         return None
@@ -34,7 +34,7 @@ def normalize_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
-def normalize_decimal(value: Optional[str]) -> Optional[Decimal]:
+def normalize_decimal(value: str | None) -> Decimal | None:
     """Normaliza string a Decimal."""
     if not value:
         return None
@@ -45,7 +45,7 @@ def normalize_decimal(value: Optional[str]) -> Optional[Decimal]:
         return None
 
 
-def normalize_date(value: Optional[str]) -> Optional[str]:
+def normalize_date(value: str | None) -> str | None:
     """Normaliza fecha a formato ISO (YYYY-MM-DD)."""
     if not value:
         return None
@@ -70,7 +70,7 @@ def normalize_date(value: Optional[str]) -> Optional[str]:
     return None
 
 
-def normalize_datetime(value: Optional[str]) -> Optional[str]:
+def normalize_datetime(value: str | None) -> str | None:
     """Normaliza datetime a formato ISO (YYYY-MM-DDTHH:MM:SS)."""
     if not value:
         return None
@@ -130,7 +130,7 @@ class CalendarParser:
         return categories
 
     @staticmethod
-    def parse_grid(html: str, target_date: Optional[str] = None) -> dict[str, Any]:
+    def parse_grid(html: str, target_date: str | None = None) -> dict[str, Any]:
         """Parsea grilla completa de calendario."""
         soup = BeautifulSoup(html, "lxml")
 
@@ -423,10 +423,9 @@ class GuestDetailParser:
         }
 
         normalized = {}
-        for k, v in data.items():
+        for k, raw_v in data.items():
             new_key = field_map.get(k, k)
-            if new_key == "dob":
-                v = normalize_date(v)
+            v = normalize_date(raw_v) if new_key == "dob" else raw_v
             normalized[new_key] = v
 
         # Construir nombre completo
@@ -442,7 +441,7 @@ class ModalParser:
     """Parser para modales de reserva."""
 
     @staticmethod
-    def parse(html: str, reservation_id: Optional[str] = None) -> dict[str, Any]:
+    def parse(html: str, reservation_id: str | None = None) -> dict[str, Any]:
         """Parsea modal de reserva."""
         soup = BeautifulSoup(html, "lxml")
         data = {}

@@ -1,10 +1,10 @@
 """
 Category endpoints.
 """
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 
-from otelms.api.dependencies import verify_api_key, get_category_repo, get_room_repo
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from otelms.api.dependencies import get_category_repo, get_room_repo, verify_api_key
 from otelms.api.schemas import CategoryResponse
 from otelms.domain.repositories import CategoryRepository
 from otelms.utils.logging import get_logger
@@ -13,12 +13,12 @@ router = APIRouter(prefix="/categories", tags=["categories"], dependencies=[Depe
 logger = get_logger(__name__)
 
 
-@router.get("", response_model=List[CategoryResponse])
+@router.get("", response_model=list[CategoryResponse])
 async def list_categories(
     hotel_id: str = Query(..., description="Hotel ID"),
     with_rooms: bool = Query(False, description="Include rooms"),
     cat_repo: CategoryRepository = Depends(get_category_repo),
-) -> List[CategoryResponse]:
+) -> list[CategoryResponse]:
     """Lista categorías de un hotel."""
     if with_rooms:
         return await cat_repo.get_with_rooms(hotel_id)
@@ -41,11 +41,11 @@ async def get_category(
     return category
 
 
-@router.get("/{category_id}/rooms", response_model=List[dict])
+@router.get("/{category_id}/rooms", response_model=list[dict])
 async def get_category_rooms(
     hotel_id: str = Query(..., description="Hotel ID"),
     category_id: str = ...,
     room_repo = Depends(get_room_repo),
-) -> List[dict]:
+) -> list[dict]:
     """Obtiene habitaciones de una categoría."""
     return await room_repo.get_by_category(category_id)

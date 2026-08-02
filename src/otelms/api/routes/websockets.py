@@ -2,9 +2,9 @@
 WebSocket endpoints for real-time sync progress.
 """
 import json
-from typing import Dict, Set
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from datetime import datetime
+
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from otelms.api.dependencies import verify_api_key
 from otelms.utils.logging import get_logger
@@ -17,7 +17,7 @@ class ConnectionManager:
     """Manage WebSocket connections for sync progress."""
 
     def __init__(self):
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self.active_connections: dict[str, set[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, hotel_id: str):
         await websocket.accept()
@@ -42,7 +42,7 @@ class ConnectionManager:
                     await connection.send_json(message)
                 except Exception:
                     disconnected.add(connection)
-            
+
             # Clean up disconnected
             for conn in disconnected:
                 self.active_connections[hotel_id].discard(conn)
@@ -74,7 +74,7 @@ async def websocket_sync_progress(
     }
     """
     await manager.connect(websocket, hotel_id)
-    
+
     try:
         # Send welcome message
         await websocket.send_json({
@@ -83,7 +83,7 @@ async def websocket_sync_progress(
             "message": f"Connected to sync progress for hotel {hotel_id}",
             "timestamp": datetime.utcnow().isoformat()
         })
-        
+
         # Keep connection alive, listen for client messages (ping/pong)
         while True:
             data = await websocket.receive_text()
@@ -94,7 +94,7 @@ async def websocket_sync_progress(
                     await websocket.send_json({"type": "pong", "timestamp": datetime.utcnow().isoformat()})
             except json.JSONDecodeError:
                 pass
-                
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, hotel_id)
     except Exception as e:

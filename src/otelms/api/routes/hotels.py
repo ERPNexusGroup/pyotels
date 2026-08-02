@@ -1,23 +1,26 @@
 """
 Hotel management endpoints.
 """
-from typing import List
+
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from otelms.api.dependencies import verify_api_key, get_hotel_repo
-from otelms.api.schemas import HotelResponse, HotelCreate, HotelBase
+from otelms.api.dependencies import get_hotel_repo, verify_api_key
+from otelms.api.schemas import HotelBase, HotelCreate, HotelResponse
 from otelms.domain.repositories import HotelRepository
+from otelms.utils.crypto import credential_encryption
 from otelms.utils.logging import get_logger
 
 router = APIRouter(prefix="/hotels", tags=["hotels"], dependencies=[Depends(verify_api_key)])
 logger = get_logger(__name__)
 
 
-@router.get("", response_model=List[HotelResponse])
+@router.get("", response_model=list[HotelResponse])
 async def list_hotels(
     active_only: bool = True,
     hotel_repo: HotelRepository = Depends(get_hotel_repo),
-) -> List[HotelResponse]:
+) -> list[HotelResponse]:
     """Lista todos los hoteles configurados."""
     if active_only:
         hotels = await hotel_repo.get_active()
@@ -47,7 +50,6 @@ async def create_hotel(
     hotel_repo: HotelRepository = Depends(get_hotel_repo),
 ) -> HotelResponse:
     """Crea un nuevo hotel."""
-    import hashlib
 
     # Verificar si ya existe
     existing = await hotel_repo.get_by_id(hotel_data.id)
@@ -111,26 +113,25 @@ async def rotate_hotel_password(
     hotel_repo: HotelRepository = Depends(get_hotel_repo),
 ) -> dict:
     """Rota la contraseña de un hotel (encripta y almacena)."""
-    import hashlib
-    from otelms.utils.crypto import credential_encryption
-    
+
+
     hotel = await hotel_repo.get_by_id(hotel_id)
     if not hotel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Hotel {hotel_id} not found",
         )
-    
+
     # Encrypt the new password
     encrypted_password = credential_encryption.encrypt(new_password)
-    
+
     # Store both hash (for backwards compat) and encrypted password
     hotel.password_hash = hashlib.sha256(new_password.encode()).hexdigest()
     hotel.encrypted_password = encrypted_password
-    
+
     await hotel_repo.session.flush()
     await hotel_repo.session.refresh(hotel)
-    
+
     return {
         "message": "Password rotated successfully",
         "hotel_id": hotel_id,

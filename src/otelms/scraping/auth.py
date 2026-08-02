@@ -5,24 +5,25 @@ Maneja login híbrido (requests + Playwright), persistencia de cookies, auto-rel
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import httpx
-from playwright.async_api import BrowserContext, TimeoutError as PlaywrightTimeoutError
+import pyotp
+from playwright.async_api import BrowserContext
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from otelms.config.settings import settings
 from otelms.config.constants import OtelMSUrls, Timeouts
-from otelms.utils.logging import get_logger
+from otelms.config.settings import settings
 from otelms.scraping.exceptions import (
     AuthenticationError,
 )
+from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class TwoFactorHandler:
     """Base class for 2FA handlers."""
-    
+
     async def get_code(self) -> str:
         """Get the 2FA code."""
         raise NotImplementedError
@@ -30,16 +31,15 @@ class TwoFactorHandler:
 
 class TOTPHandler(TwoFactorHandler):
     """TOTP-based 2FA handler (Google Authenticator, Authy, etc.)."""
-    
+
     def __init__(self, secret: str):
         self.secret = secret
-        import pyotp
         self._totp = pyotp.TOTP(secret)
-    
+
     async def get_code(self) -> str:
         """Get current TOTP code."""
         return self._totp.now()
-    
+
     def verify_code(self, code: str) -> bool:
         """Verify a TOTP code."""
         return self._totp.verify(code)
@@ -47,11 +47,11 @@ class TOTPHandler(TwoFactorHandler):
 
 class SMSHandler(TwoFactorHandler):
     """SMS-based 2FA handler."""
-    
+
     def __init__(self, phone_number: str):
         self.phone_number = phone_number
-        self._code: Optional[str] = None
-    
+        self._code: str | None = None
+
     async def get_code(self) -> str:
         """Get SMS code - placeholder for actual implementation."""
         # In production, this would integrate with SMS API (Twilio, etc.)
@@ -59,7 +59,7 @@ class SMSHandler(TwoFactorHandler):
         if self._code:
             return self._code
         raise NotImplementedError("SMS 2FA requires external integration")
-    
+
     def set_code(self, code: str) -> None:
         """Set the received SMS code."""
         self._code = code
@@ -67,18 +67,18 @@ class SMSHandler(TwoFactorHandler):
 
 class EmailHandler(TwoFactorHandler):
     """Email-based 2FA handler."""
-    
+
     def __init__(self, email: str):
         self.email = email
-        self._code: Optional[str] = None
-    
+        self._code: str | None = None
+
     async def get_code(self) -> str:
         """Get email code - placeholder for actual implementation."""
         # In production, this would integrate with email API or wait for user input
         if self._code:
             return self._code
         raise NotImplementedError("Email 2FA requires external integration")
-    
+
     def set_code(self, code: str) -> None:
         """Set the received email code."""
         self._code = code
@@ -92,7 +92,7 @@ class SessionData:
     hotel_id: str
     username: str
     created_at: float
-    expires_at: Optional[float] = None
+    expires_at: float | None = None
 
     def is_expired(self) -> bool:
         if self.expires_at is None:
@@ -116,7 +116,7 @@ class OtelMSAuth:
         username: str,
         password: str,
         base_domain: str = "otelms.com",
-        two_factor_handler: Optional[TwoFactorHandler] = None,
+        two_factor_handler: TwoFactorHandler | None = None,
     ):
         self.hotel_id = hotel_id
         self.username = username
@@ -125,8 +125,8 @@ class OtelMSAuth:
         self.urls = OtelMSUrls(base_domain, hotel_id)
         self.two_factor_handler = two_factor_handler
 
-        self._session_data: Optional[SessionData] = None
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._session_data: SessionData | None = None
+        self._http_client: httpx.AsyncClient | None = None
         self._login_lock = asyncio.Lock()
 
     @property
@@ -257,22 +257,22 @@ class OtelMSAuth:
         """
         if not self.two_factor_handler:
             return False
-        
+
         # Verificar si la respuesta indica 2FA requerido
         html = response.text.lower()
-        twofa_keywords = ["2fa", "two-factor", "two factor", "autenticación de dos factores", 
+        twofa_keywords = ["2fa", "two-factor", "two factor", "autenticación de dos factores",
                           "código de verificación", "verification code", "totp", "authenticator"]
-        
+
         if not any(k in html for k in twofa_keywords):
             return False
-        
+
         logger.info("2FA challenge detected", hotel_id=self.hotel_id)
-        
+
         try:
             # Obtener código 2FA
             code = await self.two_factor_handler.get_code()
             logger.debug("2FA code obtained")
-            
+
             # Enviar código 2FA - esto depende de la implementación específica de OtelMS
             # Por ahora, asumimos que hay un formulario de 2FA en la misma URL de login
             payload = {
@@ -281,22 +281,22 @@ class OtelMSAuth:
                 "action": "login",
                 "2fa_code": code,
             }
-            
+
             headers = {
                 "Referer": self.login_url,
                 "Origin": self.urls.base_url,
                 "Content-Type": "application/x-www-form-urlencoded",
             }
-            
+
             response = await self._http_client.post(
                 self.login_url,
                 data=payload,
                 headers=headers,
             )
-            
+
             logger.info("2FA code submitted")
             return True
-            
+
         except Exception as e:
             logger.error("2FA handling failed", error=str(e))
             raise AuthenticationError(f"2FA handling failed: {e}", hotel_id=self.hotel_id) from e
@@ -420,7 +420,7 @@ class SessionManager:
         }
         return await self.cache.set(key, data, ttl=3600)
 
-    async def load_session(self, hotel_id: str, username: str) -> Optional[SessionData]:
+    async def load_session(self, hotel_id: str, username: str) -> SessionData | None:
         """Carga sesión desde cache."""
         key = self._session_key(hotel_id, username)
         data = await self.cache.get(key)

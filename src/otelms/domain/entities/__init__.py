@@ -8,7 +8,6 @@ from typing import Optional
 from sqlalchemy import (
     BigInteger,
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Index,
     Integer,
@@ -17,6 +16,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -31,15 +33,15 @@ class Hotel(Base):
     __tablename__ = "hotels"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     domain: Mapped[str] = mapped_column(String(255), default="otelms.com")
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)  # Hashed
-    encrypted_password: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Fernet encrypted
+    encrypted_password: Mapped[str | None] = mapped_column(Text, nullable=True)  # Fernet encrypted
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Scraper configuration per hotel
     scraper_rate_limit_rpm: Mapped[int] = mapped_column(Integer, default=30)
@@ -47,7 +49,7 @@ class Hotel(Base):
     scraper_timeout_ms: Mapped[int] = mapped_column(Integer, default=60000)
     scraper_navigation_timeout_ms: Mapped[int] = mapped_column(Integer, default=45000)
     scraper_selector_timeout_ms: Mapped[int] = mapped_column(Integer, default=20000)
-    custom_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    custom_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     use_custom_domain: Mapped[bool] = mapped_column(default=False)
     scraper_headless: Mapped[bool] = mapped_column(default=True)
 
@@ -70,7 +72,7 @@ class Category(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -93,9 +95,9 @@ class Room(Base):
     hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[str] = mapped_column(String(64), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    floor: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    max_occupancy: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    floor: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    max_occupancy: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -119,19 +121,19 @@ class Guest(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
-    first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    middle_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    document_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    document_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    nationality: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    gender: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    birth_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    middle_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    document_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    document_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    nationality: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    birth_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -163,7 +165,7 @@ class Reservation(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
     room_id: Mapped[str] = mapped_column(String(64), ForeignKey("rooms.id", ondelete="RESTRICT"), nullable=False)
-    guest_id: Mapped[Optional[str]] = mapped_column(String(64), ForeignKey("guests.id", ondelete="SET NULL"), nullable=True)
+    guest_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("guests.id", ondelete="SET NULL"), nullable=True)
 
     check_in: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     check_out: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -173,16 +175,16 @@ class Reservation(Base):
     children: Mapped[int] = mapped_column(Integer, default=0)
     babies: Mapped[int] = mapped_column(Integer, default=0)
 
-    total_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+    total_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="USD")
-    source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Metadatos de sync
-    otelms_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    otelms_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    otelms_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    otelms_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    sync_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # Hash para detectar cambios
+    sync_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Hash para detectar cambios
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -215,11 +217,11 @@ class Service(Base):
     reservation_id: Mapped[str] = mapped_column(String(64), ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 3), default=Decimal("1"))
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    legal_entity: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    legal_entity: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -241,11 +243,11 @@ class Payment(Base):
     reservation_id: Mapped[str] = mapped_column(String(64), ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    method: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    card_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # Últimos 4 dígitos
-    card_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    card_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # Últimos 4 dígitos
+    card_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -268,12 +270,12 @@ class SyncLog(Base):
     sync_type: Mapped[str] = mapped_column(String(50), nullable=False)  # calendar, categories, full, detail
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # started, completed, failed
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     records_processed: Mapped[int] = mapped_column(Integer, default=0)
     records_created: Mapped[int] = mapped_column(Integer, default=0)
     records_updated: Mapped[int] = mapped_column(Integer, default=0)
-    errors: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array de errores
+    errors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array de errores
     error_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Relaciones
@@ -297,8 +299,8 @@ class ApiKey(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     rate_limit: Mapped[int] = mapped_column(Integer, default=60)  # requests per minute
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_api_keys_is_active", "is_active"),

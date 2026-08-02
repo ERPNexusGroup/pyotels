@@ -1,6 +1,7 @@
 """
 Cache wrapper con soporte para Redis y diskcache fallback.
 """
+import fnmatch
 import pickle
 from typing import Any
 
@@ -145,7 +146,6 @@ class DiskCacheBackend(CacheBackend):
             # diskcache no soporta pattern matching nativamente
             # Iterar todas las keys (puede ser lento para caches grandes)
             count = 0
-            import fnmatch
             for key in list(self._cache.iterkeys()):
                 if fnmatch.fnmatch(key, pattern):
                     self._cache.delete(key)

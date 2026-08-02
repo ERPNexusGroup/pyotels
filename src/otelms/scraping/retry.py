@@ -1,7 +1,8 @@
 """
 Políticas de retry con tenacity para scraping robusto.
 """
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from tenacity import (
     AsyncRetrying,
@@ -14,11 +15,11 @@ from tenacity import (
 
 from otelms.config.settings import settings
 from otelms.scraping.exceptions import (
-    ScrapingError,
     AuthenticationError,
+    BrowserError,
     NavigationError,
     RateLimitError,
-    BrowserError,
+    ScrapingError,
     SessionExpiredError,
 )
 from otelms.utils.logging import get_logger
@@ -121,7 +122,7 @@ navigation_retry = AsyncRetrying(
 )
 
 
-async def with_retry(
+async def with_retry[T](
     func: Callable[..., T],
     *args,
     retry_policy: AsyncRetrying = scraping_retry,

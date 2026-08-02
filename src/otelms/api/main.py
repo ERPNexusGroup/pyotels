@@ -1,23 +1,24 @@
 """
 Main FastAPI application factory.
 """
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 import asyncio
+import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Histogram, generate_latest
+from prometheus_client import REGISTRY, Counter, Histogram, generate_latest
 from starlette.responses import Response
 
+from otelms.api.routes import categories, guests, health, hotels, reservations, websockets
 from otelms.config.settings import settings
-from otelms.utils.logging import setup_logging, get_logger
-from otelms.utils.telemetry import init_telemetry, shutdown_telemetry
-from otelms.domain.repositories.database import init_db, close_db
-from otelms.utils.cache import cache
+from otelms.domain.repositories.database import close_db, init_db
 from otelms.scraping.browser import browser_pool
-from otelms.api.routes import health, hotels, reservations, guests, categories, websockets
+from otelms.utils.cache import cache
+from otelms.utils.logging import get_logger, setup_logging
+from otelms.utils.telemetry import init_telemetry, shutdown_telemetry
 
 logger = get_logger(__name__)
 
@@ -25,16 +26,15 @@ logger = get_logger(__name__)
 # Prometheus metrics
 def create_metrics():
     """Create Prometheus metrics, handling duplicate registration."""
-    from prometheus_client import REGISTRY
-    
+
     # Check if metrics already exist
     existing_names = set()
     for collector in REGISTRY._collector_to_names:
         for name in REGISTRY._collector_to_names[collector]:
             existing_names.add(name)
-    
+
     metrics = {}
-    
+
     if "otelms_http_requests_total" not in existing_names:
         metrics["request_count"] = Counter(
             "otelms_http_requests_total",
@@ -47,7 +47,7 @@ def create_metrics():
             if "otelms_http_requests_total" in REGISTRY._collector_to_names[collector]:
                 metrics["request_count"] = collector
                 break
-    
+
     if "otelms_http_request_duration_seconds" not in existing_names:
         metrics["request_latency"] = Histogram(
             "otelms_http_request_duration_seconds",
@@ -59,7 +59,7 @@ def create_metrics():
             if "otelms_http_request_duration_seconds" in REGISTRY._collector_to_names[collector]:
                 metrics["request_latency"] = collector
                 break
-    
+
     return metrics.get("request_count"), metrics.get("request_latency")
 
 
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Must be set before any asyncio operations that might create subprocesses
     if hasattr(asyncio, 'WindowsProactorEventLoopPolicy'):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    
+
     # Startup
     logger.info("Starting OtelMS API", version="1.0.0", env=settings.app_env)
 
@@ -143,7 +143,6 @@ def create_app() -> FastAPI:
     # Middleware for metrics
     @app.middleware("http")
     async def metrics_middleware(request, call_next):
-        import time
         start = time.time()
 
         response = await call_next(request)

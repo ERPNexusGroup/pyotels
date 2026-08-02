@@ -1,15 +1,15 @@
 """
 Configuración del paquete otelms.config
 """
-from otelms.config.settings import settings, get_settings
 from otelms.config.constants import (
+    CellStatus,
     OtelMSSelectors,
     OtelMSUrls,
-    ReservationStatus,
-    CellStatus,
-    Timeouts,
     Patterns,
+    ReservationStatus,
+    Timeouts,
 )
+from otelms.config.settings import get_settings, settings
 
 __all__ = [
     "settings",

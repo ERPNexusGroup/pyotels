@@ -5,15 +5,16 @@ Cada extractor maneja un tipo de página específico.
 import asyncio
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from bs4 import BeautifulSoup
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from otelms.config.constants import OtelMSSelectors, OtelMSUrls, ReservationStatus, CellStatus
-from otelms.utils.logging import get_logger
+from otelms.config.constants import CellStatus, OtelMSSelectors, OtelMSUrls, ReservationStatus
 from otelms.scraping.exceptions import ExtractionError, NavigationError
-from otelms.scraping.retry import with_retry, navigation_retry
+from otelms.scraping.retry import navigation_retry, with_retry
+from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -28,19 +29,19 @@ class CalendarCellData:
     date: str
     day_id: str
     cell_status: str  # occupied, available, locked
-    reservation_id: Optional[str] = None
-    reservation_number: Optional[str] = None
-    guest_name: Optional[str] = None
-    check_in: Optional[str] = None
-    check_out: Optional[str] = None
-    created_at: Optional[str] = None
-    guest_count: Optional[int] = None
-    balance: Optional[float] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    user: Optional[str] = None
-    comments: Optional[str] = None
-    reservation_status: Optional[int] = None
+    reservation_id: str | None = None
+    reservation_number: str | None = None
+    guest_name: str | None = None
+    check_in: str | None = None
+    check_out: str | None = None
+    created_at: str | None = None
+    guest_count: int | None = None
+    balance: float | None = None
+    phone: str | None = None
+    email: str | None = None
+    user: str | None = None
+    comments: str | None = None
+    reservation_status: int | None = None
 
 
 @dataclass
@@ -59,7 +60,7 @@ class CalendarExtractor:
         self.urls = urls
         self.selectors = OtelMSSelectors()
 
-    async def navigate(self, date: Optional[str] = None) -> None:
+    async def navigate(self, date: str | None = None) -> None:
         """Navega al calendario."""
         url = self.urls.calendar_url(date)
         logger.debug("Navigating to calendar", url=url)
@@ -84,7 +85,7 @@ class CalendarExtractor:
                 timeout=20000,
             )
         except PlaywrightTimeoutError:
-            raise NavigationError("Calendar table not loaded", url=url)
+            raise NavigationError("Calendar table not loaded", url=url) from None
 
         # Pequeña espera para renderizado dinámico
         await asyncio.sleep(0.5)
@@ -131,7 +132,7 @@ class CalendarExtractor:
         logger.info("Categories extracted", count=len(categories))
         return categories
 
-    async def extract_calendar_grid(self, date: Optional[str] = None) -> list[CalendarCellData]:
+    async def extract_calendar_grid(self, date: str | None = None) -> list[CalendarCellData]:
         """Extrae toda la grilla de reservas del calendario."""
         logger.debug("Extracting calendar grid")
 

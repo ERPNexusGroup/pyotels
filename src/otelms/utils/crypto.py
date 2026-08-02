@@ -1,10 +1,11 @@
 """
 Credential encryption utilities using Fernet symmetric encryption.
 """
+import base64
+
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import base64
 
 from otelms.config.settings import settings
 from otelms.utils.logging import get_logger
@@ -26,7 +27,7 @@ class CredentialEncryption:
         """Initialize Fernet cipher from environment or generate new key."""
         # Try to get encryption key from settings
         key = getattr(settings, 'credential_encryption_key', None)
-        
+
         if key:
             # Use existing key
             if isinstance(key, str):
@@ -38,7 +39,7 @@ class CredentialEncryption:
             master_secret = getattr(settings, 'jwt_secret_key', None) or settings.secret_key
             if not master_secret:
                 raise ValueError("No master secret available for credential encryption")
-            
+
             # Derive key using PBKDF2
             salt = b'otelms_credential_salt'  # Fixed salt for deterministic key derivation
             kdf = PBKDF2HMAC(
@@ -63,10 +64,10 @@ class CredentialEncryption:
         """
         if not plaintext:
             return ""
-        
+
         if not self._cipher:
             raise RuntimeError("Cipher not initialized")
-        
+
         encrypted = self._cipher.encrypt(plaintext.encode())
         return encrypted.decode()
 
@@ -82,10 +83,10 @@ class CredentialEncryption:
         """
         if not ciphertext:
             return ""
-        
+
         if not self._cipher:
             raise RuntimeError("Cipher not initialized")
-        
+
         try:
             decrypted = self._cipher.decrypt(ciphertext.encode())
             return decrypted.decode()

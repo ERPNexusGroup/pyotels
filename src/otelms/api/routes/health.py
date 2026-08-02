@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from otelms.api.dependencies import get_db
 from otelms.api.schemas import HealthResponse
 from otelms.config.settings import settings
+from otelms.utils.cache import cache
 from otelms.utils.logging import get_logger
 
 router = APIRouter(prefix="/health", tags=["health"])
@@ -30,7 +31,6 @@ async def health_check(session: AsyncSession = Depends(get_db)) -> HealthRespons
     # Check Redis (if enabled) - don't fail if Redis unavailable
     if settings.cache_enabled:
         try:
-            from otelms.utils.cache import cache
             if cache._backend:
                 await cache.get("_health_check")
                 checks["cache"] = True

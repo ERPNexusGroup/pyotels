@@ -2,15 +2,14 @@
 OpenTelemetry instrumentation for distributed tracing.
 """
 from contextlib import contextmanager
-from typing import Optional
 
 from opentelemetry import trace
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.resources import SERVICE_NAME, SERVICE_VERSION, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 from otelms.config.settings import settings
 from otelms.utils.logging import get_logger
@@ -89,38 +88,40 @@ sync_errors_total = Counter(
 
 
 # OpenTelemetry setup
-_tracer_provider: Optional[TracerProvider] = None
-_meter_provider: Optional[MeterProvider] = None
+_tracer_provider: TracerProvider | None = None
+_meter_provider: MeterProvider | None = None
 
 
 def init_telemetry() -> None:
     """Initialize OpenTelemetry tracing and metrics."""
     global _tracer_provider, _meter_provider
-    
+
     if not settings.otel_enabled:
         logger.info("OpenTelemetry disabled via config")
         return
-    
+
     # Resource attributes
     resource = Resource.create({
         SERVICE_NAME: settings.otel_service_name,
         SERVICE_VERSION: "1.0.0",
         "environment": settings.app_env,
     })
-    
+
     # Tracer provider
     _tracer_provider = TracerProvider(resource=resource)
-    
+
     # Add span processors
     if settings.app_debug:
         _tracer_provider.add_span_processor(
             BatchSpanProcessor(ConsoleSpanExporter())
         )
-    
+
     # If OTLP endpoint configured, add OTLP exporter
     if settings.otel_exporter_otlp_endpoint:
         try:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415  # dep opcional, no instalada por defecto
+                OTLPSpanExporter,
+            )
             otlp_exporter = OTLPSpanExporter(
                 endpoint=settings.otel_exporter_otlp_endpoint,
                 headers=settings.otel_exporter_otlp_headers,
@@ -128,15 +129,15 @@ def init_telemetry() -> None:
             _tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
         except ImportError:
             logger.warning("OTLP exporter not installed, skipping")
-    
+
     trace.set_tracer_provider(_tracer_provider)
-    
+
     # Meter provider for metrics
     readers = [
         PrometheusMetricReader(),
     ]
     _meter_provider = MeterProvider(resource=resource, metric_readers=readers)
-    
+
     logger.info("OpenTelemetry initialized", service=settings.otel_service_name)
 
 
@@ -189,10 +190,10 @@ def record_sync_error(operation: str, hotel_id: str, error_type: str):
 def shutdown_telemetry() -> None:
     """Shutdown telemetry providers."""
     global _tracer_provider, _meter_provider
-    
+
     if _tracer_provider:
         _tracer_provider.shutdown()
     if _meter_provider:
         _meter_provider.shutdown()
-    
+
     logger.info("OpenTelemetry shutdown complete")

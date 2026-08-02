@@ -2,14 +2,23 @@
 CLI principal con Typer - Comandos para API, Scraper, Sync, Worker.
 """
 import asyncio
-from typing import Optional
+import hashlib
+import json
+import subprocess
 
 import typer
+import uvicorn
 from rich.console import Console
 from rich.table import Table
 
+from otelms import __version__
 from otelms.config.settings import settings
-from otelms.utils.logging import setup_logging, get_logger
+from otelms.domain.entities import ApiKey, Category, Guest, Hotel, Reservation, Room
+from otelms.domain.repositories import HotelRepository
+from otelms.domain.repositories.database import db, get_db_session, init_db
+from otelms.scraping.orchestrator import ScrapingOrchestrator
+from otelms.services.sync_service import SyncService
+from otelms.utils.logging import get_logger, setup_logging
 
 app = typer.Typer(
     name="otelms",
@@ -37,8 +46,7 @@ def run_api(
     reload: bool = typer.Option(settings.app_debug, "--reload", "-r", help="Auto-reload on changes"),
 ) -> None:
     """Inicia el servidor FastAPI (Uvicorn)."""
-    import uvicorn
-    import asyncio
+
 
     # Set Windows Proactor event loop policy for subprocess support (Camoufox/Playwright)
     if hasattr(asyncio, 'WindowsProactorEventLoopPolicy'):
@@ -62,7 +70,7 @@ def run_api(
 # ============================================================
 @app.command(name="scraper")
 def run_scraper(
-    hotel_id: Optional[str] = typer.Option(
+    hotel_id: str | None = typer.Option(
         None, "--hotel-id", help="Hotel ID to scrape (optional, uses default from .env or --all-hotels)"
     ),
     all_hotels: bool = typer.Option(
@@ -74,7 +82,7 @@ def run_scraper(
     password: str = typer.Option(
         settings.otelms_default_password, "--password", "-p", help="Password"
     ),
-    target_date: Optional[str] = typer.Option(
+    target_date: str | None = typer.Option(
         None, "--date", "-d", help="Target date (YYYY-MM-DD)"
     ),
     strategy: str = typer.Option(
@@ -83,21 +91,17 @@ def run_scraper(
     headless: bool = typer.Option(
         settings.scraper_headless, "--headless/--no-headless", help="Run browser headless"
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None, "--output", "-o", help="Output file (JSON)"
     ),
 ) -> None:
     """Ejecuta scraping directo de OtelMS."""
-    from otelms.scraping.orchestrator import ScrapingOrchestrator
-    from otelms.services.sync_service import SyncService
 
     setup_app()
 
     async def _run() -> None:
         if all_hotels:
             console.print("[blue]Scraping all active hotels from database...[/blue]")
-            from otelms.domain.repositories.database import get_db_session
-            from otelms.domain.repositories import HotelRepository
 
             async with get_db_session() as session:
                 hotel_repo = HotelRepository(session)
@@ -154,7 +158,6 @@ def run_scraper(
                 console.print(f"[green]✓ Scraping completado: {len(result)} items[/green]")
 
                 if output:
-                    import json
                     with open(output, "w", encoding="utf-8") as f:
                         json.dump(result, f, ensure_ascii=False, indent=2, default=str)
                     console.print(f"[green]✓ Guardado en {output}[/green]")
@@ -187,7 +190,6 @@ def run_sync(
     details_only: bool = typer.Option(False, "--details", help="Only reservation details sync"),
 ) -> None:
     """Ejecuta sincronización completa con base de datos."""
-    from otelms.services.sync_service import SyncService
 
     setup_app()
 
@@ -241,7 +243,6 @@ app.add_typer(db_app)
 @db_app.command(name="init")
 def db_init() -> None:
     """Inicializa la base de datos (crea tablas)."""
-    from otelms.domain.repositories.database import init_db
 
     setup_app()
     console.print("[blue]Inicializando base de datos...[/blue]")
@@ -252,7 +253,6 @@ def db_init() -> None:
 @db_app.command(name="drop")
 def db_drop(confirm: bool = typer.Option(False, "--yes", "-y", help="Confirm drop")) -> None:
     """Elimina todas las tablas (¡CUIDADO!)."""
-    from otelms.domain.repositories.database import db
 
     if not confirm:
         console.print("[red]Use --yes para confirmar[/red]")
@@ -267,7 +267,6 @@ def db_drop(confirm: bool = typer.Option(False, "--yes", "-y", help="Confirm dro
 @db_app.command(name="migrate")
 def db_migrate(message: str = typer.Option("", "--message", "-m", help="Migration message")) -> None:
     """Genera y ejecuta migraciones con Alembic."""
-    import subprocess
 
     setup_app()
     console.print("[blue]Generando migración...[/blue]")
@@ -288,10 +287,7 @@ def db_seed(
     password: str = typer.Option(settings.otelms_default_password, "--password"),
 ) -> None:
     """Pobla la BD con datos iniciales (hotel, api key)."""
-    from otelms.domain.repositories.database import db
-    from otelms.domain.entities import Hotel, ApiKey
-    from otelms.config.settings import settings
-    import hashlib
+
 
     setup_app()
 
@@ -346,7 +342,6 @@ def run_worker(
     loglevel: str = typer.Option("INFO", "--loglevel", "-l", help="Log level"),
 ) -> None:
     """Inicia worker de Celery para tareas en background."""
-    import subprocess
 
     setup_app()
     logger.info("Starting Celery worker", concurrency=concurrency, loglevel=loglevel)
@@ -369,7 +364,6 @@ def run_beat(
     loglevel: str = typer.Option("INFO", "--loglevel", "-l", help="Log level"),
 ) -> None:
     """Inicia Celery Beat (scheduler periódico)."""
-    import subprocess
 
     setup_app()
     logger.info("Starting Celery Beat", loglevel=loglevel)
@@ -390,12 +384,9 @@ def run_beat(
 @app.command(name="shell")
 def run_shell() -> None:
     """Abre shell interactivo con contexto de la app."""
-    import IPython
+    import IPython  # noqa: PLC0415  # lazy: dependencia opcional del shell
 
     setup_app()
-    from otelms.domain.repositories.database import get_db_session
-    from otelms.domain.entities import Hotel, Reservation, Guest, Category, Room
-    from otelms.services.sync_service import SyncService
 
     console.print("[bold blue]OtelMS API Shell[/bold blue]")
     console.print("Objetos disponibles: db_session, Hotel, Reservation, Guest, Category, Room, SyncService")
@@ -425,7 +416,6 @@ def run_shell() -> None:
 @app.command(name="version")
 def version() -> None:
     """Muestra versión de la aplicación."""
-    from otelms import __version__
 
     console.print(f"OtelMS API v{__version__}")
 

@@ -1,8 +1,8 @@
 """
 Configuración de base de datos y sesión.
 """
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -28,11 +28,11 @@ class Database:
     def engine(self) -> AsyncEngine:
         if self._engine is None:
             is_sqlite = "sqlite" in self.database_url
-            
+
             engine_kwargs = {
                 "echo": settings.app_debug,
             }
-            
+
             if is_sqlite:
                 engine_kwargs.update({
                     "poolclass": NullPool,
@@ -45,9 +45,9 @@ class Database:
                     "pool_timeout": settings.db_pool_timeout,
                     "pool_recycle": settings.db_pool_recycle,
                 })
-            
+
             self._engine = create_async_engine(self.database_url, **engine_kwargs)
-        
+
         return self._engine
 
     @property

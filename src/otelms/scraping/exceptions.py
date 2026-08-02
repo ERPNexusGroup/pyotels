@@ -1,12 +1,11 @@
 """
 Excepciones específicas del scraping.
 """
-from typing import Optional
 
 
 class ScrapingError(Exception):
     """Base exception for scraping errors."""
-    def __init__(self, message: str, hotel_id: Optional[str] = None, url: Optional[str] = None):
+    def __init__(self, message: str, hotel_id: str | None = None, url: str | None = None):
         self.hotel_id = hotel_id
         self.url = url
         super().__init__(message)
@@ -29,7 +28,7 @@ class ExtractionError(ScrapingError):
 
 class RateLimitError(ScrapingError):
     """Rate limit excedido."""
-    def __init__(self, message: str, retry_after: Optional[int] = None, **kwargs):
+    def __init__(self, message: str, retry_after: int | None = None, **kwargs):
         self.retry_after = retry_after
         super().__init__(message, **kwargs)
 

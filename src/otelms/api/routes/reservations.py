@@ -1,15 +1,15 @@
 """
 Reservation endpoints.
 """
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 
-from otelms.api.dependencies import verify_api_key, get_reservation_repo, get_sync_service
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from otelms.api.dependencies import get_reservation_repo, get_sync_service, verify_api_key
 from otelms.api.schemas import (
-    ReservationResponse,
-    ReservationListResponse,
     PaginationParams,
     ReservationFilterParams,
+    ReservationListResponse,
+    ReservationResponse,
 )
 from otelms.domain.repositories import ReservationRepository
 from otelms.services.sync_service import SyncService
@@ -65,20 +65,20 @@ async def get_reservation(
     return reservation
 
 
-@router.get("/today/checkins", response_model=List[ReservationResponse])
+@router.get("/today/checkins", response_model=list[ReservationResponse])
 async def get_today_checkins(
     hotel_id: str = Query(..., description="Hotel ID"),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
-) -> List[ReservationResponse]:
+) -> list[ReservationResponse]:
     """Obtiene check-ins programados para hoy."""
     return await res_repo.get_today_checkins(hotel_id)
 
 
-@router.get("/today/checkouts", response_model=List[ReservationResponse])
+@router.get("/today/checkouts", response_model=list[ReservationResponse])
 async def get_today_checkouts(
     hotel_id: str = Query(..., description="Hotel ID"),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
-) -> List[ReservationResponse]:
+) -> list[ReservationResponse]:
     """Obtiene check-outs programados para hoy."""
     return await res_repo.get_today_checkouts(hotel_id)
 
@@ -86,7 +86,7 @@ async def get_today_checkouts(
 @router.post("/sync/calendar", response_model=dict)
 async def sync_calendar(
     hotel_id: str = Query(..., description="Hotel ID"),
-    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    target_date: str | None = Query(None, description="Target date (YYYY-MM-DD)"),
     sync_service: SyncService = Depends(get_sync_service),
 ) -> dict:
     """Sincroniza calendario desde OtelMS."""
@@ -97,7 +97,7 @@ async def sync_calendar(
 @router.post("/sync/categories", response_model=dict)
 async def sync_categories(
     hotel_id: str = Query(..., description="Hotel ID"),
-    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    target_date: str | None = Query(None, description="Target date (YYYY-MM-DD)"),
     sync_service: SyncService = Depends(get_sync_service),
 ) -> dict:
     """Sincroniza categorías desde OtelMS."""
@@ -108,7 +108,7 @@ async def sync_categories(
 @router.post("/sync/full", response_model=dict)
 async def full_sync(
     hotel_id: str = Query(..., description="Hotel ID"),
-    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    target_date: str | None = Query(None, description="Target date (YYYY-MM-DD)"),
     sync_service: SyncService = Depends(get_sync_service),
 ) -> dict:
     """Sincronización completa: calendario + categorías + detalles."""
@@ -116,19 +116,19 @@ async def full_sync(
     return result.__dict__
 
 
-@router.get("/sync/history", response_model=List[dict])
+@router.get("/sync/history", response_model=list[dict])
 async def get_sync_history(
     hotel_id: str = Query(..., description="Hotel ID"),
     limit: int = Query(50, ge=1, le=200),
     sync_service: SyncService = Depends(get_sync_service),
-) -> List[dict]:
+) -> list[dict]:
     """Obtiene historial de sincronizaciones."""
     return await sync_service.get_sync_history(limit)
 
 
 @router.post("/sync/all", response_model=dict)
 async def sync_all_hotels(
-    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    target_date: str | None = Query(None, description="Target date (YYYY-MM-DD)"),
     max_concurrent: int = Query(3, ge=1, le=10, description="Max concurrent hotel syncs"),
     sync_service: SyncService = Depends(get_sync_service),
 ) -> dict:
@@ -140,7 +140,7 @@ async def sync_all_hotels(
 @router.post("/sync/{hotel_id}", response_model=dict)
 async def sync_hotel(
     hotel_id: str,
-    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    target_date: str | None = Query(None, description="Target date (YYYY-MM-DD)"),
     sync_service: SyncService = Depends(get_sync_service),
 ) -> dict:
     """Trigger async sync for specific hotel."""

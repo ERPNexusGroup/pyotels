@@ -1,30 +1,32 @@
 """
 FastAPI dependencies - Inyección de dependencias.
 """
-from typing import AsyncGenerator, Optional
+import hashlib
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.config.settings import settings
-from otelms.domain.repositories.database import get_db_session
-from otelms.domain.repositories import (
-    HotelRepository,
-    CategoryRepository,
-    RoomRepository,
-    GuestRepository,
-    ReservationRepository,
-    ServiceRepository,
-    PaymentRepository,
-    SyncLogRepository,
-    ApiKeyRepository,
-)
 from otelms.domain.entities import ApiKey
-from otelms.utils.cache import cache, CacheManager
+from otelms.domain.repositories import (
+    ApiKeyRepository,
+    CategoryRepository,
+    GuestRepository,
+    HotelRepository,
+    PaymentRepository,
+    ReservationRepository,
+    RoomRepository,
+    ServiceRepository,
+    SyncLogRepository,
+)
+from otelms.domain.repositories.database import get_db_session
 from otelms.scraping.orchestrator import ScrapingOrchestrator
+from otelms.scraping.rate_limiter import RateLimiter, rate_limiter
 from otelms.services.sync_service import SyncService
-from otelms.scraping.rate_limiter import rate_limiter, RateLimiter
+from otelms.utils.cache import CacheManager, cache
 from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -92,8 +94,8 @@ async def get_cache() -> CacheManager:
 # ============================================================
 # SCRAPING / SYNC SERVICES
 # ============================================================
-_scraping_orchestrator: Optional[ScrapingOrchestrator] = None
-_sync_service: Optional[SyncService] = None
+_scraping_orchestrator: ScrapingOrchestrator | None = None
+_sync_service: SyncService | None = None
 
 
 async def get_scraping_orchestrator() -> ScrapingOrchestrator:
@@ -134,12 +136,11 @@ async def verify_api_key(
     api_key_repo: ApiKeyRepository = Depends(get_api_key_repo),
 ) -> ApiKey:
     """Verifica API Key en header."""
-    import hashlib
 
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
     # Buscar en BD
-    stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)
+    stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active)
     result = await api_key_repo.session.execute(stmt)
     key_obj = result.scalar_one_or_none()
 
@@ -151,25 +152,23 @@ async def verify_api_key(
         )
 
     # Actualizar last_used_at
-    from datetime import datetime, timezone
-    key_obj.last_used_at = datetime.now(timezone.utc)
+    key_obj.last_used_at = datetime.now(UTC)
     await api_key_repo.session.flush()
 
     return key_obj
 
 
 async def optional_api_key(
-    api_key: Optional[str] = Header(None, alias=settings.api_key_header),
+    api_key: str | None = Header(None, alias=settings.api_key_header),
     api_key_repo: ApiKeyRepository = Depends(get_api_key_repo),
-) -> Optional[ApiKey]:
+) -> ApiKey | None:
     """API Key opcional (para endpoints públicos con rate limit opcional)."""
     if not api_key:
         return None
 
-    import hashlib
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
-    stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)
+    stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active)
     result = await api_key_repo.session.execute(stmt)
     return result.scalar_one_or_none()
 
@@ -185,7 +184,7 @@ async def get_rate_limiter() -> RateLimiter:
 
 
 async def rate_limit_dependency(
-    api_key: Optional[ApiKey] = Depends(optional_api_key),
+    api_key: ApiKey | None = Depends(optional_api_key),
     rl: RateLimiter = Depends(get_rate_limiter),
 ) -> None:
     """Rate limiting basado en API key o IP."""

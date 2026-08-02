@@ -5,14 +5,13 @@ Maneja pool de navegadores, contextos y páginas con lifecycle management.
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from typing import Optional
 
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import Browser, BrowserContext, Page
 
 from otelms.config.settings import settings
-from otelms.utils.logging import get_logger
 from otelms.scraping.exceptions import BrowserError
+from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -50,11 +49,11 @@ class BrowserPool:
         self.max_idle_seconds = max_idle_seconds
         self.headless = headless
 
-        self._browser: Optional[Browser] = None
+        self._browser: Browser | None = None
         self._camoufox_context = None
         self._instances: list[BrowserInstance] = []
         self._lock = asyncio.Lock()
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
         self._shutdown = False
 
     async def initialize(self) -> None:
@@ -252,7 +251,7 @@ class BrowserPool:
                 except Exception:
                     pass
                 self._browser = None
-            
+
             if hasattr(self, '_camoufox_context') and self._camoufox_context:
                 try:
                     await self._camoufox_context.__aexit__(None, None, None)

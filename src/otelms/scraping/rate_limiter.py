@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 import redis.asyncio as redis
 
 from otelms.config.settings import settings
-from otelms.utils.logging import get_logger
 from otelms.scraping.exceptions import RateLimitError
+from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -38,7 +38,7 @@ class AdaptiveRateLimiter:
         self.max_rpm = max_rpm
         self.success_threshold = success_threshold
         self.error_multiplier = error_multiplier
-        
+
         self.current_rpm = base_rpm
         self._success_count = 0
 

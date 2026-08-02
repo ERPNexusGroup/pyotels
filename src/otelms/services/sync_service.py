@@ -2,28 +2,51 @@
 Servicio de sincronización - Orquesta scraping + persistencia en BD.
 """
 import asyncio
-from datetime import datetime, date, timezone
-from typing import Optional
+import hashlib
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 
-from otelms.utils.logging import get_logger
-from otelms.utils.telemetry import record_celery_metric
-from otelms.scraping.orchestrator import ScrapingOrchestrator
-from otelms.domain.repositories.database import get_db_session
+from otelms.domain.entities import Hotel
 from otelms.domain.repositories import (
-    HotelRepository,
     CategoryRepository,
-    RoomRepository,
     GuestRepository,
-    ReservationRepository,
-    ServiceRepository,
+    HotelRepository,
     PaymentRepository,
+    ReservationRepository,
+    RoomRepository,
+    ServiceRepository,
     SyncLogRepository,
 )
-from otelms.domain.entities import Hotel
+from otelms.domain.repositories.database import get_db_session
+from otelms.scraping.orchestrator import ScrapingOrchestrator
 from otelms.utils.crypto import credential_encryption  # For password decryption
+from otelms.utils.logging import get_logger
+from otelms.utils.telemetry import record_celery_metric
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class HotelSyncResult:
+    """Resultado de sincronización de un hotel."""
+
+    hotel_id: str
+    success: bool
+    error: str | None = None
+    records_processed: int = 0
+    records_created: int = 0
+    records_updated: int = 0
+    duration_ms: int = 0
+
+
+@dataclass
+class MultiHotelSyncResult:
+    """Resultado agregado de sincronización multi-hotel."""
+
+    total_hotels: int
+    successful: int
+    failed: int
+    details: list[HotelSyncResult] = field(default_factory=list)
 
 
 @dataclass
@@ -37,8 +60,8 @@ class SyncResult:
     records_updated: int = 0
     errors: list[str] = field(default_factory=list)
     duration_ms: int = 0
-    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    completed_at: Optional[datetime] = None
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
 
 
 class SyncService:
@@ -102,7 +125,6 @@ class SyncService:
 
     async def _create_hotel_in_db(self, session) -> Hotel:
         """Crea hotel en BD si no existe."""
-        import hashlib
 
         hotel_repo = HotelRepository(session)
         pwd_hash = hashlib.sha256(self.password.encode()).hexdigest()
@@ -123,16 +145,16 @@ class SyncService:
         self._initialized = False
 
     def _start_timer(self) -> float:
-        return datetime.now(timezone.utc).timestamp() * 1000
+        return datetime.now(UTC).timestamp() * 1000
 
     def _elapsed_ms(self, start: float) -> int:
-        return int((datetime.now(timezone.utc).timestamp() * 1000) - start)
+        return int((datetime.now(UTC).timestamp() * 1000) - start)
 
     # ============================================================
     # SYNC OPERATIONS
     # ============================================================
 
-    async def sync_calendar(self, target_date: Optional[str] = None) -> SyncResult:
+    async def sync_calendar(self, target_date: str | None = None) -> SyncResult:
         """Sincroniza calendario (grid de reservas)."""
         start = self._start_timer()
         result = SyncResult(
@@ -169,7 +191,7 @@ class SyncService:
 
             result.success = True
             result.duration_ms = self._elapsed_ms(start)
-            result.completed_at = datetime.now(timezone.utc)
+            result.completed_at = datetime.now(UTC)
 
             await self._complete_log(log.id, result)
             logger.info("Calendar sync completed", **result.__dict__)
@@ -184,7 +206,7 @@ class SyncService:
 
         return result
 
-    async def sync_categories(self, target_date: Optional[str] = None) -> SyncResult:
+    async def sync_categories(self, target_date: str | None = None) -> SyncResult:
         """Sincroniza categorías y habitaciones."""
         start = self._start_timer()
         result = SyncResult(
@@ -218,7 +240,7 @@ class SyncService:
 
             result.success = True
             result.duration_ms = self._elapsed_ms(start)
-            result.completed_at = datetime.now(timezone.utc)
+            result.completed_at = datetime.now(UTC)
 
             await self._complete_log(log.id, result)
             logger.info("Categories sync completed", **result.__dict__)
@@ -236,7 +258,7 @@ class SyncService:
     async def sync_reservation_details(
         self,
         target_date: str,
-        reservation_ids: Optional[list[str]] = None,
+        reservation_ids: list[str] | None = None,
     ) -> SyncResult:
         """Sincroniza detalles de reservas."""
         start = self._start_timer()
@@ -275,7 +297,7 @@ class SyncService:
 
             result.success = True
             result.duration_ms = self._elapsed_ms(start)
-            result.completed_at = datetime.now(timezone.utc)
+            result.completed_at = datetime.now(UTC)
 
             await self._complete_log(log.id, result)
             logger.info("Details sync completed", **result.__dict__)
@@ -290,7 +312,7 @@ class SyncService:
 
         return result
 
-    async def full_sync(self, target_date: Optional[str] = None) -> SyncResult:
+    async def full_sync(self, target_date: str | None = None) -> SyncResult:
         """Sincronización completa: calendario + categorías + detalles."""
         start = self._start_timer()
         result = SyncResult(
@@ -341,7 +363,7 @@ class SyncService:
 
             result.success = len(result.errors) == 0
             result.duration_ms = self._elapsed_ms(start)
-            result.completed_at = datetime.now(timezone.utc)
+            result.completed_at = datetime.now(UTC)
 
             if log:
                 await self._complete_log(log.id, result)
@@ -595,29 +617,10 @@ class SyncService:
 
     async def sync_all_hotels(
         self,
-        target_date: Optional[str] = None,
+        target_date: str | None = None,
         max_concurrent: int = 3,
-    ) -> "MultiHotelSyncResult":
+    ) -> MultiHotelSyncResult:
         """Sincroniza todos los hoteles activos en paralelo con semáforo."""
-        from dataclasses import dataclass, field
-
-        @dataclass
-        class HotelSyncResult:
-            hotel_id: str
-            success: bool
-            error: Optional[str] = None
-            records_processed: int = 0
-            records_created: int = 0
-            records_updated: int = 0
-            duration_ms: int = 0
-
-        @dataclass
-        class MultiHotelSyncResult:
-            total_hotels: int
-            successful: int
-            failed: int
-            details: list[HotelSyncResult] = field(default_factory=list)
-
         async with get_db_session() as session:
             hotel_repo = HotelRepository(session)
             hotels = await hotel_repo.get_active_with_config()

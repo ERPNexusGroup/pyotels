@@ -2,6 +2,7 @@
 Constantes y selectores para scraping de OtelMS.
 Centraliza URLs, selectores CSS/XPath, timeouts y códigos de estado.
 """
+import re
 from dataclasses import dataclass
 from typing import Final
 
@@ -127,7 +128,6 @@ class ReservationStatus:
         if "no.?show" in text_lower:
             return cls.NO_SHOW
         # Intentar extraer número
-        import re
         match = re.search(r"\b([1-5])\b", text)
         if match:
             return int(match.group(1))

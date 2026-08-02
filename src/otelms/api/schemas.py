@@ -3,9 +3,8 @@ API Schemas - Request/Response models for FastAPI endpoints.
 """
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ============================================================
@@ -13,7 +12,7 @@ from pydantic import BaseModel, Field, ConfigDict
 # ============================================================
 class HotelBase(BaseModel):
     id: str = Field(..., description="Hotel ID in OtelMS")
-    name: Optional[str] = None
+    name: str | None = None
     domain: str = "otelms.com"
     is_active: bool = True
 
@@ -28,7 +27,7 @@ class HotelResponse(HotelBase):
 
     created_at: datetime
     updated_at: datetime
-    last_sync_at: Optional[datetime] = None
+    last_sync_at: datetime | None = None
 
 
 class CategoryBase(BaseModel):
@@ -39,7 +38,7 @@ class CategoryBase(BaseModel):
 class CategoryResponse(CategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
-    rooms: List["RoomResponse"] = []
+    rooms: list["RoomResponse"] = []
 
 
 class RoomBase(BaseModel):
@@ -51,24 +50,24 @@ class RoomBase(BaseModel):
 class RoomResponse(RoomBase):
     model_config = ConfigDict(from_attributes=True)
 
-    category: Optional[CategoryResponse] = None
-    floor: Optional[str] = None
-    max_occupancy: Optional[int] = None
+    category: CategoryResponse | None = None
+    floor: str | None = None
+    max_occupancy: int | None = None
     is_active: bool = True
 
 
 class GuestBase(BaseModel):
-    id: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    middle_name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    document_type: Optional[str] = None
-    document_number: Optional[str] = None
-    nationality: Optional[str] = None
-    country: Optional[str] = None
-    city: Optional[str] = None
+    id: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    middle_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    document_type: str | None = None
+    document_number: str | None = None
+    nationality: str | None = None
+    country: str | None = None
+    city: str | None = None
 
 
 class GuestResponse(GuestBase):
@@ -81,11 +80,11 @@ class GuestResponse(GuestBase):
 
 
 class ServiceBase(BaseModel):
-    id: Optional[str] = None
+    id: str | None = None
     reservation_id: str
     date: datetime
     title: str
-    description: Optional[str] = None
+    description: str | None = None
     quantity: Decimal = Decimal("1")
     price: Decimal
     total: Decimal
@@ -99,13 +98,13 @@ class ServiceResponse(ServiceBase):
 
 
 class PaymentBase(BaseModel):
-    id: Optional[str] = None
+    id: str | None = None
     reservation_id: str
     date: datetime
     amount: Decimal
-    method: Optional[str] = None
-    reference: Optional[str] = None
-    status: Optional[str] = None
+    method: str | None = None
+    reference: str | None = None
+    status: str | None = None
 
 
 class PaymentResponse(PaymentBase):
@@ -119,33 +118,33 @@ class ReservationBase(BaseModel):
     id: str
     hotel_id: str
     room_id: str
-    guest_id: Optional[str] = None
+    guest_id: str | None = None
     check_in: datetime
     check_out: datetime
     status: int = Field(..., description="1=Reserva, 2=Check-in, 3=Check-out")
     adults: int = 1
     children: int = 0
     babies: int = 0
-    total_price: Optional[Decimal] = None
+    total_price: Decimal | None = None
     currency: str = "USD"
-    source: Optional[str] = None
-    notes: Optional[str] = None
+    source: str | None = None
+    notes: str | None = None
 
 
 class ReservationResponse(ReservationBase):
     model_config = ConfigDict(from_attributes=True)
 
-    guest: Optional[GuestResponse] = None
-    room: Optional[RoomResponse] = None
-    services: List[ServiceResponse] = []
-    payments: List[PaymentResponse] = []
+    guest: GuestResponse | None = None
+    room: RoomResponse | None = None
+    services: list[ServiceResponse] = []
+    payments: list[PaymentResponse] = []
     created_at: datetime
     updated_at: datetime
     last_synced_at: datetime
 
 
 class ReservationListResponse(BaseModel):
-    items: List[ReservationResponse]
+    items: list[ReservationResponse]
     total: int
     page: int
     page_size: int
@@ -161,22 +160,22 @@ class PaginationParams(BaseModel):
 
 
 class ReservationFilterParams(BaseModel):
-    status: Optional[int] = None
-    check_in_from: Optional[datetime] = None
-    check_in_to: Optional[datetime] = None
-    check_out_from: Optional[datetime] = None
-    check_out_to: Optional[datetime] = None
-    room_id: Optional[str] = None
-    guest_id: Optional[str] = None
+    status: int | None = None
+    check_in_from: datetime | None = None
+    check_in_to: datetime | None = None
+    check_out_from: datetime | None = None
+    check_out_to: datetime | None = None
+    room_id: str | None = None
+    guest_id: str | None = None
 
 
 class SyncStatusResponse(BaseModel):
     hotel_id: str
-    last_calendar_sync: Optional[datetime] = None
-    last_categories_sync: Optional[datetime] = None
-    last_full_sync: Optional[datetime] = None
+    last_calendar_sync: datetime | None = None
+    last_categories_sync: datetime | None = None
+    last_full_sync: datetime | None = None
     pending_reservations: int = 0
-    errors_last_sync: List[str] = []
+    errors_last_sync: list[str] = []
 
 
 class HealthResponse(BaseModel):
@@ -191,7 +190,7 @@ class MetricsResponse(BaseModel):
     reservations_today: int
     guests_total: int
     hotels_active: int
-    last_sync_duration_ms: Optional[float] = None
+    last_sync_duration_ms: float | None = None
     errors_last_hour: int = 0
 
 
@@ -202,7 +201,7 @@ class SyncResultResponse(BaseModel):
     records_processed: int = 0
     records_created: int = 0
     records_updated: int = 0
-    errors: List[str] = []
+    errors: list[str] = []
     duration_ms: int = 0
 
 

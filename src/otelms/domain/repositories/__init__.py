@@ -1,12 +1,27 @@
 """
 Repositorio de Hotel.
 """
-from typing import Optional, Sequence
-from sqlalchemy import select, func
+import hashlib
+import json
+from collections.abc import Sequence
+from datetime import UTC, date, datetime
+from typing import Optional
+
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from otelms.domain.entities import Hotel
+from otelms.domain.entities import (
+    ApiKey,
+    Category,
+    Guest,
+    Hotel,
+    Payment,
+    Reservation,
+    Room,
+    Service,
+    SyncLog,
+)
 from otelms.domain.repositories.base import BaseRepository
 
 
@@ -31,7 +46,7 @@ class HotelRepository(BaseRepository[Hotel]):
 
     async def get_active(self) -> Sequence[Hotel]:
         """Obtiene todos los hoteles activos."""
-        stmt = select(Hotel).where(Hotel.is_active == True).order_by(Hotel.name)
+        stmt = select(Hotel).where(Hotel.is_active).order_by(Hotel.name)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -43,17 +58,16 @@ class HotelRepository(BaseRepository[Hotel]):
 
     async def update_last_sync(self, hotel_id: str) -> None:
         """Actualiza timestamp de última sincronización."""
-        from datetime import datetime, timezone
         stmt = (
             Hotel.__table__.update()
             .where(Hotel.id == hotel_id)
-            .values(last_sync_at=datetime.now(timezone.utc))
+            .values(last_sync_at=datetime.now(UTC))
         )
         await self.session.execute(stmt)
 
     async def get_active_with_config(self) -> Sequence[Hotel]:
         """Obtiene hoteles activos con configuración de scraper."""
-        stmt = select(Hotel).where(Hotel.is_active == True).order_by(Hotel.name)
+        stmt = select(Hotel).where(Hotel.is_active).order_by(Hotel.name)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -82,12 +96,10 @@ class CategoryRepository(BaseRepository):
     """Repositorio para categorías."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import Category
         super().__init__(session, Category)
 
     async def get_by_hotel(self, hotel_id: str) -> Sequence:
         """Obtiene categorías de un hotel."""
-        from otelms.domain.entities import Category
         stmt = (
             select(Category)
             .where(Category.hotel_id == hotel_id)
@@ -98,7 +110,6 @@ class CategoryRepository(BaseRepository):
 
     async def get_with_rooms(self, hotel_id: str) -> Sequence:
         """Obtiene categorías con sus habitaciones."""
-        from otelms.domain.entities import Category
         stmt = (
             select(Category)
             .options(selectinload(Category.rooms))
@@ -110,7 +121,6 @@ class CategoryRepository(BaseRepository):
 
     async def upsert_with_rooms(self, hotel_id: str, cat_data: dict) -> tuple:
         """Upsert categoría con sus habitaciones."""
-        from otelms.domain.entities import Category
         cat_id = cat_data.get("id")
         if not cat_id:
             raise ValueError("Category ID required")
@@ -136,22 +146,19 @@ class RoomRepository(BaseRepository):
     """Repositorio para habitaciones."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import Room
         super().__init__(session, Room)
 
     async def get_by_hotel(self, hotel_id: str, active_only: bool = True) -> Sequence:
         """Obtiene habitaciones de un hotel."""
-        from otelms.domain.entities import Room
         stmt = select(Room).where(Room.hotel_id == hotel_id)
         if active_only:
-            stmt = stmt.where(Room.is_active == True)
+            stmt = stmt.where(Room.is_active)
         stmt = stmt.order_by(Room.floor, Room.name)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
     async def get_by_category(self, category_id: str) -> Sequence:
         """Obtiene habitaciones de una categoría."""
-        from otelms.domain.entities import Room
         stmt = (
             select(Room)
             .where(Room.category_id == category_id)
@@ -166,8 +173,7 @@ class RoomRepository(BaseRepository):
         """Obtiene habitaciones disponibles para un rango de fechas (simplificado)."""
         # Nota: La disponibilidad real requiere consultar reservas overlapping
         # Esta es una versión básica; para producción usar query más complejo
-        from otelms.domain.entities import Room, Reservation
-        from datetime import datetime
+
 
         check_in_dt = datetime.fromisoformat(check_in.replace("Z", "+00:00"))
         check_out_dt = datetime.fromisoformat(check_out.replace("Z", "+00:00"))
@@ -184,7 +190,7 @@ class RoomRepository(BaseRepository):
             select(Room)
             .where(
                 Room.hotel_id == hotel_id,
-                Room.is_active == True,
+                Room.is_active,
                 Room.id.not_in(occupied_room_ids),
             )
             .order_by(Room.floor, Room.name)
@@ -194,7 +200,6 @@ class RoomRepository(BaseRepository):
 
     async def upsert(self, hotel_id: str, room_data: dict) -> tuple:
         """Upsert habitación."""
-        from otelms.domain.entities import Room
         room_id = room_data.get("id")
         if not room_id:
             raise ValueError("Room ID required")
@@ -222,12 +227,10 @@ class GuestRepository(BaseRepository):
     """Repositorio para huéspedes."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import Guest
         super().__init__(session, Guest)
 
     async def get_by_hotel(self, hotel_id: str, limit: int = 100, offset: int = 0) -> Sequence:
         """Obtiene huéspedes de un hotel."""
-        from otelms.domain.entities import Guest
         stmt = (
             select(Guest)
             .where(Guest.hotel_id == hotel_id)
@@ -245,8 +248,7 @@ class GuestRepository(BaseRepository):
         limit: int = 50,
     ) -> Sequence:
         """Busca huéspedes por nombre, email, documento."""
-        from otelms.domain.entities import Guest
-        from sqlalchemy import or_
+
         stmt = (
             select(Guest)
             .where(
@@ -267,7 +269,6 @@ class GuestRepository(BaseRepository):
         self, hotel_id: str, document_type: str, document_number: str
     ) -> Optional:
         """Obtiene huésped por documento."""
-        from otelms.domain.entities import Guest
         stmt = select(Guest).where(
             Guest.hotel_id == hotel_id,
             Guest.document_type == document_type,
@@ -278,7 +279,6 @@ class GuestRepository(BaseRepository):
 
     async def get_or_create_by_name(self, hotel_id: str, name: str) -> tuple:
         """Obtiene o crea huésped por nombre (básico)."""
-        from otelms.domain.entities import Guest
         parts = name.split(" ", 1)
         first_name = parts[0] if parts else ""
         last_name = parts[1] if len(parts) > 1 else ""
@@ -294,7 +294,6 @@ class GuestRepository(BaseRepository):
         if guest:
             return guest, False
 
-        import hashlib
         guest_id = f"guest_{hashlib.sha256(name.encode()).hexdigest()[:12]}"
         guest = Guest(
             id=guest_id,
@@ -308,7 +307,6 @@ class GuestRepository(BaseRepository):
 
     async def upsert_from_scraper(self, hotel_id: str, guest_data: dict) -> tuple:
         """Upsert huésped desde datos del scraper."""
-        from otelms.domain.entities import Guest
         guest_id = guest_data.get("id")
         if not guest_id:
             # Generar ID basado en documento o nombre
@@ -340,7 +338,6 @@ class ReservationRepository(BaseRepository):
     """Repositorio para reservas."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import Reservation
         super().__init__(session, Reservation)
 
     async def get_by_hotel(
@@ -357,8 +354,7 @@ class ReservationRepository(BaseRepository):
         order_by: str = "check_in",
     ) -> Sequence:
         """Obtiene reservas de un hotel con filtros."""
-        from otelms.domain.entities import Reservation
-        from datetime import datetime
+
 
         stmt = select(Reservation).where(Reservation.hotel_id == hotel_id)
 
@@ -391,7 +387,6 @@ class ReservationRepository(BaseRepository):
 
     async def get_with_details(self, hotel_id: str, reservation_id: str) -> Optional:
         """Obtiene reserva con todas las relaciones cargadas."""
-        from otelms.domain.entities import Reservation
         stmt = (
             select(Reservation)
             .options(
@@ -411,8 +406,7 @@ class ReservationRepository(BaseRepository):
         status: int | None = None,
     ) -> int:
         """Cuenta reservas de un hotel."""
-        from otelms.domain.entities import Reservation
-        from sqlalchemy import func
+
         stmt = select(func.count()).select_from(Reservation).where(Reservation.hotel_id == hotel_id)
         if status is not None:
             stmt = stmt.where(Reservation.status == status)
@@ -421,8 +415,7 @@ class ReservationRepository(BaseRepository):
 
     async def get_today_checkins(self, hotel_id: str) -> Sequence:
         """Obtiene check-ins de hoy."""
-        from otelms.domain.entities import Reservation
-        from datetime import date
+
 
         today = date.today()
         stmt = select(Reservation).where(
@@ -435,8 +428,7 @@ class ReservationRepository(BaseRepository):
 
     async def get_today_checkouts(self, hotel_id: str) -> Sequence:
         """Obtiene check-outs de hoy."""
-        from otelms.domain.entities import Reservation
-        from datetime import date
+
 
         today = date.today()
         stmt = select(Reservation).where(
@@ -452,9 +444,6 @@ class ReservationRepository(BaseRepository):
         Upsert desde datos del scraper.
         Retorna (objeto, creado: bool, actualizado: bool).
         """
-        import hashlib
-        import json
-        from datetime import datetime, timezone
 
         reservation_id = data.get("id") or data.get("reservation_number")
         if not reservation_id:
@@ -483,7 +472,7 @@ class ReservationRepository(BaseRepository):
                 if hasattr(existing, key) and key not in ["id", "created_at"]:
                     setattr(existing, key, value)
             existing.sync_hash = sync_hash
-            existing.last_synced_at = datetime.now(timezone.utc)
+            existing.last_synced_at = datetime.now(UTC)
             await self.session.flush()
             await self.session.refresh(existing)
             return existing, False, True
@@ -492,7 +481,7 @@ class ReservationRepository(BaseRepository):
             data["id"] = reservation_id
             data["hotel_id"] = hotel_id
             data["sync_hash"] = sync_hash
-            data["last_synced_at"] = datetime.now(timezone.utc)
+            data["last_synced_at"] = datetime.now(UTC)
             obj = await self.create(**data)
             return obj, True, False
 
@@ -501,12 +490,10 @@ class ServiceRepository(BaseRepository):
     """Repositorio para servicios."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import Service
         super().__init__(session, Service)
 
     async def get_by_reservation(self, reservation_id: str) -> Sequence:
         """Obtiene servicios de una reserva."""
-        from otelms.domain.entities import Service
         stmt = (
             select(Service)
             .where(Service.reservation_id == reservation_id)
@@ -517,7 +504,6 @@ class ServiceRepository(BaseRepository):
 
     async def bulk_upsert(self, reservation_id: str, services: list[dict]) -> int:
         """Bulk upsert de servicios para una reserva."""
-        from otelms.domain.entities import Service
 
         if not services:
             return 0
@@ -528,7 +514,6 @@ class ServiceRepository(BaseRepository):
         )
 
         # Insertar nuevos
-        from datetime import datetime
         for svc in services:
             svc["reservation_id"] = reservation_id
             if isinstance(svc.get("date"), str):
@@ -544,12 +529,10 @@ class PaymentRepository(BaseRepository):
     """Repositorio para pagos."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import Payment
         super().__init__(session, Payment)
 
     async def get_by_reservation(self, reservation_id: str) -> Sequence:
         """Obtiene pagos de una reserva."""
-        from otelms.domain.entities import Payment
         stmt = (
             select(Payment)
             .where(Payment.reservation_id == reservation_id)
@@ -560,15 +543,13 @@ class PaymentRepository(BaseRepository):
 
     async def get_total_paid(self, reservation_id: str) -> float:
         """Obtiene total pagado de una reserva."""
-        from otelms.domain.entities import Payment
-        from sqlalchemy import func
+
         stmt = select(func.sum(Payment.amount)).where(Payment.reservation_id == reservation_id)
         result = await self.session.execute(stmt)
         return float(result.scalar() or 0)
 
     async def bulk_upsert(self, reservation_id: str, payments: list[dict]) -> int:
         """Bulk upsert de pagos para una reserva."""
-        from otelms.domain.entities import Payment
 
         if not payments:
             return 0
@@ -577,7 +558,6 @@ class PaymentRepository(BaseRepository):
             delete(Payment).where(Payment.reservation_id == reservation_id)
         )
 
-        from datetime import datetime
         for pmt in payments:
             pmt["reservation_id"] = reservation_id
             if isinstance(pmt.get("date"), str):
@@ -593,7 +573,6 @@ class SyncLogRepository(BaseRepository):
     """Repositorio para logs de sincronización."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import SyncLog
         super().__init__(session, SyncLog)
 
     async def get_by_hotel(
@@ -603,7 +582,6 @@ class SyncLogRepository(BaseRepository):
         limit: int = 50,
     ) -> Sequence:
         """Obtiene logs de sincronización de un hotel."""
-        from otelms.domain.entities import SyncLog
         stmt = select(SyncLog).where(SyncLog.hotel_id == hotel_id)
         if sync_type:
             stmt = stmt.where(SyncLog.sync_type == sync_type)
@@ -617,7 +595,6 @@ class SyncLogRepository(BaseRepository):
         sync_type: str,
     ) -> "SyncLog":
         """Crea un log de sincronización iniciado."""
-        from otelms.domain.entities import SyncLog
         log = SyncLog(
             hotel_id=hotel_id,
             sync_type=sync_type,
@@ -637,13 +614,10 @@ class SyncLogRepository(BaseRepository):
         errors: list[str] | None = None,
     ) -> None:
         """Completa un log de sincronización."""
-        from datetime import datetime, timezone
-
-        import json
         log = await self.get_by_id(log_id)
         if log:
             log.status = status
-            log.completed_at = datetime.now(timezone.utc)
+            log.completed_at = datetime.now(UTC)
             log.duration_ms = int((log.completed_at - log.started_at).total_seconds() * 1000)
             log.records_processed = records_processed
             log.records_created = records_created
@@ -653,31 +627,24 @@ class SyncLogRepository(BaseRepository):
             await self.session.flush()
 
 
-# Importar delete para uso en bulk_upsert
-from sqlalchemy import delete
-
-
 class ApiKeyRepository(BaseRepository):
     """Repositorio para API Keys."""
 
     def __init__(self, session: AsyncSession):
-        from otelms.domain.entities import ApiKey
         super().__init__(session, ApiKey)
 
     async def get_by_key_hash(self, key_hash: str) -> Optional["ApiKey"]:
         """Obtiene API Key por hash."""
-        from otelms.domain.entities import ApiKey
-        stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)
+        stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def update_last_used(self, key_id: str) -> None:
         """Actualiza timestamp de último uso."""
-        from datetime import datetime, timezone
-        from otelms.domain.entities import ApiKey
+
         stmt = (
             ApiKey.__table__.update()
             .where(ApiKey.id == key_id)
-            .values(last_used_at=datetime.now(timezone.utc))
+            .values(last_used_at=datetime.now(UTC))
         )
         await self.session.execute(stmt)
