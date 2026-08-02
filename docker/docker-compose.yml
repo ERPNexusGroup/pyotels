@@ -57,7 +57,7 @@ services:
       dockerfile: docker/Dockerfile.api
     container_name: otelms-api
     environment:
-      - APP_ENV=development
+      - APP_ENV=production
       - APP_DEBUG=true
       - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
       - REDIS_URL=redis://redis:6379/0
@@ -102,7 +102,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: otelms-worker
     environment:
-      - APP_ENV=development
+      - APP_ENV=production
       - APP_DEBUG=true
       - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
       - REDIS_URL=redis://redis:6379/0

@@ -636,7 +636,7 @@ class SyncService:
                     return HotelSyncResult(
                         hotel_id=hotel.id,
                         success=result.success,
-                        error=result.error,
+                        error=result.errors[0] if result.errors else None,
                         records_processed=result.records_processed,
                         records_created=result.records_created,
                         records_updated=result.records_updated,

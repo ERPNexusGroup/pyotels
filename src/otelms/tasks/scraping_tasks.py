@@ -305,7 +305,7 @@ def cleanup_old_sync_logs(days: int = 30):
         async with get_db_session() as session:
             stmt = delete(SyncLog).where(SyncLog.started_at < cutoff)
             result = await session.execute(stmt)
-            return result.rowcount
+            return result.rowcount  # type: ignore[attr-defined]  # CursorResult.rowcount no está en el stub de Result
 
     deleted = run_async(_run())
     logger.info("Cleaned up old sync logs", deleted_count=deleted, days=days)

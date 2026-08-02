@@ -50,6 +50,7 @@ async def create_guest(
     guest_repo: GuestRepository = Depends(get_guest_repo),
 ) -> GuestResponse:
     """Crea un nuevo huésped."""
-    guest_data.hotel_id = hotel_id
-    guest = await guest_repo.create(**guest_data.model_dump())
+    guest_data_dict = guest_data.model_dump()
+    guest_data_dict["hotel_id"] = hotel_id
+    guest = await guest_repo.create(**guest_data_dict)
     return guest

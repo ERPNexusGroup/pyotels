@@ -59,7 +59,7 @@ class HotelRepository(BaseRepository[Hotel]):
     async def update_last_sync(self, hotel_id: str) -> None:
         """Actualiza timestamp de última sincronización."""
         stmt = (
-            Hotel.__table__.update()
+            Hotel.__table__.update()  # type: ignore[attr-defined]  # Table.update existe en SQLAlchemy (stub incompleto)
             .where(Hotel.id == hotel_id)
             .values(last_sync_at=datetime.now(UTC))
         )
@@ -643,7 +643,7 @@ class ApiKeyRepository(BaseRepository):
         """Actualiza timestamp de último uso."""
 
         stmt = (
-            ApiKey.__table__.update()
+            ApiKey.__table__.update()  # type: ignore[attr-defined]  # Table.update existe en SQLAlchemy (stub incompleto)
             .where(ApiKey.id == key_id)
             .values(last_used_at=datetime.now(UTC))
         )

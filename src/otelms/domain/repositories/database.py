@@ -96,6 +96,7 @@ class Database:
 db = Database()
 
 
+@asynccontextmanager
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Dependency para FastAPI - obtiene sesión de BD."""
     async with db.session() as session:

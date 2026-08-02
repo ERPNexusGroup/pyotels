@@ -50,7 +50,7 @@ class BrowserPool:
         self.headless = headless
 
         self._browser: Browser | None = None
-        self._camoufox_context = None
+        self._camoufox_context: AsyncCamoufox | None = None
         self._instances: list[BrowserInstance] = []
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
@@ -61,6 +61,7 @@ class BrowserPool:
         logger.info("Initializing browser pool", pool_size=self.pool_size)
         # AsyncCamoufox is an async context manager, use it directly
         self._camoufox_context = AsyncCamoufox(headless=self.headless)
+        assert self._camoufox_context is not None
         self._browser = await self._camoufox_context.__aenter__()
 
         # Crear instancias iniciales

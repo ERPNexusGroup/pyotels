@@ -37,8 +37,7 @@ logger = get_logger(__name__)
 # ============================================================
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency para sesión de base de datos."""
-    # get_db_session() returns an async generator, use async for
-    async for session in get_db_session():
+    async with get_db_session() as session:
         yield session
 
 

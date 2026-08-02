@@ -29,7 +29,8 @@ class BaseRepository[ModelType: Base]:
 
     async def get_by_id(self, id: str) -> ModelType | None:
         """Obtiene entidad por ID."""
-        stmt = select(self.model).where(self.model.id == id)
+        # type: ignore[attr-defined] - todos los modelos heredan .id de la declarative base
+        stmt = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -57,22 +58,23 @@ class BaseRepository[ModelType: Base]:
         """Actualiza entidad por ID."""
         stmt = (
             update(self.model)
-            .where(self.model.id == id)
+            .where(self.model.id == id)  # type: ignore[attr-defined]
             .values(**kwargs)
-            .returning(self.model)
+            .returning(self.model)  # type: ignore[attr-defined]
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def delete(self, id: str) -> bool:
         """Elimina entidad por ID."""
-        stmt = delete(self.model).where(self.model.id == id)
+        stmt = delete(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
         result = await self.session.execute(stmt)
-        return result.rowcount > 0
+        # type: ignore[attr-defined] - CursorResult.rowcount no está en el stub de Result
+        return result.rowcount > 0  # type: ignore[attr-defined, no-any-return]
 
     async def exists(self, id: str) -> bool:
         """Verifica si existe entidad por ID."""
-        stmt = select(func.count()).select_from(self.model).where(self.model.id == id)
+        stmt = select(func.count()).select_from(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
         result = await self.session.execute(stmt)
         return result.scalar_one() > 0
 

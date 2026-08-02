@@ -477,7 +477,7 @@ class GuestDetailExtractor:
                     while curr:
                         if isinstance(curr, str):
                             val += curr
-                        elif curr.name == "br":
+                        elif getattr(curr, "name", None) == "br":
                             pass
                         else:
                             val += curr.get_text(" ", strip=True)

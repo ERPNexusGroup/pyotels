@@ -22,6 +22,7 @@ from otelms.scraping.extractors import (
     ReservationDetailExtractor,
 )
 from otelms.scraping.parsers import (
+    AllModalsParser,
     CalendarParser,
     GuestDetailParser,
     ModalParser,
@@ -313,7 +314,7 @@ class ScrapingOrchestrator:
                 modals = await modal_extractor.extract_all_modals(reservation_ids)
 
                 # Parsear modales
-                parsed_modals = ModalParser.parse_all(modals)
+                parsed_modals = AllModalsParser.parse_all(modals)
 
             result = self._make_result(True, parsed_modals, operation="reservation_details")
             record_scraping_metric("reservation_details", self.hotel_id, "success", result.duration_ms / 1000)

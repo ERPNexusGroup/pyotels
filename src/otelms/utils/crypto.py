@@ -36,7 +36,7 @@ class CredentialEncryption:
             logger.info("Credential encryption initialized with existing key")
         else:
             # Generate new key from master secret
-            master_secret = getattr(settings, 'jwt_secret_key', None) or settings.secret_key
+            master_secret = settings.jwt_secret_key
             if not master_secret:
                 raise ValueError("No master secret available for credential encryption")
 
