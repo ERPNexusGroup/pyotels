@@ -98,7 +98,12 @@ class SyncService:
     @classmethod
     async def from_hotel(cls, hotel: Hotel) -> "SyncService":
         """Crea servicio de sincronización desde entidad Hotel con credenciales descifradas."""
-        password = credential_encryption.decrypt(hotel.password_hash)
+        if hotel.encrypted_password:
+            password = credential_encryption.decrypt(hotel.encrypted_password)
+        else:
+            # Fallback legacy: password_hash es SHA-256 no descifrable; se usa tal cual
+            # (hoteles creados antes de que existiera encrypted_password).
+            password = hotel.password_hash
         return cls(
             hotel_id=hotel.id,
             username=hotel.username,

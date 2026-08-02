@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import REGISTRY, Counter, Histogram, generate_latest
 from starlette.responses import Response
 
-from otelms.api.routes import categories, guests, health, hotels, reservations, websockets
+from otelms.api.routes import admin, categories, guests, health, hotels, reservations, websockets
 from otelms.config.settings import settings
 from otelms.domain.repositories.database import close_db, init_db
 from otelms.scraping.browser import browser_pool
@@ -188,9 +188,12 @@ def create_app() -> FastAPI:
     app.include_router(categories.router)
     app.include_router(websockets.router)
 
+    # Admin dashboard (solo en debug - el router mismo valida)
+    app.include_router(admin.router)
+
     # Root endpoint
     @app.get("/", include_in_schema=False)
-    async def root():
+    async def root() -> dict[str, str]:
         return {
             "name": "OtelMS API",
             "version": "1.0.0",

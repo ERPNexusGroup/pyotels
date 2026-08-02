@@ -133,8 +133,8 @@ enable_error_code = ["unused-ignore", "redundant-cast"]
 exclude = ["^migrations/", "^\\.venv/", "^build/", "^dist/"]
 
 [[tool.mypy.overrides]]
-# Libs sin stubs: celery y diskcache no publican py.typed
-module = ["celery.*", "diskcache.*"]
+# Libs sin stubs: celery, diskcache y jose (python-jose) no publican py.typed
+module = ["celery.*", "diskcache.*", "jose.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

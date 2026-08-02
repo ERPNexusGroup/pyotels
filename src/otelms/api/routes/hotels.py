@@ -62,6 +62,7 @@ async def create_hotel(
     pwd_hash = hashlib.sha256(hotel_data.password.encode()).hexdigest()
     payload = hotel_data.model_dump(exclude={"password"})
     payload["password_hash"] = pwd_hash
+    payload["encrypted_password"] = credential_encryption.encrypt(hotel_data.password)
     hotel = await hotel_repo.create(**payload)
     return hotel
 

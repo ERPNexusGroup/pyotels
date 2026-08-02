@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OtelMS Admin</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212b;
+    --border: #2a2f3a;
+    --text: #e6e9ef;
+    --muted: #8b93a3;
+    --accent: #4f8cff;
+    --accent-2: #2f6fe0;
+    --green: #3ecf8e;
+    --red: #ff5c5c;
+    --yellow: #f5b942;
+    --radius: 10px;
+    --mono: "Cascadia Code", "Consolas", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ===== LOGIN ===== */
+  #loginView {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .login-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 36px 32px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.4);
+  }
+  .login-card h1 {
+    font-size: 20px;
+    margin-bottom: 4px;
+    letter-spacing: .3px;
+  }
+  .login-card .sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  .login-card label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+  .login-card input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: var(--mono);
+    margin-bottom: 16px;
+    outline: none;
+  }
+  .login-card input:focus { border-color: var(--accent); }
+  .login-error {
+    color: var(--red);
+    font-size: 13px;
+    min-height: 18px;
+    margin-bottom: 10px;
+  }
+
+  /* ===== BUTTONS ===== */
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 16px;
+    transition: filter .15s, background .15s;
+    font-family: inherit;
+  }
+  button:hover { filter: brightness(1.12); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+  .btn-small { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+  .btn-sync { background: var(--accent-2); color: #fff; }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ===== APP LAYOUT ===== */
+  #appView { display: none; min-height: 100vh; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar .brand { font-weight: 700; font-size: 15px; }
+  .topbar .brand span { color: var(--accent); }
+  .topbar .user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .badge-env {
+    background: var(--green);
+    color: #06281a;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+  .layout { display: flex; min-height: calc(100vh - 53px); }
+  .sidebar {
+    width: 200px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 14px 10px;
+    flex-shrink: 0;
+  }
+  .sidebar button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+  .sidebar button:hover { background: var(--panel-2); color: var(--text); }
+  .sidebar button.active { background: var(--accent); color: #fff; }
+  .content { flex: 1; padding: 24px; overflow-x: auto; }
+
+  /* ===== CARDS / STATS ===== */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .stat-card .num {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+  .stat-card .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+  .stat-card .num.green { color: var(--green); }
+  .stat-card .num.red { color: var(--red); }
+  .stat-card .num.yellow { color: var(--yellow); }
+  .stat-card .num.accent { color: var(--accent); }
+
+  /* ===== TABLES ===== */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 20px;
+  }
+  .panel h3 { font-size: 14px; margin-bottom: 14px; color: var(--text); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left;
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 10px;
+    border-bottom: 1px solid #21252f;
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--muted); }
+
+  /* ===== BADGES ===== */
+  .pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+  .pill.completed, .pill.success { background: rgba(62,207,142,.15); color: var(--green); }
+  .pill.failed, .pill.error { background: rgba(255,92,92,.15); color: var(--red); }
+  .pill.started, .pill.pending { background: rgba(245,185,66,.15); color: var(--yellow); }
+  .pill.calendar { background: rgba(79,140,255,.15); color: var(--accent); }
+  .pill.categories { background: rgba(139,147,163,.18); color: #aab2c0; }
+  .pill.full { background: rgba(62,207,142,.15); color: var(--green); }
+  .pill.details { background: rgba(245,185,66,.15); color: var(--yellow); }
+  .pill.ok { background: rgba(62,207,142,.15); color: var(--green); }
+  .pill.off { background: rgba(139,147,163,.15); color: var(--muted); }
+
+  /* ===== FILTERS ===== */
+  .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filters select, .filters input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    outline: none;
+  }
+  .filters select:focus, .filters input:focus { border-color: var(--accent); }
+
+  /* ===== LOADING / TOAST ===== */
+  .loading { color: var(--muted); padding: 30px; text-align: center; font-size: 13px; }
+  #toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 13px;
+    max-width: 340px;
+    display: none;
+    z-index: 100;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  #toast.show { display: block; }
+  #toast.error { border-color: var(--red); color: var(--red); }
+  #toast.success { border-color: var(--green); color: var(--green); }
+  .empty { color: var(--muted); text-align: center; padding: 24px; font-size: 13px; }
+  .flex { display: flex; gap: 10px; align-items: center; }
+  .grow { flex: 1; }
+
+  /* ===== MODAL ===== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+    animation: fadeIn .15s ease;
+  }
+  .modal-overlay.show { display: flex; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 560px;
+    max-height: 85vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    animation: slideUp .2s ease;
+  }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+  }
+  .modal-header h3 { font-size: 14px; font-weight: 600; }
+  .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .modal-close:hover { color: var(--text); }
+
+  .modal-body {
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  .modal-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 18px;
+  }
+  .modal-form .field { display: flex; flex-direction: column; gap: 6px; }
+  .modal-form .field.full-width { grid-column: 1 / -1; }
+  .modal-form label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .modal-form input,
+  .modal-form select,
+  .modal-form textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: var(--mono);
+    outline: none;
+    transition: border-color .15s;
+  }
+  .modal-form input:focus,
+  .modal-form select:focus,
+  .modal-form textarea:focus { border-color: var(--accent); }
+  .modal-form input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    margin-top: 2px;
+  }
+  .modal-form .checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 6px;
+  }
+  .modal-form .checkbox-wrapper label {
+    font-size: 13px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    color: var(--text);
+    margin: 0;
+    cursor: pointer;
+  }
+  .modal-form .help-text {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .modal-form .field-error {
+    font-size: 11px;
+    color: var(--red);
+    margin-top: 2px;
+    display: none;
+  }
+  .modal-form .field-error.show { display: block; }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--panel-2);
+  }
+
+  @media (max-width: 600px) {
+    .modal-form { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN ===== -->
+<div id="loginView">
+  <div class="login-card">
+    <h1>OtelMS <span style="color:var(--accent)">Admin</span></h1>
+    <div class="sub">Panel de configuración y monitoreo del scraping</div>
+    <form id="loginForm">
+      <label for="apiKey">API Key (X-API-Key)</label>
+      <input type="password" id="apiKey" placeholder="tu-api-key" autocomplete="off" required>
+      <div class="login-error" id="loginError"></div>
+      <button type="submit" class="btn-primary" id="btnLogin" style="width:100%">Ingresar</button>
+    </form>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div id="appView">
+  <div class="topbar">
+    <div class="brand">OtelMS <span>Admin</span></div>
+    <div class="user">
+      <span class="badge-env" id="envBadge">debug</span>
+      <span id="userName">—</span>
+      <button class="btn-ghost btn-small" id="btnLogout">Salir</button>
+    </div>
+  </div>
+  <div class="layout">
+    <div class="sidebar">
+      <button data-view="dashboard" class="active">📊 Dashboard</button>
+      <button data-view="hotels">🏨 Hoteles</button>
+      <button data-view="synclogs">🔄 Sync Logs</button>
+      <button data-view="config">⚙️ Config</button>
+      <button data-view="tables">🗂️ Tablas</button>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ===== CRUD MODAL ===== -->
+<div class="modal-overlay" id="crudModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modalTitle">Nueva fila</h3>
+      <button type="button" class="modal-close" id="modalClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form class="modal-form" id="crudForm" novalidate>
+        <!-- Fields injected dynamically -->
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-ghost" id="modalCancel">Cancelar</button>
+      <button type="submit" form="crudForm" class="btn-primary" id="modalSubmit">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+
+let token = localStorage.getItem("otelms_admin_token") || "";
+let keyName = localStorage.getItem("otelms_admin_name") || "";
+let currentView = "dashboard";
+
+/* ===== TOAST ===== */
+let toastTimer = null;
+function toast(msg, kind) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.className = "show " + (kind || "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
+}
+
+/* ===== API ===== */
+async function api(path, opts) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) {
+    logout();
+    throw new Error("Sesión expirada");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || ("Error " + res.status));
+  }
+  return data;
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/* ===== LOGIN / LOGOUT ===== */
+async function doLogin(ev) {
+  ev.preventDefault();
+  const btn = $("#btnLogin");
+  btn.disabled = true;
+  $("#loginError").textContent = "";
+  try {
+    const key = $("#apiKey").value.trim();
+    const res = await fetch("/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: key }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Login fallido");
+    token = data.token;
+    keyName = data.key_name || "admin";
+    localStorage.setItem("otelms_admin_token", token);
+    localStorage.setItem("otelms_admin_name", keyName);
+    enterApp();
+  } catch (err) {
+    $("#loginError").textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function logout() {
+  token = "";
+  keyName = "";
+  localStorage.removeItem("otelms_admin_token");
+  localStorage.removeItem("otelms_admin_name");
+  $("#loginView").style.display = "flex";
+  $("#appView").style.display = "none";
+  $("#apiKey").value = "";
+}
+
+function enterApp() {
+  $("#loginView").style.display = "none";
+  $("#appView").style.display = "block";
+  $("#userName").textContent = keyName;
+  switchView("dashboard");
+}
+
+/* ===== VIEW SWITCHING ===== */
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll(".sidebar button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === view);
+  });
+  const renderers = { dashboard: renderDashboard, hotels: renderHotels, synclogs: renderSyncLogs, config: renderConfig, tables: renderTables };
+  (renderers[view] || renderDashboard)();
+}
+
+/* ===== DASHBOARD ===== */
+async function renderDashboard() {
+  const c = $("#content");
+  c.innerHTML = '<div class="loading">Cargando estadísticas…</div>';
+  try {
+    const data = await api("/admin/api/stats");
+    const counts = data.counts || {};
+    const items = [
+      { n: counts.hotels || 0, l: "Hoteles", c: "accent" },
+      { n: counts.categories || 0, l: "Categorías", c: "" },
+      { n: counts.rooms || 0, l: "Habitaciones", c: "" },
+      { n: counts.reservations || 0, l: "Reservas", c: "" },
+      { n: counts.guests || 0, l: "Huéspedes", c: "" },
+      { n: counts.sync_logs || 0, l: "Sync totales", c: "yellow" },
+    ];
+    c.innerHTML = `
+      <div class="stats-grid">
+        ${items.map((i) => `<div class="stat-card"><div class="num ${i.c}">${i.n}</div><div class="lbl">${i.l}</div></div>`).join("")}
+      </div>
+      <div class="panel">
+        <h3>Últimas sincronizaciones</h3>
+        <div id="recentSyncs"></div>
+      </div>`;
+    const rs = $("#recentSyncs");
+    if (!data.recent_syncs || !data.recent_syncs.length) {
+      rs.innerHTML = '<div class="empty">Sin sincronizaciones todavía</div>';
+      return;
+    }
+    rs.innerHTML = `
+      <table>
+        <thead><tr><th>Hotel</th><th>Tipo</th><th>Estado</th><th>Inicio</th><th>Duración</th><th>+Creados</th><th>+Actualizados</th></tr></thead>
+        <tbody>
+          ${data.recent_syncs.map((l) => `
+            <tr>
+              <td class="mono">${esc(l.hotel_id)}</td>
+              <td><span class="pill ${esc(l.sync_type)}">${esc(l.sync_type)}</span></td>
+              <td><span class="pill ${esc(l.status)}">${esc(l.status)}</span></td>
+              <td class="mono muted">${esc(fmtDate(l.started_at))}</td>
+              <td class="mono">${l.duration_ms != null ? (l.duration_ms / 1000).toFixed(1) + "s" : "—"}</td>
+              <td class="mono" style="color:var(--green)">${l.records_created}</td>
+              <td class="mono">${l.records_updated}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  }
+}
+
+/* ===== HOTELS ===== */
+async function renderHotels() {
+  const c = $("#content");
+  c.innerHTML = '<div class="loading">Cargando hoteles…</div>';
+  try {
+    const hotels = await api("/admin/api/hotels");
+    if (!hotels.length) {
+      c.innerHTML = '<div class="empty">No hay hoteles configurados</div>';
+      return;
+    }
+    c.innerHTML = `
+      <div class="panel">
+        <h3>Hoteles configurados</h3>
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Nombre</th><th>Dominio</th><th>Usuario</th><th>Estado</th>
+            <th>Rate limit</th><th>Sync OK/FAIL</th><th>Último sync</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${hotels.map((h) => `
+              <tr>
+                <td class="mono">${esc(h.id)}</td>
+                <td>${esc(h.name)}</td>
+                <td class="mono muted">${esc(h.use_custom_domain ? (h.custom_domain || "—") : h.domain)}</td>
+                <td class="mono muted">${esc(h.username)}</td>
+                <td><span class="pill ${h.is_active ? "ok" : "off"}">${h.is_active ? "activo" : "inactivo"}</span></td>
+                <td class="mono">${h.scraper_rate_limit_rpm} rpm</td>
+                <td class="mono"><span style="color:var(--green)">${h.sync.completed}</span> / <span style="color:var(--red)">${h.sync.failed}</span></td>
+                <td class="mono muted">${esc(fmtDate(h.sync.last_started_at))}</td>
+                <td>
+                  <button class="btn-sync btn-small" data-sync="${esc(h.id)}" data-type="full">Sync full</button>
+                  <button class="btn-sync btn-small" data-sync="${esc(h.id)}" data-type="calendar">Calendario</button>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+    c.querySelectorAll("[data-sync]").forEach((btn) => {
+      btn.addEventListener("click", () => triggerSync(btn.dataset.sync, btn.dataset.type));
+    });
+  } catch (err) {
+    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  }
+}
+
+/* ===== SYNC LOGS ===== */
+async function renderSyncLogs() {
+  const c = $("#content");
+  c.innerHTML = `
+    <div class="filters">
+      <select id="fltHotel"><option value="">Todos los hoteles</option></select>
+      <select id="fltType">
+        <option value="">Todos los tipos</option>
+        <option value="calendar">calendar</option>
+        <option value="categories">categories</option>
+        <option value="full">full</option>
+        <option value="details">details</option>
+      </select>
+      <select id="fltStatus">
+        <option value="">Todos los estados</option>
+        <option value="completed">completed</option>
+        <option value="failed">failed</option>
+        <option value="started">started</option>
+      </select>
+      <button class="btn-ghost" id="btnReload">↻ Recargar</button>
+    </div>
+    <div class="panel"><div id="logsTable"><div class="loading">Cargando…</div></div></div>`;
+
+  // poblar hoteles para el filtro
+  try {
+    const hotels = await api("/admin/api/hotels");
+    const sel = $("#fltHotel");
+    hotels.forEach((h) => {
+      const opt = document.createElement("option");
+      opt.value = h.id;
+      opt.textContent = h.id + " — " + h.name;
+      sel.appendChild(opt);
+    });
+  } catch (e) { /* sin hoteles */ }
+
+  async function load() {
+    const params = new URLSearchParams({ limit: "100" });
+    if ($("#fltHotel").value) params.set("hotel_id", $("#fltHotel").value);
+    if ($("#fltType").value) params.set("sync_type", $("#fltType").value);
+    if ($("#fltStatus").value) params.set("status_filter", $("#fltStatus").value);
+    try {
+      const logs = await api("/admin/api/sync-logs?" + params.toString());
+      const t = $("#logsTable");
+      if (!logs.length) { t.innerHTML = '<div class="empty">Sin logs con esos filtros</div>'; return; }
+      t.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Hotel</th><th>Tipo</th><th>Estado</th><th>Inicio</th>
+            <th>Duración</th><th>Creados</th><th>Actualizados</th><th>Errores</th>
+          </tr></thead>
+          <tbody>
+            ${logs.map((l) => `
+              <tr>
+                <td class="mono muted">#${l.id}</td>
+                <td class="mono">${esc(l.hotel_id)}</td>
+                <td><span class="pill ${esc(l.sync_type)}">${esc(l.sync_type)}</span></td>
+                <td><span class="pill ${esc(l.status)}">${esc(l.status)}</span></td>
+                <td class="mono muted">${esc(fmtDate(l.started_at))}</td>
+                <td class="mono">${l.duration_ms != null ? (l.duration_ms / 1000).toFixed(1) + "s" : "—"}</td>
+                <td class="mono" style="color:var(--green)">${l.records_created}</td>
+                <td class="mono">${l.records_updated}</td>
+                <td class="mono" style="color:var(--red)">${l.error_count || 0}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      $("#logsTable").innerHTML = '<div class="empty">Error: ' + esc(err.message) + "</div>";
+    }
+  }
+
+  $("#btnReload").addEventListener("click", load);
+  ["fltHotel", "fltType", "fltStatus"].forEach((id) => {
+    $("#" + id).addEventListener("change", load);
+  });
+  load();
+}
+
+/* ===== CONFIG ===== */
+async function renderConfig() {
+  const c = $("#content");
+  c.innerHTML = '<div class="loading">Cargando configuración…</div>';
+  try {
+    const cfg = await api("/admin/api/config");
+    const s = cfg.scraper || {};
+    const rows = [
+      ["APP_ENV", cfg.app_env, ""],
+      ["APP_DEBUG", String(cfg.app_debug), ""],
+      ["DATABASE_URL", cfg.database_url, "mono"],
+      ["REDIS_URL", cfg.redis_url, "mono"],
+      ["CELERY_BROKER_URL", cfg.celery_broker_url, "mono"],
+      ["SCRAPER.HEADLESS", String(s.headless), ""],
+      ["SCRAPER.BASE_DOMAIN", s.base_domain, "mono"],
+      ["SCRAPER.DEFAULT_HOTEL_ID", s.default_hotel_id, "mono"],
+      ["SCRAPER.TIMEOUT_MS", s.timeout_ms, "mono"],
+      ["SCRAPER.NAV_TIMEOUT_MS", s.navigation_timeout_ms, "mono"],
+      ["SCRAPER.SELECTOR_TIMEOUT_MS", s.selector_timeout_ms, "mono"],
+      ["JWT.ALGORITHM", cfg.jwt && cfg.jwt.algorithm, "mono"],
+      ["JWT.EXPIRES_MIN", cfg.jwt && cfg.jwt.access_token_expire_minutes, "mono"],
+    ];
+    c.innerHTML = `
+      <div class="panel">
+        <h3>Configuración efectiva (solo debug)</h3>
+        <table>
+          <thead><tr><th>Clave</th><th>Valor</th></tr></thead>
+          <tbody>
+            ${rows.map(([k, v, cls]) => `
+              <tr>
+                <td class="mono muted">${esc(k)}</td>
+                <td class="${cls}">${esc(v != null ? v : "—")}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  }
+}
+
+/* ===== TABLES (DJANGO-ADMIN STYLE) ===== */
+async function renderTables() {
+  const c = $("#content");
+  const TABLES = [
+    { slug: "hotels", label: "🏨 Hoteles" },
+    { slug: "categories", label: "🏷️ Categorías" },
+    { slug: "rooms", label: "🛏️ Habitaciones" },
+    { slug: "reservations", label: "📅 Reservas" },
+    { slug: "guests", label: "👥 Huéspedes" },
+    { slug: "api-keys", label: "🔑 API Keys" },
+  ];
+
+  let currentTable = "hotels";
+  let currentOffset = 0;
+  const LIMIT = 50;
+  let allRows = [];
+  let columns = [];
+
+  function render() {
+    const options = TABLES.map((t) => `<option value="${t.slug}"${t.slug === currentTable ? " selected" : ""}>${t.label}</option>`).join("");
+
+    c.innerHTML = `
+      <div class="filters" style="margin-bottom: 16px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted);">
+          Tabla:
+          <select id="tableSelect" style="min-width: 180px;">${options}</select>
+        </label>
+        <div class="grow"></div>
+        <input type="text" id="searchInput" placeholder="🔍 Buscar…" style="width: 260px;">
+        <button class="btn-primary btn-small" id="btnNew">+ Nuevo</button>
+      </div>
+      <div class="panel">
+        <div id="tableContainer"><div class="loading">Cargando tabla…</div></div>
+        <div class="flex" style="justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
+          <span id="paginationInfo">—</span>
+          <div class="flex" style="gap: 6px;">
+            <button class="btn-ghost btn-small" id="btnPrev" disabled>← Anterior</button>
+            <button class="btn-ghost btn-small" id="btnNext" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $("#tableSelect").addEventListener("change", (e) => {
+      currentTable = e.target.value;
+      currentOffset = 0;
+      loadTable();
+    });
+
+    $("#searchInput").addEventListener("input", (e) => {
+      filterRows(e.target.value);
+    });
+
+    $("#btnNew").addEventListener("click", () => {
+      toast("Crear nuevo registro — pendiente (Task 5)", "");
+    });
+
+    $("#btnPrev").addEventListener("click", () => {
+      if (currentOffset > 0) {
+        currentOffset -= LIMIT;
+        loadTable();
+      }
+    });
+
+    $("#btnNext").addEventListener("click", () => {
+      if (allRows.length > currentOffset + LIMIT) {
+        currentOffset += LIMIT;
+        loadTable();
+      }
+    });
+
+    loadTable();
+  }
+
+  async function loadTable() {
+    const container = $("#tableContainer");
+    container.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const data = await api(`/admin/api/tables/${currentTable}?limit=${LIMIT}&offset=${currentOffset}`);
+      columns = data.columns || [];
+      allRows = data.rows || [];
+      renderTableGrid();
+    } catch (err) {
+      container.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+      updatePagination(0, 0);
+    }
+  }
+
+  function filterRows(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      renderTableGrid(allRows);
+      return;
+    }
+    const filtered = allRows.filter((row) =>
+      Object.values(row).some((v) => String(v).toLowerCase().includes(q))
+    );
+    renderTableGrid(filtered);
+  }
+
+  function renderTableGrid(rowsToShow = allRows) {
+    const container = $("#tableContainer");
+    if (!rowsToShow.length) {
+      container.innerHTML = '<div class="empty">Sin registros</div>';
+      updatePagination(0, 0);
+      return;
+    }
+
+    const head = columns.map((col) => `<th>${esc(col)}</th>`).join("");
+    const actionTh = "<th style='width: 100px;'>Acciones</th>";
+
+    const body = rowsToShow
+      .map((row) => {
+        const cells = columns.map((col) => {
+          const val = row[col];
+          let display = esc(val == null ? "—" : val);
+          if (typeof val === "boolean") display = val ? "✓" : "✗";
+          return `<td>${display}</td>`;
+        }).join("");
+        const idVal = row.id ?? row.uuid ?? Object.values(row)[0];
+        return `<tr>${cells}<td>
+          <button class="btn-ghost btn-small" data-edit='${esc(JSON.stringify(row))}' title="Editar">✎</button>
+          <button class="btn-danger btn-small" data-delete='${esc(idVal)}' title="Eliminar">🗑</button>
+        </td></tr>`;
+      })
+      .join("");
+
+    container.innerHTML = `
+      <table>
+        <thead><tr>${head}${actionTh}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    `;
+
+    container.querySelectorAll("[data-edit]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const rowData = JSON.parse(btn.dataset.edit);
+        toast("Editar registro — pendiente (Task 5)", "");
+        console.log("Edit row:", rowData);
+      });
+    });
+
+    container.querySelectorAll("[data-delete]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.delete;
+        if (confirm("¿Eliminar registro " + id + "? (pendiente Task 5)")) {
+          console.log("Delete row:", id);
+        }
+      });
+    });
+
+    updatePagination(rowsToShow.length, allRows.length);
+  }
+
+  function updatePagination(visibleCount, totalCount) {
+    const info = $("#paginationInfo");
+    const prev = $("#btnPrev");
+    const next = $("#btnNext");
+    const start = currentOffset + 1;
+    const end = currentOffset + visibleCount;
+    info.textContent = totalCount ? `Mostrando ${start}–${end} de ${totalCount}` : "Sin datos";
+    prev.disabled = currentOffset === 0;
+    next.disabled = currentOffset + LIMIT >= totalCount;
+  }
+
+  render();
+}
+
+/* ===== SYNC TRIGGER ===== */
+async function triggerSync(hotelId, type) {
+  toast("Sync " + type + " para " + hotelId + "…", "");
+  try {
+    const res = await api("/admin/api/sync", {
+      method: "POST",
+      body: JSON.stringify({ hotel_id: hotelId, sync_type: type }),
+    });
+    if (res.success) {
+      toast("✓ Sync completado (" + (res.duration_ms / 1000).toFixed(1) + "s, +" + res.records_created + " creados)", "success");
+    } else {
+      toast("✗ Sync con errores: " + (res.errors && res.errors[0] ? res.errors[0] : "desconocido"), "error");
+    }
+    if (currentView === "dashboard") renderDashboard();
+    else if (currentView === "hotels") renderHotels();
+  } catch (err) {
+    toast("Error: " + err.message, "error");
+  }
+}
+
+/* ===== HELPERS ===== */
+function fmtDate(v) {
+  if (!v) return "—";
+  try {
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return v;
+    return d.toLocaleString("es-EC", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch (e) { return v; }
+}
+
+/* ===== CRUD MODAL ===== */
+
+// FK table mapping: column name -> { tableSlug, displayColumn }
+const FK_MAP = {
+  "hotel_id": { slug: "hotels", display: "name" },
+  "category_id": { slug: "categories", display: "name" },
+  "room_id": { slug: "rooms", display: "name" },
+  "guest_id": { slug: "guests", display: "first_name" }, // will combine first_name + last_name
+  "api_key_id": { slug: "api-keys", display: "name" },
+};
+
+// Cache for FK options
+let fkCache = {};
+
+async function fetchFkOptions(tableSlug, displayCol) {
+  const cacheKey = `${tableSlug}:${displayCol}`;
+  if (fkCache[cacheKey]) return fkCache[cacheKey];
+  
+  try {
+    const data = await api(`/admin/api/tables/${tableSlug}?limit=500`);
+    const rows = data.rows || [];
+    let options = rows.map(r => ({ value: r.id, label: r[displayCol] || r.id }));
+    
+    // Special handling for guests: combine first_name + last_name
+    if (tableSlug === "guests") {
+      options = rows.map(r => {
+        const fn = r.first_name || "";
+        const ln = r.last_name || "";
+        const label = (fn || ln) ? `${fn} ${ln}`.trim() : r.id;
+        return { value: r.id, label };
+      });
+    }
+    
+    fkCache[cacheKey] = options;
+    return options;
+  } catch (err) {
+    console.warn("Failed to fetch FK options for", tableSlug, err);
+    return [];
+  }
+}
+
+function getInputType(columnName, columnType) {
+  const type = String(columnType).toLowerCase();
+  if (type.includes("bool")) return "checkbox";
+  if (type.includes("datetime") || type.includes("timestamp")) return "datetime-local";
+  if (type.includes("numeric") || type.includes("decimal") || type.includes("float") || type.includes("double")) return "number";
+  if (FK_MAP[columnName]) return "select";
+  return "text";
+}
+
+function createFormField(columnName, columnType, value, isEditMode, columns) {
+  const inputType = getInputType(columnName, columnType);
+  const isIdField = columnName === "id";
+  const isFk = FK_MAP[columnName];
+  const fieldId = `field_${columnName}`;
+  
+  let html = `<div class="field${isIdField ? " full-width" : ""}" data-column="${esc(columnName)}">`;
+  html += `<label for="${fieldId}">${esc(columnName)}${isIdField ? " (auto)" : ""}</label>`;
+  
+  if (isIdField && isEditMode) {
+    // Hidden input for ID in edit mode
+    html += `<input type="hidden" id="${fieldId}" name="${esc(columnName)}" value="${esc(value)}">`;
+    html += `<input type="text" disabled value="${esc(value)}" style="background: var(--panel-2); color: var(--muted);">`;
+  } else if (inputType === "checkbox") {
+    const checked = value === true || value === "true" || value === 1 || value === "1";
+    html += `<div class="checkbox-wrapper"><input type="checkbox" id="${fieldId}" name="${esc(columnName)}"${checked ? " checked" : ""}><label for="${fieldId}">${esc(columnName)}</label></div>`;
+  } else if (inputType === "datetime-local") {
+    // Convert ISO datetime to datetime-local format (YYYY-MM-DDTHH:MM)
+    let formattedValue = "";
+    if (value) {
+      try {
+        const d = new Date(value);
+        if (!isNaN(d.getTime())) {
+          formattedValue = d.toISOString().slice(0, 16);
+        }
+      } catch (e) {}
+    }
+    html += `<input type="datetime-local" id="${fieldId}" name="${esc(columnName)}" value="${esc(formattedValue)}">`;
+  } else if (inputType === "number") {
+    html += `<input type="number" step="0.01" id="${fieldId}" name="${esc(columnName)}" value="${esc(value ?? "")}">`;
+  } else if (inputType === "select" && isFk) {
+    html += `<select id="${fieldId}" name="${esc(columnName)}"><option value="">— Seleccionar —</option></select>`;
+    html += `<div class="help-text">Cargando opciones…</div>`;
+  } else {
+    html += `<input type="text" id="${fieldId}" name="${esc(columnName)}" value="${esc(value ?? "")}"${isIdField && !isEditMode ? ' placeholder="Auto-generado si se deja vacío"' : ""}>`;
+  }
+  
+  html += `<div class="field-error" id="error_${fieldId}"></div>`;
+  html += `</div>`;
+  return html;
+}
+
+async function populateFkDropdowns(form, columns) {
+  for (const col of columns) {
+    if (FK_MAP[col]) {
+      const select = form.querySelector(`select[name="${esc(col)}"]`);
+      if (!select) continue;
+      const options = await fetchFkOptions(FK_MAP[col].slug, FK_MAP[col].display);
+      const currentValue = select.value;
+      select.innerHTML = `<option value="">— Seleccionar —</option>` + options.map(o => `<option value="${esc(o.value)}"${o.value === currentValue ? " selected" : ""}>${esc(o.label)}</option>`).join("");
+      select.querySelector(".help-text")?.remove();
+    }
+  }
+}
+
+function clearFormErrors(form) {
+  form.querySelectorAll(".field-error").forEach(el => el.classList.remove("show"));
+  form.querySelectorAll("input, select, textarea").forEach(el => el.style.borderColor = "");
+}
+
+function showFieldError(form, fieldName, message) {
+  const errorEl = form.querySelector(`#error_field_${fieldName}`);
+  const inputEl = form.querySelector(`[name="${esc(fieldName)}"]`);
+  if (errorEl) {
+    errorEl.textContent = message;
+    errorEl.classList.add("show");
+  }
+  if (inputEl) inputEl.style.borderColor = "var(--red)";
+}
+
+function collectFormData(form) {
+  const data = {};
+  const formData = new FormData(form);
+  for (const [key, value] of formData.entries()) {
+    // Handle checkboxes (unchecked checkboxes don't appear in FormData)
+    const input = form.querySelector(`[name="${esc(key)}"]`);
+    if (input && input.type === "checkbox") {
+      data[key] = input.checked;
+    } else if (value !== "") {
+      data[key] = value;
+    }
+  }
+  // Handle unchecked checkboxes
+  form.querySelectorAll("input[type='checkbox']").forEach(cb => {
+    if (!(cb.name in data)) data[cb.name] = false;
+  });
+  return data;
+}
+
+let modalState = {
+  tableSlug: null,
+  isEdit: false,
+  rowId: null,
+  columns: [],
+};
+
+function closeModal() {
+  const overlay = $("#crudModal");
+  overlay.classList.remove("show");
+  const form = $("#crudForm");
+  form.reset();
+  clearFormErrors(form);
+  modalState = { tableSlug: null, isEdit: false, rowId: null, columns: [] };
+}
+
+function openModal(tableSlug, columns, rowData = null) {
+  modalState.tableSlug = tableSlug;
+  modalState.columns = columns;
+  modalState.isEdit = !!rowData;
+  modalState.rowId = rowData?.id ?? null;
+  
+  const tableLabel = {
+    "hotels": "Hoteles",
+    "categories": "Categorías",
+    "rooms": "Habitaciones",
+    "reservations": "Reservas",
+    "guests": "Huéspedes",
+    "api-keys": "API Keys",
+  }[tableSlug] || tableSlug;
+  
+  $("#modalTitle").textContent = (modalState.isEdit ? "Editar fila - " : "Nueva fila - ") + tableLabel;
+  
+  // Build form
+  const form = $("#crudForm");
+  form.innerHTML = "";
+  
+  // Sort columns: id first, then FKs, then others
+  const sortedColumns = [...columns].sort((a, b) => {
+    if (a === "id") return -1;
+    if (b === "id") return 1;
+    const aFk = FK_MAP[a] ? 0 : 1;
+    const bFk = FK_MAP[b] ? 0 : 1;
+    return aFk - bFk || a.localeCompare(b);
+  });
+  
+  for (const col of sortedColumns) {
+    const colType = ""; // We don't have type info from list endpoint, will infer from value
+    const value = rowData ? rowData[col] : "";
+    form.insertAdjacentHTML("beforeend", createFormField(col, colType, value, modalState.isEdit, columns));
+  }
+  
+  // Populate FK dropdowns
+  populateFkDropdowns(form, columns);
+  
+  // Show modal
+  $("#crudModal").classList.add("show");
+  
+  // Focus first non-hidden input
+  const firstInput = form.querySelector("input:not([type='hidden']), select, textarea");
+  if (firstInput) firstInput.focus();
+}
+
+// Modal event listeners
+$("#modalClose").addEventListener("click", closeModal);
+$("#modalCancel").addEventListener("click", closeModal);
+$("#crudModal").addEventListener("click", (e) => {
+  if (e.target === $("#crudModal")) closeModal();
+});
+
+// Close on Escape key
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#crudModal").classList.contains("show")) {
+    closeModal();
+  }
+});
+
+$("#crudForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = $("#modalSubmit");
+  
+  clearFormErrors(form);
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Guardando…";
+  
+  try {
+    const formData = collectFormData(form);
+    
+    // Remove id from create mode (let backend generate)
+    if (!modalState.isEdit) {
+      delete formData.id;
+    }
+    
+    let result;
+    if (modalState.isEdit) {
+      result = await api(`/admin/api/tables/${modalState.tableSlug}/${modalState.rowId}`, {
+        method: "PUT",
+        body: JSON.stringify({ data: formData }),
+      });
+      toast("✓ Registro actualizado correctamente", "success");
+    } else {
+      result = await api(`/admin/api/tables/${modalState.tableSlug}`, {
+        method: "POST",
+        body: JSON.stringify({ data: formData }),
+      });
+      toast("✓ Registro creado correctamente", "success");
+    }
+    
+    closeModal();
+    
+    // Reload the current table view
+    if (currentView === "tables") {
+      // The renderTables function will be updated to expose a reload method
+      renderTables();
+    }
+  } catch (err) {
+    const msg = err.message || "Error desconocido";
+    if (msg.includes("validation") || msg.includes("constraint") || msg.includes("duplicate") || msg.includes("unique")) {
+      showFieldError(form, "form", msg);
+      toast("✗ Error de validación: " + msg, "error");
+    } else {
+      toast("✗ Error: " + msg, "error");
+    }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Guardar";
+  }
+});
+
+/* ===== INIT ===== */
+$("#loginForm").addEventListener("submit", doLogin);
+$("#btnLogout").addEventListener("click", logout);
+document.querySelectorAll(".sidebar button").forEach((b) => {
+  b.addEventListener("click", () => switchView(b.dataset.view));
+});
+
+// Si hay token guardado, entrar directo
+if (token) {
+  enterApp();
+  api("/admin/api/stats").catch(() => {});
+}
+</script>
+</body>
+</html>

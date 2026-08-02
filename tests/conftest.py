@@ -7,9 +7,10 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from otelms.domain.entities import Base
+from otelms.api.main import app
 from otelms.config.settings import Settings
-
+from otelms.domain.entities import Base
+from otelms.domain.repositories.database import get_db_session
 
 # Test database URL (SQLite file-based for test isolation)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
@@ -32,14 +33,12 @@ async def test_engine():
         poolclass=NullPool,
         connect_args={"check_same_thread": False},
     )
-    
-    print("DEBUG: Creating tables with full schema...")
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("DEBUG: Tables created with full schema")
-    
+
     yield engine
-    
+
     await engine.dispose()
 
 
@@ -49,9 +48,20 @@ async def test_session(test_engine) -> AsyncSession:
     async_session = async_sessionmaker(
         test_engine, class_=AsyncSession, expire_on_commit=False
     )
-    
+
     async with async_session() as session:
         yield session
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def override_db_session(test_session):
+    """Override the get_db_session dependency to use test session."""
+    async def _get_test_db():
+        yield test_session
+
+    app.dependency_overrides[get_db_session] = _get_test_db
+    yield
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -100,7 +110,7 @@ def sample_guest_data():
         "first_name": "John",
         "last_name": "Doe",
         "email": "john.doe@example.com",
-        "phone": "+1234567890",
+        "phone": "+123****7890",
         "document_type": "passport",
         "document_number": "AB123456",
         "country": "US",

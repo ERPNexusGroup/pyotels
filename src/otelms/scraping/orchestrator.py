@@ -25,7 +25,6 @@ from otelms.scraping.parsers import (
     AllModalsParser,
     CalendarParser,
     GuestDetailParser,
-    ModalParser,
     ReservationDetailParser,
 )
 from otelms.scraping.rate_limiter import rate_limiter
