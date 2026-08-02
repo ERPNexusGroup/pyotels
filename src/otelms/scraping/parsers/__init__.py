@@ -96,14 +96,15 @@ class CalendarParser:
     def parse_categories(html: str) -> list[dict]:
         """Parsea categorías y habitaciones desde HTML del calendario."""
         soup = BeautifulSoup(html, "lxml")
-        categories = []
+        categories: list[dict] = []
 
         table = soup.find("table", class_="calendar_table")
         if not table:
             return categories
 
         for cat_row in table.find_all("tr", class_="category_row"):
-            cat_id = cat_row.get("data-category-id") or cat_row.get("id", "").replace("cat_", "")
+            raw_cat_id = cat_row.get("data-category-id")
+            cat_id = str(raw_cat_id) if raw_cat_id else str(cat_row.get("id", "")).replace("cat_", "")
             cat_name_elem = cat_row.find("td", class_="category_name") or cat_row.find("th", class_="category_name")
             cat_name = cat_name_elem.get_text(strip=True) if cat_name_elem else f"Category {cat_id}"
 
@@ -111,7 +112,8 @@ class CalendarParser:
             for room_row in cat_row.find_next_siblings("tr", class_="room_row"):
                 if room_row.get("data-category-id") != cat_id:
                     break
-                room_id = room_row.get("data-room-id") or room_row.get("id", "").replace("room_", "")
+                raw_room_id = room_row.get("data-room-id")
+                room_id = str(raw_room_id) if raw_room_id else str(room_row.get("id", "")).replace("room_", "")
                 room_name_elem = room_row.find("td", class_="room_name") or room_row.find("th", class_="room_name")
                 room_name = room_name_elem.get_text(strip=True) if room_name_elem else f"Room {room_id}"
 
@@ -140,7 +142,7 @@ class CalendarParser:
         if header_row:
             for th in header_row.find_all("th", class_="calendar_date"):
                 day_id = th.get("data-day-id")
-                date_text = th.get("data-date") or th.get_text(strip=True)
+                date_text = str(th.get("data-date") or th.get_text(strip=True))
                 if day_id and date_text:
                     day_id_to_date[day_id] = normalize_date(date_text) or date_text
 
@@ -158,18 +160,20 @@ class CalendarParser:
         cells = []
 
         for room_row in table.find_all("tr", class_="room_row"):
-            room_id = room_row.get("data-room-id") or room_row.get("id", "").replace("room_", "")
+            raw_room_id = room_row.get("data-room-id")
+            room_id = str(raw_room_id) if raw_room_id else str(room_row.get("id", "")).replace("room_", "")
             room_name_elem = room_row.find("td", class_="room_name") or room_row.find("th", class_="room_name")
             room_name = room_name_elem.get_text(strip=True) if room_name_elem else room_id
 
             cat_info = room_to_category.get(room_id, {"id": "", "name": ""})
 
             for cell in room_row.find_all("td", class_="calendar_cell"):
-                day_id = cell.get("data-day-id") or cell.get("id", "").replace("cell_", "")
+                raw_day_id = cell.get("data-day-id")
+                day_id = str(raw_day_id) if raw_day_id else str(cell.get("id", "")).replace("cell_", "")
                 cell_date = day_id_to_date.get(day_id, target_date or "")
-                cell_class = cell.get("class", [])
+                cell_class = cell.get("class")
                 cell_status = "available"
-                class_str = " ".join(cell_class).lower()
+                class_str = " ".join(str(c) for c in (cell_class or [])).lower()
                 if "occupied" in class_str:
                     cell_status = "occupied"
                 elif "locked" in class_str:
@@ -195,7 +199,7 @@ class CalendarParser:
                             cell_data["reservation_id"] = resid
                             tooltip = item.find("div", class_="tooltip_content")
                             if tooltip:
-                                CalendarParser._parse_tooltip(tooltip, cell_data)
+                                CalendarParser._parse_tooltip(tooltip, cell_data)  # type: ignore[arg-type]  # bs4 Tag vs BeautifulSoup, ambos tienen find/find_all
 
                 cells.append(cell_data)
 
@@ -250,7 +254,7 @@ class ReservationDetailParser:
     def parse_basic_info(html: str) -> dict[str, Any]:
         """Parsea información básica del folio."""
         soup = BeautifulSoup(html, "lxml")
-        data = {}
+        data: dict[str, Any] = {}
 
         # Número y status
         h2 = soup.find("h2", class_="nameofgroup")
@@ -276,7 +280,7 @@ class ReservationDetailParser:
             value_div = label.find_next("div", class_="text-right")
             if value_div:
                 img = value_div.find("img")
-                if img and "dc_logo" in img.get("src", ""):
+                if img and "dc_logo" in str(img.get("src", "")):
                     fields_map[key] = "booking"
                 else:
                     fields_map[key] = " ".join(value_div.stripped_strings)
@@ -303,8 +307,8 @@ class ReservationDetailParser:
             "Tarifa": "rate",
         }
 
-        for label, value in fields_map.items():
-            field = field_mapping.get(label)
+        for field_label, value in fields_map.items():
+            field = field_mapping.get(field_label)
             if field:
                 if field in ["total", "paid", "balance", "rate"]:
                     data[field] = normalize_float(value)
@@ -316,7 +320,7 @@ class ReservationDetailParser:
                     data[field] = value
 
         # Lista de huéspedes
-        guest_label = soup.find("span", class_="incolor", string="Lista de huéspedes")
+        guest_label = soup.find("span", class_="incolor", string="Lista de huéspedes")  # type: ignore[call-overload]  # bs4 acepta string= en kwargs
         if guest_label:
             parent = guest_label.find_parent("div")
             if parent:
@@ -330,7 +334,7 @@ class ReservationDetailParser:
     def parse_accommodation_modal(html: str) -> dict[str, Any]:
         """Parsea modal de edición de alojamiento."""
         soup = BeautifulSoup(html, "lxml")
-        data = {}
+        data: dict[str, Any] = {}
 
         # Campos del formulario
         for field_group in soup.find_all("div", class_="form-group"):
@@ -352,7 +356,7 @@ class GuestDetailParser:
     def parse(html: str) -> dict[str, Any]:
         """Parsea datos del huésped."""
         soup = BeautifulSoup(html, "lxml")
-        data = {}
+        data: dict[str, Any] = {}
 
         # ID del header
         header = soup.find("span", class_="header-time")
@@ -371,7 +375,7 @@ class GuestDetailParser:
                 break
 
         if not panel:
-            panel = soup.find("div", {"data-widget": lambda x: x and "wiget1" in x})
+            panel = soup.find("div", attrs={"data-widget": lambda x: bool(x and "wiget1" in str(x))})
 
         if panel:
             body = panel.find("div", class_="panel-body")
@@ -444,7 +448,7 @@ class ModalParser:
     def parse(html: str, reservation_id: str | None = None) -> dict[str, Any]:
         """Parsea modal de reserva."""
         soup = BeautifulSoup(html, "lxml")
-        data = {}
+        data: dict[str, Any] = {}
 
         # Número de reserva y status
         h2 = soup.find("h2", class_="nameofgroup") or soup.find("h2")
@@ -470,7 +474,7 @@ class ModalParser:
             value_div = label.find_next("div", class_="text-right")
             if value_div:
                 img = value_div.find("img")
-                if img and "dc_logo" in img.get("src", ""):
+                if img and "dc_logo" in str(img.get("src", "")):
                     fields_map[key] = "booking"
                 else:
                     fields_map[key] = " ".join(value_div.stripped_strings)
@@ -497,8 +501,8 @@ class ModalParser:
             "Tarifa": "rate",
         }
 
-        for label, value in fields_map.items():
-            field = field_mapping.get(label)
+        for field_label, value in fields_map.items():
+            field = field_mapping.get(field_label)
             if field:
                 if field in ["total", "paid", "balance", "rate"]:
                     data[field] = normalize_float(value)
@@ -510,7 +514,7 @@ class ModalParser:
                     data[field] = value
 
         # Lista de huéspedes
-        guest_label = soup.find("span", class_="incolor", string="Lista de huéspedes")
+        guest_label = soup.find("span", class_="incolor", string="Lista de huéspedes")  # type: ignore[call-overload]  # bs4 acepta string= en kwargs
         if guest_label:
             parent = guest_label.find_parent("div")
             if parent:
