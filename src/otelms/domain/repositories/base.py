@@ -2,7 +2,7 @@
 Repositorio base con operaciones CRUD comunes.
 """
 from collections.abc import Sequence
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,7 @@ class BaseRepository[ModelType: Base]:
         self.session = session
         self.model = model
 
-    async def create(self, **kwargs) -> ModelType:
+    async def create(self, **kwargs: Any) -> ModelType:
         """Crea una nueva entidad."""
         obj = self.model(**kwargs)
         self.session.add(obj)
@@ -29,7 +29,7 @@ class BaseRepository[ModelType: Base]:
 
     async def get_by_id(self, id: str) -> ModelType | None:
         """Obtiene entidad por ID."""
-        # type: ignore[attr-defined] - todos los modelos heredan .id de la declarative base
+        # todos los modelos heredan .id de la declarative base
         stmt = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -54,13 +54,13 @@ class BaseRepository[ModelType: Base]:
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
-    async def update(self, id: str, **kwargs) -> ModelType | None:
+    async def update(self, id: str, **kwargs: Any) -> ModelType | None:
         """Actualiza entidad por ID."""
         stmt = (
             update(self.model)
             .where(self.model.id == id)  # type: ignore[attr-defined]
             .values(**kwargs)
-            .returning(self.model)  # type: ignore[attr-defined]
+            .returning(self.model)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -69,7 +69,7 @@ class BaseRepository[ModelType: Base]:
         """Elimina entidad por ID."""
         stmt = delete(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
         result = await self.session.execute(stmt)
-        # type: ignore[attr-defined] - CursorResult.rowcount no está en el stub de Result
+        # CursorResult.rowcount no está en el stub de Result
         return result.rowcount > 0  # type: ignore[attr-defined, no-any-return]
 
     async def exists(self, id: str) -> bool:
@@ -78,7 +78,7 @@ class BaseRepository[ModelType: Base]:
         result = await self.session.execute(stmt)
         return result.scalar_one() > 0
 
-    async def upsert(self, id: str, **kwargs) -> ModelType:
+    async def upsert(self, id: str, **kwargs: Any) -> ModelType:
         """Insert or update (upsert) por ID."""
         existing = await self.get_by_id(id)
         if existing:

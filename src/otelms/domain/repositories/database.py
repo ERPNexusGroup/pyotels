@@ -3,6 +3,7 @@ Configuración de base de datos y sesión.
 """
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -29,7 +30,7 @@ class Database:
         if self._engine is None:
             is_sqlite = "sqlite" in self.database_url
 
-            engine_kwargs = {
+            engine_kwargs: dict[str, Any] = {
                 "echo": settings.app_debug,
             }
 

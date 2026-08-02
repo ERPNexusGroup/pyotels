@@ -5,7 +5,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,7 @@ class HotelRepository(BaseRepository[Hotel]):
         stmt = (
             select(Hotel)
             .options(
-                selectinload(Hotel.categories).selectinload("rooms"),
+                selectinload(Hotel.categories).selectinload(Category.rooms),
                 selectinload(Hotel.rooms),
             )
             .where(Hotel.id == hotel_id)
@@ -77,7 +77,7 @@ class HotelRepository(BaseRepository[Hotel]):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def upsert(self, id: str, **kwargs) -> tuple[Hotel, bool]:
+    async def upsert(self, id: str, **kwargs: Any) -> tuple[Hotel, bool]:  # type: ignore[override]  # especialización: devuelve (entity, is_new) vs ModelType del base
         """Insert or update (upsert) por ID. Retorna (entity, is_new)."""
         existing = await self.get_by_id(id)
         if existing:
@@ -198,7 +198,7 @@ class RoomRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def upsert(self, hotel_id: str, room_data: dict) -> tuple:
+    async def upsert(self, hotel_id: str, room_data: dict) -> tuple:  # type: ignore[override]  # firma especializada: (hotel_id, room_data) vs (id, **kwargs) del base
         """Upsert habitación."""
         room_id = room_data.get("id")
         if not room_id:
@@ -267,7 +267,7 @@ class GuestRepository(BaseRepository):
 
     async def get_by_document(
         self, hotel_id: str, document_type: str, document_number: str
-    ) -> Optional:
+    ) -> Optional[Guest]:
         """Obtiene huésped por documento."""
         stmt = select(Guest).where(
             Guest.hotel_id == hotel_id,
@@ -345,10 +345,10 @@ class ReservationRepository(BaseRepository):
         hotel_id: str,
         *,
         status: int | None = None,
-        check_in_from: Optional = None,
-        check_in_to: Optional = None,
-        check_out_from: Optional = None,
-        check_out_to: Optional = None,
+        check_in_from: Optional[datetime] = None,
+        check_in_to: Optional[datetime] = None,
+        check_out_from: Optional[datetime] = None,
+        check_out_to: Optional[datetime] = None,
         limit: int = 100,
         offset: int = 0,
         order_by: str = "check_in",
@@ -385,13 +385,13 @@ class ReservationRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_with_details(self, hotel_id: str, reservation_id: str) -> Optional:
+    async def get_with_details(self, hotel_id: str, reservation_id: str) -> Optional[Reservation]:
         """Obtiene reserva con todas las relaciones cargadas."""
         stmt = (
             select(Reservation)
             .options(
                 selectinload(Reservation.guest),
-                selectinload(Reservation.room).selectinload("category"),
+                selectinload(Reservation.room).selectinload(Room.category),
                 selectinload(Reservation.services),
                 selectinload(Reservation.payments),
             )
@@ -614,7 +614,7 @@ class SyncLogRepository(BaseRepository):
         errors: list[str] | None = None,
     ) -> None:
         """Completa un log de sincronización."""
-        log = await self.get_by_id(log_id)
+        log = await self.get_by_id(log_id)  # type: ignore[arg-type]  # SyncLog.id es int (auto-increment), el base asume str
         if log:
             log.status = status
             log.completed_at = datetime.now(UTC)
