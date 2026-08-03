@@ -346,12 +346,14 @@ class OtelMSAuth:
             try:
                 await page.goto(
                     self.urls.calendar_url(),
-                    wait_until="domcontentloaded",
-                    timeout=Timeouts.NAVIGATION,
+                    wait_until="load",
+                    timeout=Timeouts.NAVIGATION * 2,  # calendar es JS-heavy
                 )
 
                 # Verificar que no redirige a login
-                if "login" in page.url.lower():
+                current_url = page.url.lower()
+                if "login" in current_url:
+                    logger.warning("Calendar redirecting to login", url=page.url[:80])
                     return False
 
                 # Verificar elemento característico del calendario
