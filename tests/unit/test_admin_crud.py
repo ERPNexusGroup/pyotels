@@ -1,7 +1,14 @@
 """Tests for admin CRUD functionality."""
 
+import hashlib
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
+from jose import jwt as jose_jwt
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.api.main import app
 from otelms.api.routes.admin import (
@@ -11,7 +18,10 @@ from otelms.api.routes.admin import (
     ApiKeyResponse,
     ApiKeyUpdate,
 )
+from otelms.api.routes.admin.auth import _get_db
+from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey, Hotel
+from otelms.utils.crypto import credential_encryption
 
 client = TestClient(app)
 
@@ -210,6 +220,123 @@ def test_api_key_update_payload_validation() -> None:
     # Empty name should fail
     with pytest.raises(ValueError):
         ApiKeyUpdate(name="")
+
+
+# ============================================================
+# Hotel credential update tests (PUT /admin/api/config/hotels/{id})
+# ============================================================
+
+
+def _make_admin_token() -> str:
+    """Genera un JWT de sesión admin válido (mismo esquema que _create_session_token)."""
+    now = datetime.now(UTC)
+    return jose_jwt.encode(
+        {
+            "sub": "test_key",
+            "name": "Test Key",
+            "role": "admin",
+            "iat": now,
+            "exp": now + timedelta(hours=12),
+        },
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+async def test_hotel_update_credentials(test_session: AsyncSession) -> None:
+    """PUT /admin/api/config/hotels/{id} actualiza username y re-cifra password."""
+    # Limpiar corridas previas (test.db persiste entre runs)
+    await test_session.execute(delete(Hotel).where(Hotel.id == "cred-test-hotel"))
+    await test_session.commit()
+
+    # Override _get_db para que el client use la sesión de test
+    async def _override_db() -> AsyncGenerator[AsyncSession, None]:
+        yield test_session
+
+    app.dependency_overrides[_get_db] = _override_db
+
+    old_hash = hashlib.sha256(b"old-pass-123").hexdigest()
+    old_encrypted = credential_encryption.encrypt("old-pass-123")
+    hotel = Hotel(
+        id="cred-test-hotel",
+        name="Cred Test",
+        domain="otelms.com",
+        username="old_user",
+        password_hash=old_hash,
+        encrypted_password=old_encrypted,
+        is_active=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    test_session.add(hotel)
+    await test_session.commit()
+
+    # PUT con credenciales nuevas
+    response = client.put(
+        "/admin/api/config/hotels/cred-test-hotel",
+        json={"username": "new_user", "password": "new-pass-456"},
+        headers={"Authorization": f"Bearer {_make_admin_token()}"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["username"] == "new_user"
+    # La respuesta NO debe exponer la password
+    assert "password" not in body
+    assert "password_hash" not in body
+    assert "encrypted_password" not in body
+
+    # Verificar en DB: hash y Fernet actualizados
+    await test_session.refresh(hotel)
+    assert hotel.username == "new_user"
+    assert hotel.password_hash != old_hash
+    assert hotel.encrypted_password != old_encrypted
+    # La nueva password descifra correctamente
+    decrypted = credential_encryption.decrypt(hotel.encrypted_password)
+    assert decrypted == "new-pass-456"
+
+
+async def test_hotel_update_username_only_keeps_password(test_session: AsyncSession) -> None:
+    """PUT solo con username NO debe tocar la password (hash + Fernet intactos)."""
+    # Limpiar corridas previas (test.db persiste entre runs)
+    await test_session.execute(delete(Hotel).where(Hotel.id == "cred-test-hotel2"))
+    await test_session.commit()
+
+    # Override _get_db para que el client use la sesión de test
+    async def _override_db() -> AsyncGenerator[AsyncSession, None]:
+        yield test_session
+
+    app.dependency_overrides[_get_db] = _override_db
+
+    old_hash = hashlib.sha256(b"keep-pass-789").hexdigest()
+    old_encrypted = credential_encryption.encrypt("keep-pass-789")
+    hotel = Hotel(
+        id="cred-test-hotel2",
+        name="Cred Test 2",
+        domain="otelms.com",
+        username="keep_user",
+        password_hash=old_hash,
+        encrypted_password=old_encrypted,
+        is_active=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    test_session.add(hotel)
+    await test_session.commit()
+
+    response = client.put(
+        "/admin/api/config/hotels/cred-test-hotel2",
+        json={"username": "renamed_user"},
+        headers={"Authorization": f"Bearer {_make_admin_token()}"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["username"] == "renamed_user"
+
+    await test_session.refresh(hotel)
+    assert hotel.username == "renamed_user"
+    # Password intacta
+    assert hotel.password_hash == old_hash
+    assert hotel.encrypted_password == old_encrypted
+    assert credential_encryption.decrypt(hotel.encrypted_password) == "keep-pass-789"
 
 
 if __name__ == "__main__":
