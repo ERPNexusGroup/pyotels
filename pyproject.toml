@@ -85,6 +85,9 @@ otelms-worker = "otelms.tasks.celery_app:main"
 where = ["src"]
 include = ["otelms*"]
 
+[tool.setuptools.package-data]
+otelms = ["api/static/*"]
+
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.3.0",
