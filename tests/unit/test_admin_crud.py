@@ -243,12 +243,22 @@ def _make_admin_token() -> str:
     )
 
 
-async def test_hotel_update_credentials(test_session: AsyncSession) -> None:
-    """PUT /admin/api/config/hotels/{id} actualiza username y re-cifra password."""
-    # Limpiar corridas previas (test.db persiste entre runs)
-    await test_session.execute(delete(Hotel).where(Hotel.id == "cred-test-hotel"))
+@pytest.fixture(autouse=True)
+async def _cleanup_cred_test_hotels(test_session: AsyncSession) -> AsyncGenerator[None, None]:
+    """Limpia hoteles de prueba antes y después (test.db persiste entre runs)."""
+    await test_session.execute(
+        delete(Hotel).where(Hotel.id.in_(["cred-test-hotel", "cred-test-hotel2"]))
+    )
+    await test_session.commit()
+    yield
+    await test_session.execute(
+        delete(Hotel).where(Hotel.id.in_(["cred-test-hotel", "cred-test-hotel2"]))
+    )
     await test_session.commit()
 
+
+async def test_hotel_update_credentials(test_session: AsyncSession) -> None:
+    """PUT /admin/api/config/hotels/{id} actualiza username y re-cifra password."""
     # Override _get_db para que el client use la sesión de test
     async def _override_db() -> AsyncGenerator[AsyncSession, None]:
         yield test_session
@@ -297,10 +307,6 @@ async def test_hotel_update_credentials(test_session: AsyncSession) -> None:
 
 async def test_hotel_update_username_only_keeps_password(test_session: AsyncSession) -> None:
     """PUT solo con username NO debe tocar la password (hash + Fernet intactos)."""
-    # Limpiar corridas previas (test.db persiste entre runs)
-    await test_session.execute(delete(Hotel).where(Hotel.id == "cred-test-hotel2"))
-    await test_session.commit()
-
     # Override _get_db para que el client use la sesión de test
     async def _override_db() -> AsyncGenerator[AsyncSession, None]:
         yield test_session
