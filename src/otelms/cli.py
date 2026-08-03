@@ -288,14 +288,13 @@ def db_seed(
     username: str = typer.Option(settings.otelms_default_username, "--username"),
     password: str = typer.Option(settings.otelms_default_password, "--password"),
 ) -> None:
-    """Pobla la BD con datos iniciales (hotel, api key)."""
-
+    """Pobla la BD con datos iniciales (hotel, api key). Idempotente: si el hotel ya existe NO pisa credenciales."""
 
     setup_app()
 
     async def _run() -> None:
         async with db.session() as session:
-            # Crear hotel si no existe
+            # Crear hotel SOLO si no existe (nunca pisa credenciales existentes)
             hotel = await session.get(Hotel, hotel_id)
             if not hotel:
                 pwd_hash = hashlib.sha256(password.encode()).hexdigest()
@@ -311,7 +310,7 @@ def db_seed(
                 session.add(hotel)
                 console.print(f"[green]✓ Hotel creado: {hotel_id}[/green]")
             else:
-                console.print(f"[yellow]Hotel ya existe: {hotel_id}[/yellow]")
+                console.print(f"[yellow]Hotel ya existe: {hotel_id} (no se tocan credenciales)[/yellow]")
 
             # Crear API key por defecto
             api_key_value = settings.api_key
