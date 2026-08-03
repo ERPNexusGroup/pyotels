@@ -212,7 +212,11 @@ class CalendarExtractor:
         return mapping
 
     def _parse_tooltip(self, tooltip: BeautifulSoup, cell_data: CalendarCellData) -> None:
-        """Parsea tooltip de reserva."""
+        """Parsea tooltip de reserva.
+
+        NOTA: Duplicado en parsers/__init__.py con firma distinta (cell_data: dict).
+        Futuro: unificar en utils/parse_tooltip.py para DRY.
+        """
         text = tooltip.get_text(" ", strip=True)
 
         # Regex patterns

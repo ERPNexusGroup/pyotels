@@ -212,7 +212,11 @@ class CalendarParser:
 
     @staticmethod
     def _parse_tooltip(tooltip: BeautifulSoup, cell_data: dict) -> None:
-        """Parsea tooltip y actualiza cell_data."""
+        """Parsea tooltip y actualiza cell_data.
+
+        NOTA: Duplicado en extractors/__init__.py con firma distinta (cell_data: CalendarCellData).
+        Futuro: unificar en utils/parse_tooltip.py para DRY.
+        """
         text = tooltip.get_text(" ", strip=True)
 
         patterns = {

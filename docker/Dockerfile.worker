@@ -52,9 +52,9 @@ ENV PYTHONUNBUFFERED=1 \
     CAMOUFOX_HEADLESS=1 \
     PATH="/home/appuser/.local/bin:${PATH}"
 
-# Health check (verificar que Celery puede conectar a Redis)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import redis; r=redis.from_url('redis://redis:6379/1'); r.ping()" || exit 1
+# Health check (verificar que Celery worker está vivo y conectado a Redis)
+HEALTHCHECK --interval=30s --timeout=15s --start-period=20s --retries=3 \
+    CMD celery -A otelms.tasks.celery_app inspect ping -d celery@$HOSTNAME --timeout=10 || exit 1
 
 # Comando por defecto - Celery worker
 CMD ["celery", "-A", "otelms.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2"]

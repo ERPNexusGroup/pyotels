@@ -346,8 +346,8 @@ class OtelMSAuth:
             try:
                 await page.goto(
                     self.urls.calendar_url(),
-                    wait_until="load",
-                    timeout=Timeouts.NAVIGATION * 2,  # calendar es JS-heavy
+                    wait_until="networkidle",
+                    timeout=Timeouts.NAVIGATION * 4,  # calendar es JS-heavy; 180s en Docker
                 )
 
                 # Verificar que no redirige a login

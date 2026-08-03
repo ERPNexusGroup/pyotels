@@ -571,13 +571,19 @@ class SyncService:
 
             # Servicios (si hay en accommodation o basic)
             services: list[dict] = []
-            # TODO: extraer servicios del accommodation modal
+            # TODO(#accommodation-services): extraer servicios del accommodation modal
+            # - El modal de alojamiento tiene pestaña de servicios (minibar, spa, etc.)
+            # - Parsear tabla HTML → list[dict] con id, name, price, quantity, reservation_id
+            # - Requiere navegación al modal de detalles de reserva
             if services:
                 await svc_repo.bulk_upsert(res_id, services)
 
             # Pagos
             payments: list[dict] = []
-            # TODO: extraer pagos
+            # TODO(#reservation-payments): extraer pagos
+            # - Modal de pagos tiene tabla con: fecha, método, monto, estado, referencia
+            # - Parsear tabla → list[dict] con amount, method, status, date, reference
+            # - Requiere navegación al modal de pagos de la reserva
             if payments:
                 await pmt_repo.bulk_upsert(res_id, payments)
 
