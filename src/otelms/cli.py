@@ -18,8 +18,8 @@ from otelms.domain.entities import ApiKey, Category, Guest, Hotel, Reservation, 
 from otelms.domain.repositories import HotelRepository
 from otelms.domain.repositories.database import db, get_db_session, init_db
 from otelms.scraping.orchestrator import ScrapingOrchestrator
-from otelms.utils.crypto import credential_encryption
 from otelms.services.sync_service import SyncService
+from otelms.utils.crypto import credential_encryption
 from otelms.utils.logging import get_logger, setup_logging
 
 app = typer.Typer(
