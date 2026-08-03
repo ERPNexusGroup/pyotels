@@ -187,7 +187,7 @@ async def rate_limit_dependency(
     rl: RateLimiter = Depends(get_rate_limiter),
 ) -> None:
     """Rate limiting basado en API key o IP.
-    
+
     TODO(#rate-limiting): Implementar rate limiting por API key / IP
     - Debe integrar con RateLimiter de rate_limiter.py
     - Claves: api_key.id si autenticado, IP si anónimo
