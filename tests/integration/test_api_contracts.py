@@ -1,14 +1,13 @@
 """
 Contract tests for API endpoints.
 """
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch, MagicMock
-from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from otelms.api.main import app
-from otelms.api.schemas import HotelResponse, ReservationListResponse, GuestResponse
+from fastapi.testclient import TestClient
+
 from otelms.api.dependencies import get_db, verify_api_key
+from otelms.api.main import app
+from otelms.api.schemas import GuestResponse, HotelResponse, ReservationListResponse
 from otelms.domain.entities import ApiKey
 
 
@@ -16,7 +15,6 @@ async def mock_verify_api_key():
     return ApiKey(id="test_key", name="Test Key", key_hash="hash", is_active=True, rate_limit=60)
 
 
-@asynccontextmanager
 async def mock_get_db():
     mock_session = AsyncMock()
     mock_session.execute = AsyncMock()
@@ -66,13 +64,13 @@ class TestHotelEndpoints:
     """Contract tests for hotel endpoints."""
 
     def test_list_hotels_unauthorized(self):
-        """Test GET /hotels without API key returns 401."""
-        response = client.get("/hotels")
+        """Test GET /admin/api/config/hotels without API key returns 401."""
+        response = client.get("/admin/api/config/hotels")
         assert response.status_code == 401
 
     def test_list_hotels_with_invalid_key(self):
-        """Test GET /hotels with invalid API key returns 401."""
-        response = client.get("/hotels", headers={"X-API-Key": "invalid"})
+        """Test GET /admin/api/config/hotels with invalid API key returns 401."""
+        response = client.get("/admin/api/config/hotels", headers={"X-API-Key": "invalid"})
         assert response.status_code == 401
 
 
@@ -117,8 +115,9 @@ class TestAPIResponseSchemas:
 
     def test_health_response_schema(self):
         """Test HealthResponse schema validation."""
-        from otelms.api.schemas import HealthResponse
         from datetime import datetime
+
+        from otelms.api.schemas import HealthResponse
 
         health = HealthResponse(
             status="healthy",
@@ -130,7 +129,6 @@ class TestAPIResponseSchemas:
 
     def test_hotel_response_schema(self):
         """Test HotelResponse schema validation."""
-        from otelms.api.schemas import HotelResponse
         from datetime import datetime
 
         hotel = HotelResponse(
@@ -146,9 +144,9 @@ class TestAPIResponseSchemas:
 
     def test_reservation_list_response_schema(self):
         """Test ReservationListResponse schema validation."""
-        from otelms.api.schemas import ReservationListResponse, ReservationResponse
         from datetime import datetime
-        from decimal import Decimal
+
+        from otelms.api.schemas import ReservationResponse
 
         reservation = ReservationResponse(
             id="res_1",
@@ -174,7 +172,6 @@ class TestAPIResponseSchemas:
 
     def test_guest_response_schema(self):
         """Test GuestResponse schema validation."""
-        from otelms.api.schemas import GuestResponse
         from datetime import datetime
 
         guest = GuestResponse(

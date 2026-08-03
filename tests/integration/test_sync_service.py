@@ -1,13 +1,13 @@
-"""
-Integration tests for sync service.
-"""
-import pytest
-import pytest_asyncio
-from datetime import datetime, timezone
+"""Integration tests for sync service."""
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from otelms.services.sync_service import SyncService
+import pytest
+import pytest_asyncio
+
 from otelms.scraping.orchestrator import ScrapingResult
+from otelms.services.sync_service import SyncResult, SyncService
 
 
 @pytest_asyncio.fixture
@@ -87,13 +87,13 @@ class TestSyncService:
 
                 with patch("otelms.services.sync_service.CategoryRepository") as mock_cat_repo:
                     mock_cat_repo.return_value.upsert_with_rooms = AsyncMock(return_value=(MagicMock(), True))
-                    
+
                     with patch("otelms.services.sync_service.RoomRepository") as mock_room_repo:
                         mock_room_repo.return_value.upsert = AsyncMock(return_value=(MagicMock(), True))
-                        
+
                         with patch("otelms.services.sync_service.GuestRepository") as mock_guest_repo:
                             mock_guest_repo.return_value.get_or_create_by_name = AsyncMock(return_value=(MagicMock(id="guest_1"), True))
-                            
+
                             with patch("otelms.services.sync_service.ReservationRepository") as mock_res_repo:
                                 mock_res = MagicMock()
                                 mock_res_repo.return_value.upsert_from_scraper = AsyncMock(return_value=(mock_res, True, False))
@@ -128,12 +128,33 @@ class TestSyncService:
             operation="categories",
         )
 
-        with patch("otelms.services.sync_service.get_db_session"):
-            with patch("otelms.services.sync_service.SyncLogRepository"):
-                with patch("otelms.services.sync_service.CategoryRepository") as mock_cat_repo:
-                    mock_cat_repo.return_value.upsert_with_rooms = AsyncMock(return_value=(MagicMock(), True))
-                    mock_cat_repo.return_value.upsert_with_rooms = AsyncMock(return_value=(MagicMock(), True))
+        # Create proper async context manager for get_db_session
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock()
+        mock_result = AsyncMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
 
+        # Mock SyncLogRepository completo (create_log + _complete_log + get_by_id)
+        mock_log = MagicMock()
+        mock_log.id = 1
+        mock_log.started_at = datetime.now(UTC)
+        mock_log.sync_type = "categories"
+        mock_log.status = "started"
+
+        mock_sync_log_repo = AsyncMock()
+        mock_sync_log_repo.create_log = AsyncMock(return_value=mock_log)
+        mock_sync_log_repo.get_by_id = AsyncMock(return_value=mock_log)
+        mock_sync_log_repo.complete_log = AsyncMock()
+        mock_sync_log_repo.session = mock_session
+
+        @asynccontextmanager
+        async def mock_get_db_session():
+            yield mock_session
+
+        with patch("otelms.services.sync_service.get_db_session", side_effect=mock_get_db_session):
+            with patch("otelms.services.sync_service.SyncLogRepository", return_value=mock_sync_log_repo):
+                with patch("otelms.services.sync_service.SyncService._persist_categories", new=AsyncMock(return_value=(1, 0))):
                     result = await sync_service.sync_categories("2026-01-15")
 
                     assert result.success is True
