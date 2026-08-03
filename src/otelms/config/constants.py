@@ -75,18 +75,27 @@ class OtelMSSelectors:
 
 @dataclass(frozen=True)
 class OtelMSUrls:
-    """Constructores de URLs para OtelMS."""
+    """Constructores de URLs para OtelMS.
+
+    NOTA: el portal real NO usa subdominios por hotel (`{hotel_id}.otelms.com`
+    no existe en DNS). Todo vive en `desktop.otelms.com` y el hotel se
+    identifica por `hmsid` en el login (`/login_c2/single_login?hmsid={id}`).
+    """
 
     base_domain: str
     hotel_id: str
 
     @property
     def base_url(self) -> str:
-        return f"https://{self.hotel_id}.{self.base_domain}"
+        return "https://desktop.otelms.com"
 
     @property
     def login_url(self) -> str:
-        return f"{self.base_url}/login/DoLogIn/"
+        return f"{self.base_url}/login_c2/single_login?hmsid={self.hotel_id}"
+
+    @property
+    def do_login_url(self) -> str:
+        return f"{self.base_url}/login_c2/do_single_login"
 
     def calendar_url(self, date: str | None = None) -> str:
         url = f"{self.base_url}/reservation_c2/calendar"

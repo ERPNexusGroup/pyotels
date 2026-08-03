@@ -3,7 +3,7 @@ Parsers para HTML extraído de OtelMS.
 Convierte HTML crudo en estructuras de datos tipadas.
 """
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -207,7 +207,7 @@ class CalendarParser:
             "cells": cells,
             "categories": categories,
             "day_id_to_date": day_id_to_date,
-            "extracted_at": datetime.utcnow().isoformat(),
+            "extracted_at": datetime.now(UTC).isoformat(),
         }
 
     @staticmethod

@@ -267,7 +267,7 @@ class GuestRepository(BaseRepository):
 
     async def get_by_document(
         self, hotel_id: str, document_type: str, document_number: str
-    ) -> Optional[Guest]:
+    ) -> Guest | None:
         """Obtiene huésped por documento."""
         stmt = select(Guest).where(
             Guest.hotel_id == hotel_id,
@@ -345,10 +345,10 @@ class ReservationRepository(BaseRepository):
         hotel_id: str,
         *,
         status: int | None = None,
-        check_in_from: Optional[datetime] = None,
-        check_in_to: Optional[datetime] = None,
-        check_out_from: Optional[datetime] = None,
-        check_out_to: Optional[datetime] = None,
+        check_in_from: datetime | None = None,
+        check_in_to: datetime | None = None,
+        check_out_from: datetime | None = None,
+        check_out_to: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
         order_by: str = "check_in",
@@ -385,7 +385,7 @@ class ReservationRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_with_details(self, hotel_id: str, reservation_id: str) -> Optional[Reservation]:
+    async def get_with_details(self, hotel_id: str, reservation_id: str) -> Reservation | None:
         """Obtiene reserva con todas las relaciones cargadas."""
         stmt = (
             select(Reservation)
@@ -618,7 +618,9 @@ class SyncLogRepository(BaseRepository):
         if log:
             log.status = status
             log.completed_at = datetime.now(UTC)
-            log.duration_ms = int((log.completed_at - log.started_at).total_seconds() * 1000)
+            # SQLite devuelve started_at sin tzinfo → hacer aware antes de restar
+            started = log.started_at.replace(tzinfo=UTC) if log.started_at and log.started_at.tzinfo is None else log.started_at
+            log.duration_ms = int((log.completed_at - started).total_seconds() * 1000) if started else 0
             log.records_processed = records_processed
             log.records_created = records_created
             log.records_updated = records_updated

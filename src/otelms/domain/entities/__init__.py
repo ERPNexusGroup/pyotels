@@ -6,7 +6,6 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
-    BigInteger,
     DateTime,
     ForeignKey,
     Index,
@@ -266,7 +265,8 @@ class SyncLog(Base):
     """Log de sincronizaciones."""
     __tablename__ = "sync_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # SQLite solo autoincrementa con INTEGER PRIMARY KEY (BIGINT NO genera IDs)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
     sync_type: Mapped[str] = mapped_column(String(50), nullable=False)  # calendar, categories, full, detail
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # started, completed, failed

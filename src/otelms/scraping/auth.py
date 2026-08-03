@@ -178,6 +178,7 @@ class OtelMSAuth:
 
             # 2. POST login
             payload = {
+                "hotel": self.hotel_id,
                 "login": self.username,
                 "password": self.password,
                 "action": "login",
@@ -190,7 +191,7 @@ class OtelMSAuth:
             }
 
             response = await self._http_client.post(
-                self.login_url,
+                self.urls.do_login_url,
                 data=payload,
                 headers=headers,
             )
@@ -276,6 +277,7 @@ class OtelMSAuth:
             # Enviar código 2FA - esto depende de la implementación específica de OtelMS
             # Por ahora, asumimos que hay un formulario de 2FA en la misma URL de login
             payload = {
+                "hotel": self.hotel_id,
                 "login": self.username,
                 "password": self.password,
                 "action": "login",
@@ -289,7 +291,7 @@ class OtelMSAuth:
             }
 
             response = await self._http_client.post(
-                self.login_url,
+                self.urls.do_login_url,
                 data=payload,
                 headers=headers,
             )
@@ -307,7 +309,8 @@ class OtelMSAuth:
             return
 
         cookies = []
-        domain = f"{self.hotel_id}.{self.base_domain}"
+        # Las cookies viven en desktop.otelms.com (nunca en {hotel_id}.otelms.com)
+        domain = self.urls.base_url.removeprefix("https://")
 
         for cookie in self._http_client.cookies.jar:
             cookies.append({
