@@ -16,6 +16,7 @@ from otelms.config.settings import settings
 from otelms.scraping.exceptions import (
     AuthenticationError,
 )
+from otelms.scraping.proxy_resolver import resolve_proxy
 from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -136,9 +137,11 @@ class OtelMSAuth:
     async def initialize_http_client(self) -> None:
         """Inicializa cliente HTTP para login inicial."""
         if self._http_client is None:
+            proxy_config = resolve_proxy()
             self._http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(30.0),
                 follow_redirects=True,
+                proxy=proxy_config.url if proxy_config.enabled else None,
                 headers={
                     "User-Agent": settings.browser_user_agent,
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

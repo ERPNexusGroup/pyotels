@@ -11,6 +11,7 @@ from playwright.async_api import Browser, BrowserContext, Page
 
 from otelms.config.settings import settings
 from otelms.scraping.exceptions import BrowserError
+from otelms.scraping.proxy_resolver import resolve_proxy
 from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -76,16 +77,26 @@ class BrowserPool:
         if not self._browser:
             raise BrowserError("Browser not initialized")
 
+        proxy_config = resolve_proxy()
         # Crear nuevo contexto en el mismo navegador
-        context = await self._browser.new_context(
-            user_agent=settings.browser_user_agent,
-            viewport={
+        context_kwargs = {
+            "user_agent": settings.browser_user_agent,
+            "viewport": {
                 "width": settings.browser_viewport_width,
                 "height": settings.browser_viewport_height,
             },
-            locale=settings.browser_locale,
-            timezone_id=settings.browser_timezone,
-        )
+            "locale": settings.browser_locale,
+            "timezone_id": settings.browser_timezone,
+        }
+        # Añadir proxy si está habilitado
+        if proxy_config.enabled and proxy_config.url:
+            # Playwright usa formato socks5:// para SOCKS5 (no socks5h)
+            # socks5h resuelve DNS en el proxy, socks5 en local
+            proxy_server = proxy_config.url.replace("socks5h://", "socks5://")
+            context_kwargs["proxy"] = {"server": proxy_server}
+            logger.debug("Creating browser context with Tor proxy", proxy=proxy_server)
+
+        context = await self._browser.new_context(**context_kwargs)
         # Configurar timeouts por defecto
         context.set_default_timeout(settings.scraper_timeout_ms)
         context.set_default_navigation_timeout(settings.scraper_navigation_timeout_ms)
