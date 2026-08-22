@@ -90,11 +90,15 @@ class BrowserPool:
         }
         # Añadir proxy si está habilitado
         if proxy_config.enabled and proxy_config.url:
-            # Playwright usa formato socks5:// para SOCKS5 (no socks5h)
-            # socks5h resuelve DNS en el proxy, socks5 en local
-            proxy_server = proxy_config.url.replace("socks5h://", "socks5://")
+            if proxy_config.backend == "tor":
+                # Playwright usa formato socks5:// para SOCKS5 (no socks5h)
+                proxy_server = proxy_config.url.replace("socks5h://", "socks5://")
+                logger.debug("Creating browser context with Tor proxy", proxy=proxy_server)
+            else:
+                # HTTP/HTTPS proxy (Scrape.do, Webshare) — usar directamente
+                proxy_server = proxy_config.url
+                logger.debug("Creating browser context with HTTP proxy", backend=proxy_config.backend)
             context_kwargs["proxy"] = {"server": proxy_server}
-            logger.debug("Creating browser context with Tor proxy", proxy=proxy_server)
 
         context = await self._browser.new_context(**context_kwargs)
         # Configurar timeouts por defecto

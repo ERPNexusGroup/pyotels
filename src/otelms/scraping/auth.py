@@ -138,17 +138,26 @@ class OtelMSAuth:
         """Inicializa cliente HTTP para login inicial."""
         if self._http_client is None:
             proxy_config = resolve_proxy()
-            self._http_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(30.0),
-                follow_redirects=True,
-                proxy=proxy_config.url if proxy_config.enabled else None,
-                headers={
+            client_kwargs: dict = {
+                "timeout": httpx.Timeout(30.0),
+                "follow_redirects": True,
+                "headers": {
                     "User-Agent": settings.browser_user_agent,
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
                     "Connection": "keep-alive",
                 },
-            )
+            }
+
+            if proxy_config.enabled and proxy_config.url:
+                if proxy_config.backend == "scrape_do":
+                    # httpx no soporta auth en proxy URL con keys con caracteres especiales.
+                    # Usar proxy sin auth; la key se pasa como query param a cada request.
+                    client_kwargs["proxy"] = "http://proxy.scrape.do:9000"
+                elif proxy_config.is_tor_enabled():
+                    client_kwargs["proxy"] = proxy_config.url
+
+            self._http_client = httpx.AsyncClient(**client_kwargs)
 
     async def close_http_client(self) -> None:
         if self._http_client:
@@ -177,7 +186,10 @@ class OtelMSAuth:
 
         try:
             # 1. GET login page para obtener cookies iniciales y CSRF si existe
-            await self._http_client.get(self.login_url)
+            login_url = self.login_url
+            if settings.scraper_api_key and resolve_proxy().backend == "scrape_do":
+                login_url = login_url + ("&" if "?" in login_url else "?") + f"api_key={settings.scraper_api_key}"
+            await self._http_client.get(login_url)
 
             # 2. POST login
             payload = {
@@ -193,8 +205,12 @@ class OtelMSAuth:
                 "Content-Type": "application/x-www-form-urlencoded",
             }
 
+            do_login_url = self.urls.do_login_url
+            if settings.scraper_api_key and resolve_proxy().backend == "scrape_do":
+                do_login_url = do_login_url + ("&" if "?" in do_login_url else "?") + f"api_key={settings.scraper_api_key}"
+
             response = await self._http_client.post(
-                self.urls.do_login_url,
+                do_login_url,
                 data=payload,
                 headers=headers,
             )
