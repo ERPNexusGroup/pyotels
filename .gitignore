@@ -77,3 +77,13 @@ ia_tools/
 
 # --- Pruebas ---
 settings.py
+
+# --- Artefactos de sesiones de scraping manual (fase testing) ---
+*.png
+calendar_*.html
+calendar_*.json
+folio_*.html
+restrict_*.html
+uploadrates_*.html
+sync_rooms_results.json
+calendar_analysis.txt
