@@ -61,5 +61,6 @@ ENV PYTHONUNBUFFERED=1 \
 HEALTHCHECK --interval=30s --timeout=15s --start-period=20s --retries=3 \
     CMD celery -A otelms.tasks.celery_app inspect ping -d celery@$HOSTNAME --timeout=10 || exit 1
 
-# Comando por defecto - Celery worker
-CMD ["celery", "-A", "otelms.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+# Consume la cola default + scraping (task_routes manda los sync_* a "scraping";
+# sin -Q el beat programa pero nada ejecuta).
+CMD ["celery", "-A", "otelms.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2", "-Q", "celery,scraping"]
