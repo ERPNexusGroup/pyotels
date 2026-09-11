@@ -102,21 +102,33 @@ class ScrapingOrchestrator:
         )
 
     async def initialize(self) -> None:
-        """Inicializa browser pool y autenticación."""
+        """Inicializa browser pool y autenticación (best-effort).
+
+        Ningún fallo aquí es fatal: el sync HTTP-first no necesita browser,
+        y el login real se reintenta vía ensure_valid_session en cada scrape.
+        Sin esto, un fallo de browser en el primer request tumba el sync
+        aunque el path HTTP funcione.
+        """
         if self._initialized:
             return
 
         logger.info("Initializing scraping orchestrator", hotel_id=self.hotel_id)
 
-        # Inicializar browser pool
-        await browser_pool.initialize()
+        try:
+            await browser_pool.initialize()
+        except Exception as e:
+            logger.warning("Browser pool init failed; solo HTTP disponible", error=str(e))
 
-        # Inicializar rate limiter
-        await rate_limiter.client.ping()
+        try:
+            await rate_limiter.client.ping()
+        except Exception as e:
+            logger.warning("Rate limiter ping failed", error=str(e))
 
-        # Inicializar auth
-        async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # el pool devuelve BrowserContext/Page según el backend
-            await self._auth.login(page.context)
+        try:
+            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # el pool devuelve BrowserContext/Page según el backend
+                await self._auth.login(page.context)
+        except Exception as e:
+            logger.warning("Eager browser login failed (se reintentará en el scrape)", error=str(e))
 
         self._initialized = True
         logger.info("Scraping orchestrator initialized", hotel_id=self.hotel_id)
