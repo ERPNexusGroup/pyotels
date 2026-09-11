@@ -1,7 +1,7 @@
 """
 API Schemas - Request/Response models for FastAPI endpoints.
 """
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -203,6 +203,65 @@ class SyncResultResponse(BaseModel):
     records_updated: int = 0
     errors: list[str] = []
     duration_ms: int = 0
+
+
+# ============================================================
+# ROOM AVAILABILITY (disponibles / ocupadas / checkouts)
+# ============================================================
+class CategoryAvailability(BaseModel):
+    category_id: str
+    category_name: str
+    total: int
+    available: int
+    occupied: int
+
+
+class AvailableRoomsResponse(BaseModel):
+    hotel_id: str
+    check_in: date
+    check_out: date
+    total_rooms: int
+    available_count: int
+    occupied_count: int
+    occupancy_rate: float = Field(..., description="Porcentaje 0-100 de ocupación")
+    by_category: list[CategoryAvailability] = []
+    items: list[RoomResponse] = []
+
+
+class OccupiedRoomItem(BaseModel):
+    reservation_id: str
+    room: RoomResponse
+    guest_name: str | None = None
+    check_in: datetime
+    check_out: datetime
+    adults: int = 1
+    children: int = 0
+    nights_remaining: int = Field(0, description="Noches restantes desde la fecha consultada")
+
+
+class OccupiedRoomsResponse(BaseModel):
+    hotel_id: str
+    date: date
+    occupied_count: int
+    items: list[OccupiedRoomItem] = []
+
+
+class CheckoutItem(BaseModel):
+    reservation_id: str
+    room: RoomResponse
+    guest_name: str | None = None
+    check_in: datetime
+    check_out: datetime
+    adults: int = 1
+    children: int = 0
+    total_price: Decimal | None = None
+
+
+class CheckoutsResponse(BaseModel):
+    hotel_id: str
+    date: date
+    count: int
+    items: list[CheckoutItem] = []
 
 
 # Forward references

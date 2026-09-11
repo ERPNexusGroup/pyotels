@@ -188,12 +188,56 @@ class RoomRepository(BaseRepository):
 
         stmt = (
             select(Room)
+            .options(selectinload(Room.category))
             .where(
                 Room.hotel_id == hotel_id,
                 Room.is_active,
                 Room.id.not_in(occupied_room_ids),
             )
             .order_by(Room.floor, Room.name)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_by_hotel_with_category(
+        self, hotel_id: str, active_only: bool = True
+    ) -> Sequence:
+        """Obtiene habitaciones de un hotel con su categoría precargada."""
+        stmt = select(Room).options(selectinload(Room.category)).where(Room.hotel_id == hotel_id)
+        if active_only:
+            stmt = stmt.where(Room.is_active)
+        stmt = stmt.order_by(Room.floor, Room.name)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_occupied_for_date(
+        self, hotel_id: str, target_date: date | str | None = None
+    ) -> Sequence:
+        """Obtiene reservas con huésped en casa para una fecha.
+
+        Una habitación se considera ocupada en D si tiene un check-in
+        (status == 2) con date(check_in) <= D <= date(check_out).
+        Retorna reservas con room/categoría/guest precargados,
+        ordenadas por check_out (próximas salidas primero).
+        """
+        if target_date is None:
+            target_date = date.today()
+        elif isinstance(target_date, str):
+            target_date = date.fromisoformat(target_date)
+
+        stmt = (
+            select(Reservation)
+            .options(
+                selectinload(Reservation.room).selectinload(Room.category),
+                selectinload(Reservation.guest),
+            )
+            .where(
+                Reservation.hotel_id == hotel_id,
+                Reservation.status == 2,  # Check-in (huésped en casa)
+                func.date(Reservation.check_in) <= target_date,
+                func.date(Reservation.check_out) >= target_date,
+            )
+            .order_by(Reservation.check_out)
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
@@ -413,31 +457,69 @@ class ReservationRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
-    async def get_today_checkins(self, hotel_id: str) -> Sequence:
-        """Obtiene check-ins de hoy."""
+    async def get_checkins_for_date(
+        self, hotel_id: str, target_date: date | str | None = None
+    ) -> Sequence:
+        """Obtiene llegadas (status == 1) con check_in en una fecha (default hoy).
 
+        Retorna reservas con room/categoría/guest precargados.
+        """
+        if target_date is None:
+            target_date = date.today()
+        elif isinstance(target_date, str):
+            target_date = date.fromisoformat(target_date)
 
-        today = date.today()
-        stmt = select(Reservation).where(
-            Reservation.hotel_id == hotel_id,
-            Reservation.status == 1,  # Reserva
-            func.date(Reservation.check_in) == today,
+        stmt = (
+            select(Reservation)
+            .options(
+                selectinload(Reservation.room).selectinload(Room.category),
+                selectinload(Reservation.guest),
+            )
+            .where(
+                Reservation.hotel_id == hotel_id,
+                Reservation.status == 1,  # Reserva
+                func.date(Reservation.check_in) == target_date,
+            )
+            .order_by(Reservation.check_in)
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    async def get_checkouts_for_date(
+        self, hotel_id: str, target_date: date | str | None = None
+    ) -> Sequence:
+        """Obtiene salidas (status == 2) con check_out en una fecha (default hoy).
+
+        Retorna reservas con room/categoría/guest precargados.
+        """
+        if target_date is None:
+            target_date = date.today()
+        elif isinstance(target_date, str):
+            target_date = date.fromisoformat(target_date)
+
+        stmt = (
+            select(Reservation)
+            .options(
+                selectinload(Reservation.room).selectinload(Room.category),
+                selectinload(Reservation.guest),
+            )
+            .where(
+                Reservation.hotel_id == hotel_id,
+                Reservation.status == 2,  # Check-in
+                func.date(Reservation.check_out) == target_date,
+            )
+            .order_by(Reservation.check_out)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_today_checkins(self, hotel_id: str) -> Sequence:
+        """Obtiene check-ins de hoy (atajo de get_checkins_for_date)."""
+        return await self.get_checkins_for_date(hotel_id)
 
     async def get_today_checkouts(self, hotel_id: str) -> Sequence:
-        """Obtiene check-outs de hoy."""
-
-
-        today = date.today()
-        stmt = select(Reservation).where(
-            Reservation.hotel_id == hotel_id,
-            Reservation.status == 2,  # Check-in
-            func.date(Reservation.check_out) == today,
-        )
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+        """Obtiene check-outs de hoy (atajo de get_checkouts_for_date)."""
+        return await self.get_checkouts_for_date(hotel_id)
 
     async def upsert_from_scraper(self, hotel_id: str, data: dict) -> tuple:
         """
