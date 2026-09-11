@@ -236,7 +236,7 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
                 "reservation_status": status,
                 "guest_count": int(fields["cantidad de huéspedes"])
                 if fields.get("cantidad de huéspedes", "").isdigit() else 1,
-                "balance": fields.get("balance") or None,
+                "balance": to_float_or_none(fields.get("balance")),
                 "fields": fields,
                 "comments": fields.get("comentarios", ""),
             })
@@ -258,3 +258,24 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
 def day_id_to_date_table(day_id: str) -> str:
     """Helper nombrado para el mapeo day_id -> fecha (testeable)."""
     return day_id_to_date(day_id)
+
+
+def to_float_or_none(value: str | None) -> float | None:
+    """Extrae número de strings tipo '-75.00,' / '1,250.00' / '$ 40'.
+
+    Retorna float o None (nunca strings que rompan NUMERIC en Postgres).
+    """
+    if value is None:
+        return None
+    match = re.search(r"[+-]?[\d.,]+", str(value))
+    if not match:
+        return None
+    num = match.group(0)
+    if "," in num and "." not in num:
+        num = num.replace(",", ".")
+    elif "," in num and "." in num:
+        num = num.replace(",", "")
+    try:
+        return float(num)
+    except ValueError:
+        return None

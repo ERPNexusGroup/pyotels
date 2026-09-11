@@ -13,6 +13,7 @@ from otelms.scraping.calendar_markup_v2 import (
     parse_categories_v2,
     parse_grid_v2,
     parse_tooltip_v2,
+    to_float_or_none,
 )
 from otelms.scraping.parsers import CalendarParser
 
@@ -61,6 +62,21 @@ class TestDayIdMapping:
     def test_epoch_base(self):
         assert day_id_to_date("20706") == "2026-09-10"
         assert day_id_to_date(20707) == "2026-09-11"
+
+
+class TestToFloat:
+    def test_trailing_comma(self):
+        assert to_float_or_none("-75.00,") == -75.0
+
+    def test_thousands(self):
+        assert to_float_or_none("1,250.00") == 1250.0
+
+    def test_plain(self):
+        assert to_float_or_none("40") == 40.0
+
+    def test_none_on_garbage(self):
+        assert to_float_or_none(None) is None
+        assert to_float_or_none("sin número") is None
 
 
 class TestTooltip:
