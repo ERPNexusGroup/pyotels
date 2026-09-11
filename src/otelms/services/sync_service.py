@@ -20,7 +20,9 @@ from otelms.domain.repositories import (
     SyncLogRepository,
 )
 from otelms.domain.repositories.database import get_db_session
+from otelms.scraping.http_calendar import fetch_calendar_html
 from otelms.scraping.orchestrator import ScrapingOrchestrator
+from otelms.scraping.parsers import CalendarParser
 from otelms.utils.crypto import credential_encryption  # For password decryption
 from otelms.utils.logging import get_logger
 from otelms.utils.telemetry import record_celery_metric
@@ -161,6 +163,52 @@ class SyncService:
     # SYNC OPERATIONS
     # ============================================================
 
+    async def _scrape_calendar_data(self, target_date: str | None = None) -> dict:
+        """Grid del calendario: HTTP directo primero, browser como fallback.
+
+        El HTML es server-rendered; HTTP es más rápido y robusto. El fallback
+        conserva el comportamiento anterior (browser vía orchestrator).
+        """
+        try:
+            html = await fetch_calendar_html(
+                self.hotel_id, self.username, self.password, self.base_domain, target_date
+            )
+            parsed = CalendarParser.parse_grid(html, target_date)
+            if parsed.get("cells") or parsed.get("categories"):
+                logger.info(
+                    "Calendar scraped over HTTP",
+                    cells=len(parsed["cells"]),
+                    categories=len(parsed["categories"]),
+                )
+                return parsed
+            logger.warning("HTTP calendar vacío, probando browser")
+        except Exception as e:
+            logger.warning("HTTP calendar falló, probando browser", error=str(e))
+
+        scrape_result = await self._orchestrator.scrape_calendar(target_date)
+        if not scrape_result.success:
+            raise RuntimeError(scrape_result.error or "Unknown error")
+        return scrape_result.data
+
+    async def _scrape_categories_data(self, target_date: str | None = None) -> list[dict]:
+        """Categorías: HTTP directo primero, browser como fallback."""
+        try:
+            html = await fetch_calendar_html(
+                self.hotel_id, self.username, self.password, self.base_domain, target_date
+            )
+            categories = CalendarParser.parse_categories(html)
+            if categories:
+                logger.info("Categories scraped over HTTP", count=len(categories))
+                return categories
+            logger.warning("HTTP categories vacío, probando browser")
+        except Exception as e:
+            logger.warning("HTTP categories falló, probando browser", error=str(e))
+
+        scrape_result = await self._orchestrator.scrape_categories(target_date)
+        if not scrape_result.success:
+            raise RuntimeError(scrape_result.error or "Unknown error")
+        return scrape_result.data
+
     async def sync_calendar(self, target_date: str | None = None) -> SyncResult:
         """Sincroniza calendario (grid de reservas)."""
         start = self._start_timer()
@@ -179,11 +227,11 @@ class SyncService:
                 sync_log_repo = SyncLogRepository(session)
                 log = await sync_log_repo.create_log(self.hotel_id, "calendar")
 
-            # Scraping
-            scrape_result = await self._orchestrator.scrape_calendar(target_date)
-
-            if not scrape_result.success:
-                result.errors.append(scrape_result.error or "Unknown error")
+            # Scraping (HTTP directo primero, browser como fallback)
+            try:
+                calendar_data = await self._scrape_calendar_data(target_date)
+            except Exception as e:
+                result.errors.append(str(e))
                 if log:
                     await self._complete_log(log.id, result)
                 record_celery_metric("sync_calendar", "error", self._elapsed_ms(start) / 1000)
@@ -191,7 +239,7 @@ class SyncService:
 
             # Persistir en BD
             async with get_db_session() as session:
-                created, updated = await self._persist_calendar(session, scrape_result.data)
+                created, updated = await self._persist_calendar(session, calendar_data)
                 result.records_created = created
                 result.records_updated = updated
                 result.records_processed = created + updated
@@ -231,17 +279,18 @@ class SyncService:
                 sync_log_repo = SyncLogRepository(session)
                 log = await sync_log_repo.create_log(self.hotel_id, "categories")
 
-            scrape_result = await self._orchestrator.scrape_categories(target_date)
-
-            if not scrape_result.success:
-                result.errors.append(scrape_result.error or "Unknown error")
+            # Scraping (HTTP directo primero, browser como fallback)
+            try:
+                categories_data = await self._scrape_categories_data(target_date)
+            except Exception as e:
+                result.errors.append(str(e))
                 if log:
                     await self._complete_log(log.id, result)
                 record_celery_metric("sync_categories", "error", self._elapsed_ms(start) / 1000)
                 return result
 
             async with get_db_session() as session:
-                created, updated = await self._persist_categories(session, scrape_result.data)
+                created, updated = await self._persist_categories(session, categories_data)
                 result.records_created = created
                 result.records_updated = updated
                 result.records_processed = created + updated
