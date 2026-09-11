@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
 
 from celery import Task, shared_task
-from celery.utils.log import get_task_logger
 from sqlalchemy import delete, text
 
 from otelms.config.settings import settings
@@ -15,8 +14,9 @@ from otelms.domain.entities import SyncLog
 from otelms.domain.repositories.database import db, get_db_session
 from otelms.services.sync_service import SyncResult, SyncService
 from otelms.utils.cache import cache
+from otelms.utils.logging import get_logger
 
-logger = get_task_logger(__name__)
+logger = get_logger(__name__)
 
 T = TypeVar("T")
 
