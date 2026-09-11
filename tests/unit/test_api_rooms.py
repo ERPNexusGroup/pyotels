@@ -136,6 +136,12 @@ class TestCheckinsCheckoutsForDate:
         assert [r.id for r in out] == ["res_occ"]
         assert await repos["reservation"].get_checkouts_for_date("h1", date(2026, 3, 12)) == []
 
+    async def test_checkouts_include_status_1(self, repos):
+        """La vista calendario no distingue check-in: status 1 también sale."""
+        await seed_hotel(repos)
+        out = await repos["reservation"].get_checkouts_for_date("h1", date(2026, 3, 14))
+        assert [r.id for r in out] == ["res_arr"]
+
     async def test_checkins_for_date(self, repos):
         await seed_hotel(repos)
         inn = await repos["reservation"].get_checkins_for_date("h1", date(2026, 3, 12))

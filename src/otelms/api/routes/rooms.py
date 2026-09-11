@@ -182,7 +182,7 @@ async def get_room_checkouts(
     ),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> CheckoutsResponse:
-    """Habitaciones que salen (check-out) en una fecha (default hoy)."""
+    """Habitaciones que salen (check-out programado) en una fecha (default hoy)."""
     reservations = await res_repo.get_checkouts_for_date(hotel_id, target_date)
 
     items = [

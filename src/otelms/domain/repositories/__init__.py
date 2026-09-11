@@ -491,9 +491,11 @@ class ReservationRepository(BaseRepository):
     async def get_checkouts_for_date(
         self, hotel_id: str, target_date: date | str | None = None
     ) -> Sequence:
-        """Obtiene salidas (status == 2) con check_out en una fecha (default hoy).
+        """Obtiene salidas programadas (status 1 o 2) con check_out en una fecha.
 
-        Retorna reservas con room/categoría/guest precargados.
+        La vista calendario no distingue check-in: las salidas se derivan por
+        fecha de salida de reservas vigentes. Retorna reservas con
+        room/categoría/guest precargados.
         """
         if target_date is None:
             target_date = date.today()
@@ -508,7 +510,7 @@ class ReservationRepository(BaseRepository):
             )
             .where(
                 Reservation.hotel_id == hotel_id,
-                Reservation.status == 2,  # Check-in
+                Reservation.status.in_([1, 2]),  # vigentes (la vista no distingue check-in)
                 func.date(Reservation.check_out) == target_date,
             )
             .order_by(Reservation.check_out)
