@@ -23,26 +23,30 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-# Fallback mínimo a .env (sin dependencias externas): solo KEY=VALUE, sin export.
-_env_file = REPO_ROOT / ".env"
-if _env_file.exists():
-    for raw in _env_file.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip("\"'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+# .env como fallback (sin sobreescribir variables ya exportadas).
+# IMPORTANTE: DATABASE_URL del .env local apunta a SQLite de desarrollo;
+# el seed SIEMPRE va contra el Postgres de staging salvo que DATABASE_URL
+# esté exportada explícitamente en el shell (el .env se ignora para esta var).
+from dotenv import load_dotenv  # noqa: E402
 
+_explicit_env = set(os.environ)
+load_dotenv(REPO_ROOT / ".env")
+
+STAGING_DATABASE_URL = (
+    "postgresql+asyncpg://otelms:otelms_dev_password@localhost:5435/otelms"
+)
+if "DATABASE_URL" in _explicit_env:
+    DATABASE_URL = os.environ["DATABASE_URL"]
+else:
+    DATABASE_URL = STAGING_DATABASE_URL
+    os.environ.pop("DATABASE_URL", None)  # evita que settings lea el SQLite del .env
+
+from sqlalchemy.engine import make_url  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
 from otelms.domain.entities import ApiKey, Base, Hotel  # noqa: E402
 from otelms.utils.crypto import credential_encryption  # noqa: E402
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql+asyncpg://otelms:otelms_dev_password@localhost:5433/otelms"
-)
 HOTEL_ID = os.environ.get("OTELMS_DEFAULT_HOTEL_ID", "18330")
 USERNAME = os.environ.get("OTELMS_DEFAULT_USERNAME", "")
 PASSWORD = os.environ.get("OTELMS_DEFAULT_PASSWORD", "")
@@ -58,6 +62,9 @@ async def main() -> None:
     }.items() if not v]
     if missing:
         raise SystemExit(f"Faltan variables en entorno/.env: {', '.join(missing)}")
+
+    _u = make_url(DATABASE_URL)
+    print(f"target: {_u.drivername} @ {_u.host}:{_u.port}/{_u.database}")
 
     engine = create_async_engine(DATABASE_URL)
     async with engine.begin() as conn:
