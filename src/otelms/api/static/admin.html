@@ -597,6 +597,8 @@ const $ = (s) => document.querySelector(s);
 let token = localStorage.getItem("otelms_admin_token") || "";
 let keyName = localStorage.getItem("otelms_admin_name") || "";
 let currentView = "dashboard";
+let pendingTablesFilter = null;
+let lastTablesState = null;
 
 /* ===== TOAST ===== */
 let toastTimer = null;
@@ -831,93 +833,118 @@ async function renderReports() {
 /* ===== CALENDAR (room status) ===== */
 async function renderCalendar() {
   const c = $("#content");
-  c.innerHTML = '<div class="loading">Cargando estado de habitaciones…</div>';
-  try {
-    const hotels = await api("/admin/api/hotels");
-    if (!hotels.length) {
-      c.innerHTML = '<div class="empty">No hay hoteles configurados</div>';
-      return;
-    }
-    const hotelId = hotels[0].id;
-    const data = await api("/admin/api/calendar/room-status?hotel_id=" + encodeURIComponent(hotelId));
-    const rooms = Object.entries(data.rooms || {});
-    if (!rooms.length) {
-      c.innerHTML = '<div class="empty">Sin habitaciones activas para ' + esc(hotelId) + "</div>";
-      return;
-    }
-    const now = new Date();
-    const rows = rooms.map(([rid, r]) => {
-      let state = "Libre";
-      let cls = "green";
-      for (const ex of r.exceptions || []) {
-        const s = new Date(ex.start_date), e = new Date(ex.end_date);
-        if (now >= s && now < e) {
-          state = ex.is_blocked ? "Bloqueada" : "Disponible (excepción)";
-          cls = ex.is_blocked ? "red" : "yellow";
-          break;
-        }
-      }
-      return `<tr>
-        <td class="mono">${esc(rid)}</td>
-        <td>${esc(r.room_name)}</td>
-        <td class="mono muted">${r.category_id ? esc(r.category_id) : "—"}</td>
-        <td><span class="pill ${cls}">${state}</span></td>
-        <td class="mono">${r.exceptions.length}</td>
-      </tr>`;
-    }).join("");
-    c.innerHTML = `
-      <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <h2 style="margin:0;">📅 Estado de Habitaciones</h2>
-        <span class="muted" style="font-size:12px;">Hotel: <b>${esc(hotelId)}</b></span>
-      </div>
-      <div class="panel">
-        <table>
-          <thead><tr><th>ID</th><th>Habitación</th><th>Categoría</th><th>Estado actual</th><th>Excepciones</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-  } catch (err) {
-    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  let hotels = [];
+  try { hotels = await api("/admin/api/hotels"); } catch (e) {}
+  if (!hotels.length) {
+    c.innerHTML = '<div class="empty">No hay hoteles configurados</div>';
+    return;
   }
+  const hotelOpts = hotels.map(h => `<option value="${esc(h.id)}">${esc(h.id)} — ${esc(h.name)}</option>`).join("");
+  c.innerHTML = `
+    <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0;">📅 Estado de Habitaciones</h2>
+      <div class="flex" style="gap:10px; align-items:center;">
+        <select id="calHotel" style="min-width:200px;">${hotelOpts}</select>
+      </div>
+    </div>
+    <div id="calBody"><div class="loading">Cargando…</div></div>`;
+
+  async function load() {
+    const hotelId = $("#calHotel").value;
+    const body = $("#calBody");
+    body.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const data = await api("/admin/api/calendar/room-status?hotel_id=" + encodeURIComponent(hotelId));
+      const rooms = Object.entries(data.rooms || {});
+      if (!rooms.length) {
+        body.innerHTML = '<div class="empty">Sin habitaciones activas para ' + esc(hotelId) + "</div>";
+        return;
+      }
+      const now = new Date();
+      const rows = rooms.map(([rid, r]) => {
+        let state = "Libre"; let cls = "green";
+        for (const ex of r.exceptions || []) {
+          const s = new Date(ex.start_date), e = new Date(ex.end_date);
+          if (now >= s && now < e) {
+            state = ex.is_blocked ? "Bloqueada" : "Disponible (excepción)";
+            cls = ex.is_blocked ? "red" : "yellow";
+            break;
+          }
+        }
+        return `<tr>
+          <td class="mono">${esc(rid)}</td>
+          <td>${esc(r.room_name)}</td>
+          <td class="mono muted">${r.category_id ? esc(r.category_id) : "—"}</td>
+          <td><span class="pill ${cls}">${state}</span></td>
+          <td class="mono">${r.exceptions.length}</td>
+        </tr>`;
+      }).join("");
+      body.innerHTML = `
+        <div class="panel">
+          <table>
+            <thead><tr><th>ID</th><th>Habitación</th><th>Categoría</th><th>Estado actual</th><th>Excepciones</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    } catch (err) {
+      body.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+    }
+  }
+
+  $("#calHotel").addEventListener("change", load);
+  load();
 }
 
 /* ===== CALENDAR CATEGORIES ===== */
 async function renderCalendarCats() {
   const c = $("#content");
-  c.innerHTML = '<div class="loading">Cargando categorías…</div>';
-  try {
-    const hotels = await api("/admin/api/hotels");
-    if (!hotels.length) {
-      c.innerHTML = '<div class="empty">No hay hoteles configurados</div>';
-      return;
-    }
-    const hotelId = hotels[0].id;
-    const cats = await api("/admin/api/calendar/categories?hotel_id=" + encodeURIComponent(hotelId));
-    if (!cats.length) {
-      c.innerHTML = '<div class="empty">Sin categorías para ' + esc(hotelId) + "</div>";
-      return;
-    }
-    c.innerHTML = `
-      <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <h2 style="margin:0;">🏷️ Categorías de Habitaciones</h2>
-        <span class="muted" style="font-size:12px;">Hotel: <b>${esc(hotelId)}</b></span>
-      </div>
-      <div class="panel">
-        <table>
-          <thead><tr><th>ID</th><th>Nombre</th><th>Orden</th><th>Descripción</th></tr></thead>
-          <tbody>
-            ${cats.map((c) => `<tr>
-              <td class="mono">${esc(c.id)}</td>
-              <td>${esc(c.name)}</td>
-              <td class="mono">${c.sort_order != null ? c.sort_order : "—"}</td>
-              <td class="muted">${c.description ? esc(c.description) : "—"}</td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>`;
-  } catch (err) {
-    c.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+  let hotels = [];
+  try { hotels = await api("/admin/api/hotels"); } catch (e) {}
+  if (!hotels.length) {
+    c.innerHTML = '<div class="empty">No hay hoteles configurados</div>';
+    return;
   }
+  const hotelOpts = hotels.map(h => `<option value="${esc(h.id)}">${esc(h.id)} — ${esc(h.name)}</option>`).join("");
+  c.innerHTML = `
+    <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0;">🏷️ Categorías de Habitaciones</h2>
+      <div class="flex" style="gap:10px; align-items:center;">
+        <select id="calCatHotel" style="min-width:200px;">${hotelOpts}</select>
+      </div>
+    </div>
+    <div id="calCatBody"><div class="loading">Cargando…</div></div>`;
+
+  async function load() {
+    const hotelId = $("#calCatHotel").value;
+    const body = $("#calCatBody");
+    body.innerHTML = '<div class="loading">Cargando…</div>';
+    try {
+      const cats = await api("/admin/api/calendar/categories?hotel_id=" + encodeURIComponent(hotelId));
+      if (!cats.length) {
+        body.innerHTML = '<div class="empty">Sin categorías para ' + esc(hotelId) + "</div>";
+        return;
+      }
+      body.innerHTML = `
+        <div class="panel">
+          <table>
+            <thead><tr><th>ID</th><th>Nombre</th><th>Orden</th><th>Descripción</th></tr></thead>
+            <tbody>
+              ${cats.map((cat) => `<tr>
+                <td class="mono">${esc(cat.id)}</td>
+                <td>${esc(cat.name)}</td>
+                <td class="mono">${cat.sort_order != null ? cat.sort_order : "—"}</td>
+                <td class="muted">${cat.description ? esc(cat.description) : "—"}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) {
+      body.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
+    }
+  }
+
+  $("#calCatHotel").addEventListener("change", load);
+  load();
 }
 
 /* ===== HOTELS ===== */
@@ -1090,15 +1117,8 @@ async function renderHotelDetail(hotelId) {
       btn.addEventListener("click", () => {
         const tableSlug = btn.dataset.navTable;
         const hotelId = btn.dataset.navHotel;
+        pendingTablesFilter = { table: tableSlug, hotel: hotelId };
         switchView("tables");
-        // Set table selector and hotel filter
-        setTimeout(() => {
-          $("#tableSelect").value = tableSlug;
-          $("#fltHotel").value = hotelId;
-          // Trigger change events
-          $("#tableSelect").dispatchEvent(new Event("change"));
-          $("#fltHotel").dispatchEvent(new Event("change"));
-        }, 100);
       });
     });
 
@@ -1476,6 +1496,15 @@ async function renderTables() {
   const LIMIT = 50;
   let allRows = [];
   let columns = [];
+  let currentHotel = "";
+
+  if (pendingTablesFilter) {
+    currentTable = pendingTablesFilter.table;
+    currentHotel = pendingTablesFilter.hotel || "";
+    currentOffset = pendingTablesFilter.offset || 0;
+    pendingTablesFilter = null;
+  }
+  lastTablesState = { table: currentTable, hotel: currentHotel, offset: currentOffset };
 
   function render() {
     const options = TABLES.map((t) => `<option value="${t.slug}"${t.slug === currentTable ? " selected" : ""}>${t.label}</option>`).join("");
@@ -1486,6 +1515,7 @@ async function renderTables() {
           Tabla:
           <select id="tableSelect" style="min-width: 180px;">${options}</select>
         </label>
+        <select id="tableHotel" style="min-width: 180px;"><option value="">Todos los hoteles</option></select>
         <div class="grow"></div>
         <input type="text" id="searchInput" placeholder="🔍 Buscar…" style="width: 260px;">
         <button class="btn-primary btn-small" id="btnNew">+ Nuevo</button>
@@ -1502,8 +1532,22 @@ async function renderTables() {
       </div>
     `;
 
+    api("/admin/api/hotels").then((hotels) => {
+      const hsel = $("#tableHotel");
+      hsel.innerHTML = '<option value="">Todos los hoteles</option>' + hotels.map(h => `<option value="${esc(h.id)}">${esc(h.id)} — ${esc(h.name)}</option>`).join("");
+      if (currentHotel) {
+        hsel.value = currentHotel;
+      }
+    }).catch(() => {});
+
     $("#tableSelect").addEventListener("change", (e) => {
       currentTable = e.target.value;
+      currentOffset = 0;
+      loadTable();
+    });
+
+    $("#tableHotel").addEventListener("change", (e) => {
+      currentHotel = e.target.value;
       currentOffset = 0;
       loadTable();
     });
@@ -1513,7 +1557,7 @@ async function renderTables() {
     });
 
     $("#btnNew").addEventListener("click", () => {
-      toast("Crear nuevo registro — pendiente (Task 5)", "");
+      openModal(currentTable, columns);
     });
 
     $("#btnPrev").addEventListener("click", () => {
@@ -1537,9 +1581,11 @@ async function renderTables() {
     const container = $("#tableContainer");
     container.innerHTML = '<div class="loading">Cargando…</div>';
     try {
-      const data = await api(`/admin/api/tables/${currentTable}?limit=${LIMIT}&offset=${currentOffset}`);
-      columns = data.columns || [];
-      allRows = data.rows || [];
+      const params = new URLSearchParams({ limit: LIMIT.toString(), offset: currentOffset.toString() });
+      if (currentHotel) params.set("hotel_id", currentHotel);
+      const data = await api(`/admin/api/tables/${currentTable}?${params.toString()}`);
+      columns = data.items && data.items.length ? Object.keys(data.items[0]) : [];
+      allRows = data.items || [];
       renderTableGrid();
     } catch (err) {
       container.innerHTML = '<div class="empty">Error cargando: ' + esc(err.message) + "</div>";
@@ -1596,16 +1642,20 @@ async function renderTables() {
     container.querySelectorAll("[data-edit]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const rowData = JSON.parse(btn.dataset.edit);
-        toast("Editar registro — pendiente (Task 5)", "");
-        console.log("Edit row:", rowData);
+        openModal(currentTable, columns, rowData);
       });
     });
 
     container.querySelectorAll("[data-delete]").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const id = btn.dataset.delete;
-        if (confirm("¿Eliminar registro " + id + "? (pendiente Task 5)")) {
-          console.log("Delete row:", id);
+        if (!confirm("¿Eliminar registro " + id + "?")) return;
+        try {
+          await api(`/admin/api/tables/${currentTable}/${id}`, { method: "DELETE" });
+          toast("✓ Registro eliminado", "success");
+          loadTable();
+        } catch (err) {
+          toast("✗ Error: " + err.message, "error");
         }
       });
     });
@@ -1677,7 +1727,7 @@ async function fetchFkOptions(tableSlug, displayCol) {
   
   try {
     const data = await api(`/admin/api/tables/${tableSlug}?limit=500`);
-    const rows = data.rows || [];
+    const rows = data.items || [];
     let options = rows.map(r => ({ value: r.id, label: r[displayCol] || r.id }));
     
     // Special handling for guests: combine first_name + last_name
@@ -1749,15 +1799,15 @@ function createFormField(columnName, columnType, value, isEditMode, columns) {
   return html;
 }
 
-async function populateFkDropdowns(form, columns) {
+async function populateFkDropdowns(form, columns, rowData = null) {
   for (const col of columns) {
     if (FK_MAP[col]) {
       const select = form.querySelector(`select[name="${esc(col)}"]`);
       if (!select) continue;
       const options = await fetchFkOptions(FK_MAP[col].slug, FK_MAP[col].display);
-      const currentValue = select.value;
-      select.innerHTML = `<option value="">— Seleccionar —</option>` + options.map(o => `<option value="${esc(o.value)}"${o.value === currentValue ? " selected" : ""}>${esc(o.label)}</option>`).join("");
-      select.querySelector(".help-text")?.remove();
+      const currentValue = rowData && rowData[col] != null ? String(rowData[col]) : select.value;
+      select.innerHTML = `<option value="">— Seleccionar —</option>` + options.map(o => `<option value="${esc(o.value)}"${String(o.value) === currentValue ? " selected" : ""}>${esc(o.label)}</option>`).join("");
+      select.closest(".field")?.querySelector(".help-text")?.remove();
     }
   }
 }
@@ -1849,7 +1899,7 @@ function openModal(tableSlug, columns, rowData = null) {
   }
   
   // Populate FK dropdowns
-  populateFkDropdowns(form, columns);
+  populateFkDropdowns(form, columns, rowData);
   
   // Show modal
   $("#crudModal").classList.add("show");
@@ -1907,9 +1957,9 @@ $("#crudForm").addEventListener("submit", async (e) => {
     
     closeModal();
     
-    // Reload the current table view
+    // Reload the current table view, preserving filter/offset state
     if (currentView === "tables") {
-      // The renderTables function will be updated to expose a reload method
+      pendingTablesFilter = lastTablesState;
       renderTables();
     }
   } catch (err) {
@@ -2026,7 +2076,7 @@ async function renderCloseOpenTab(content) {
       if (!hotelId) return;
       const rooms = await api(`/admin/api/tables/rooms?hotel_id=${hotelId}&limit=500`);
       const roomSel = $("#taskRooms");
-      roomSel.innerHTML = rooms.rows.map(r => `<option value="${esc(r.id)}">${esc(r.name || r.id)}</option>`).join("");
+      roomSel.innerHTML = (rooms.items || []).map(r => `<option value="${esc(r.id)}">${esc(r.name || r.id)}</option>`).join("");
     });
 
     // Trigger change for first hotel
@@ -2331,7 +2381,7 @@ async function renderReservationsTab(content) {
     try {
       const params = new URLSearchParams({ limit: LIMIT.toString(), offset: currentOffset.toString() });
       if ($("#resHotel").value) params.set("hotel_id", $("#resHotel").value);
-      if ($("#resStatus").value) params.set("status", $("#resStatus").value);
+      if ($("#resStatus").value) params.set("reservation_status", $("#resStatus").value);
       if ($("#resCheckInFrom").value) params.set("check_in_from", $("#resCheckInFrom").value + "T00:00:00");
       if ($("#resCheckOutBefore").value) params.set("check_out_before", $("#resCheckOutBefore").value + "T23:59:59");
 
@@ -2390,6 +2440,10 @@ async function renderMoveReservationTab(content) {
           <input type="text" id="moveResId" placeholder="ID de la reserva" required>
         </div>
         <div class="field">
+          <label>Hotel</label>
+          <select id="moveHotel" required><option value="">Seleccionar…</option></select>
+        </div>
+        <div class="field">
           <label>Nueva Habitación</label>
           <select id="moveNewRoom" required><option value="">Seleccionar…</option></select>
         </div>
@@ -2399,13 +2453,25 @@ async function renderMoveReservationTab(content) {
     </div>
   `;
 
-  // Load rooms for dropdown
+  // Load hotels, then rooms for selected hotel
   try {
     const hotels = await api("/admin/api/hotels");
     if (hotels.length) {
-      const rooms = await api(`/admin/api/tables/rooms?hotel_id=${hotelId}&limit=500`);
-      const sel = $("#moveNewRoom");
-      sel.innerHTML = rooms.rows.map(r => `<option value="${esc(r.id)}">${esc(r.name || r.id)}</option>`).join("");
+      const sel = $("#moveHotel");
+      sel.innerHTML = hotels.map(h => `<option value="${esc(h.id)}">${esc(h.id)} — ${esc(h.name)}</option>`).join("");
+      sel.addEventListener("change", async () => {
+        const roomSel = $("#moveNewRoom");
+        roomSel.innerHTML = '<option value="">Cargando…</option>';
+        try {
+          const rooms = await api(`/admin/api/tables/rooms?hotel_id=${encodeURIComponent(sel.value)}&limit=500`);
+          const list = (rooms.items || []);
+          roomSel.innerHTML = '<option value="">Seleccionar…</option>' + list.map(r => `<option value="${esc(r.id)}">${esc(r.name || r.id)}</option>`).join("");
+        } catch (e) {
+          roomSel.innerHTML = '<option value="">—</option>';
+        }
+      });
+      sel.value = hotels[0].id;
+      sel.dispatchEvent(new Event("change"));
     }
   } catch (e) {}
 

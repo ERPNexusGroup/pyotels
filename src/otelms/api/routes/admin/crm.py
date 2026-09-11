@@ -466,12 +466,14 @@ async def list_notifications(
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
 
-    # Build notifications from sync logs
-    # This is a dynamic computation - in production you'd have a notifications table
+    # Build notifications from sync logs.
+    # Severity is computed (not stored), so fetch a generous internal window
+    # and apply offset/limit after computing. The cap prevents unbounded fetch
+    # while supporting pagination far beyond the old hardcoded 200-row slice.
     stmt = select(SyncLog)
     if hotel_id:
         stmt = stmt.where(SyncLog.hotel_id == hotel_id)
-    stmt = stmt.where(SyncLog.status.in_(["failed", "started"])).order_by(SyncLog.started_at.desc()).limit(200)
+    stmt = stmt.where(SyncLog.status.in_(["failed", "started"])).order_by(SyncLog.started_at.desc()).limit(5000)
 
     result = await session.execute(stmt)
     logs = result.scalars().all()
@@ -507,9 +509,8 @@ async def list_notifications(
     if severity:
         notifications = [n for n in notifications if n.severity == severity]
 
-    # Paginate
-    total = len(notifications)
-    start = min(offset, total)
-    end = min(start + limit, total)
+    # Paginate (after computed severity filter)
+    start = min(offset, len(notifications))
+    end = min(start + limit, len(notifications))
 
     return notifications[start:end]
