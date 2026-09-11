@@ -359,14 +359,19 @@ class OtelMSAuth:
         logger.debug("Session restore requested")
 
     async def _verify_session(self, context: BrowserContext) -> bool:
-        """Verifica que la sesión es válida navegando al calendario."""
+        """Verifica que la sesión es válida navegando al calendario.
+
+        Usa domcontentloaded (NO networkidle: la página tiene polling/AJAX
+        continuo y networkidle jamás se cumple -> TimeoutError de 180s).
+        La tabla es server-rendered, así que basta con esperar el selector.
+        """
         try:
             page = await context.new_page()
             try:
                 await page.goto(
                     self.urls.calendar_url(),
-                    wait_until="networkidle",
-                    timeout=Timeouts.NAVIGATION * 4,  # calendar es JS-heavy; 180s en Docker
+                    wait_until="domcontentloaded",
+                    timeout=Timeouts.NAVIGATION,
                 )
 
                 # Verificar que no redirige a login
@@ -456,3 +461,39 @@ class SessionManager:
         """Elimina sesión del cache."""
         key = self._session_key(hotel_id, username)
         return await self.cache.delete(key)
+
+
+async def get_authenticated_http_session(hotel_id: str) -> httpx.AsyncClient:
+    """Crea una sesión HTTP autenticada (sin proxy) para requests directos."""
+    client = httpx.AsyncClient(
+        base_url="https://desktop.otelms.com",
+        verify=False,
+        timeout=httpx.Timeout(30.0),
+        follow_redirects=True,
+        headers={
+            "User-Agent": settings.browser_user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+
+    login_url = f"{client.base_url}/login_c2/single_login?hmsid={hotel_id}"
+    await client.get(login_url)
+
+    resp = await client.post(
+        f"{client.base_url}/login_c2/do_single_login",
+        data={
+            "hotel": hotel_id,
+            "login": settings.otelms_default_username,
+            "password": settings.otelms_default_password,
+            "action": "login",
+        },
+        headers={"Referer": login_url},
+    )
+
+    if "login" in resp.url.path:
+        raise AuthenticationError(f"Login failed for hotel {hotel_id}", hotel_id=hotel_id)
+
+    logger.info("Authenticated HTTP session created", hotel_id=hotel_id)
+    return client
+

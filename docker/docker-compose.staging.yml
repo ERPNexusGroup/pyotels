@@ -1,8 +1,10 @@
 # Docker Compose override para FASE DE PRUEBAS (staging efímero).
 #
-# Uso (desde la raíz del repo):
-#   docker compose --env-file .env --env-file docker/staging.env -f docker/docker-compose.yml -f docker/docker-compose.staging.yml down -v
-#   docker compose --env-file .env --env-file docker/staging.env -f docker/docker-compose.yml -f docker/docker-compose.staging.yml up -d postgres redis api worker
+# Uso (desde la raíz del repo). --project-name es OBLIGATORIO: sin él,
+# compose v5 toma "docker" como nombre de proyecto (por el -f) y los
+# volúmenes/red cambian según desde dónde se invoque.
+#   docker compose --project-name otelms-staging --env-file .env --env-file docker/staging.env -f docker/docker-compose.yml -f docker/docker-compose.staging.yml down -v
+#   docker compose --project-name otelms-staging --env-file .env --env-file docker/staging.env -f docker/docker-compose.yml -f docker/docker-compose.staging.yml up -d postgres redis api worker
 #   # (beat apagado a propósito: el sync se dispara manual en fase 1)
 #   $env:PYTHONPATH = $null; & ".venv/Scripts/python.exe" scripts/seed_testing.py
 #   # sync manual contra OtelMS real (ver Fase 3), luego:

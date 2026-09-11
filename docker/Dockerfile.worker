@@ -39,9 +39,14 @@ COPY src/ ./src/
 # Instalar dependencias de producción
 RUN uv pip install --system --no-cache .
 
-# Instalar Camoufox y descargar binario de Firefox (solo en worker)
-RUN uv pip install --system --no-cache "camoufox>=0.5.4" "playwright>=1.50.0" "redbeat" && \
-    python -m camoufox fetch
+# Instalar Camoufox y descargar binario de Firefox en cache compartida (XDG_CACHE_HOME).
+# La verificación con installed_verstr() hace fallar el build si el binario no quedó instalado.
+ENV XDG_CACHE_HOME=/usr/local/share/cache
+RUN mkdir -p /usr/local/share/cache && \
+    uv pip install --system --no-cache "camoufox>=0.5.4" "playwright>=1.50.0" "redbeat" && \
+    python -m camoufox fetch && \
+    python -c "from camoufox.pkgman import installed_verstr; print('camoufox browser:', installed_verstr())" && \
+    chown -R appuser:appuser /usr/local/share/cache
 
 # Cambiar a usuario no-root
 USER appuser
