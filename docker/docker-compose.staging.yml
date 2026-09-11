@@ -1,0 +1,36 @@
+# Docker Compose override para FASE DE PRUEBAS (staging efímero).
+#
+# Uso (desde la raíz del repo):
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.staging.yml down -v
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.staging.yml up -d postgres redis api worker
+#   # (beat apagado a propósito: el sync se dispara manual en fase 1)
+#   $env:PYTHONPATH = $null; & ".venv/Scripts/python.exe" scripts/seed_testing.py
+#   # sync manual contra OtelMS real (ver Fase 3), luego:
+#   & ".venv/Scripts/python.exe" scripts/phase1_smoke.py
+#
+# Notas:
+# - APP_DEBUG=false cierra /docs y /openapi en staging.
+# - Las credenciales reales NUNCA se bakean: llegan por variables del .env local.
+# - La BD se asume efímera (down -v en cada ciclo); seed_testing.py es idempotente.
+
+services:
+  api:
+    environment:
+      - APP_ENV=staging
+      - APP_DEBUG=false
+      - OTELMS_DEFAULT_HOTEL_ID=${OTELMS_DEFAULT_HOTEL_ID:-18330}
+      - OTELMS_DEFAULT_USERNAME=${OTELMS_DEFAULT_USERNAME}
+      - OTELMS_DEFAULT_PASSWORD=${OTELMS_DEFAULT_PASSWORD}
+      - API_KEY=${API_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # Sin hot-reload en staging: se prueba el código commiteado, no el working tree.
+    volumes: []
+
+  worker:
+    environment:
+      - APP_ENV=staging
+      - APP_DEBUG=false
+      - OTELMS_DEFAULT_HOTEL_ID=${OTELMS_DEFAULT_HOTEL_ID:-18330}
+      - OTELMS_DEFAULT_USERNAME=${OTELMS_DEFAULT_USERNAME}
+      - OTELMS_DEFAULT_PASSWORD=${OTELMS_DEFAULT_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
