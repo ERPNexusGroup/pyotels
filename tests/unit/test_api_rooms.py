@@ -102,19 +102,21 @@ class TestAvailableForDates:
 
 
 class TestOccupiedForDate:
-    async def test_occupied_only_checked_in(self, repos):
+    async def test_occupied_nights_sold(self, repos):
         await seed_hotel(repos)
-        # 12/03: res_occ en casa (status 2); res_arr es status 1 -> no ocupa
+        # 12/03: res_occ (status 2, noche del 12) + res_arr (status 1,
+        # llegada el 12 -> ocupa la noche). Orden: check_out asc.
         occupied = await repos["room"].get_occupied_for_date("h1", date(2026, 3, 12))
-        assert [r.id for r in occupied] == ["res_occ"]
+        assert [r.id for r in occupied] == ["res_occ", "res_arr"]
         assert occupied[0].room.id == "r101"
         assert occupied[0].guest.first_name == "John"
 
-    async def test_checkout_day_still_occupied(self, repos):
+    async def test_checkout_day_not_occupied(self, repos):
         await seed_hotel(repos)
-        # El día de salida (13/03) la habitación sigue ocupada hasta el check-out
+        # 13/03: res_occ sale ese día -> ya no ocupa la noche;
+        # res_arr (12/03 -> 14/03) sí.
         occupied = await repos["room"].get_occupied_for_date("h1", date(2026, 3, 13))
-        assert [r.id for r in occupied] == ["res_occ"]
+        assert [r.id for r in occupied] == ["res_arr"]
 
     async def test_after_checkout_empty(self, repos):
         await seed_hotel(repos)
@@ -124,7 +126,7 @@ class TestOccupiedForDate:
     async def test_accepts_str_date(self, repos):
         await seed_hotel(repos)
         occupied = await repos["room"].get_occupied_for_date("h1", "2026-03-12")
-        assert [r.id for r in occupied] == ["res_occ"]
+        assert [r.id for r in occupied] == ["res_occ", "res_arr"]
 
 
 class TestCheckinsCheckoutsForDate:
@@ -229,7 +231,7 @@ class TestRoomsHttp:
         assert resp.status_code == 200
         data = resp.json()
         assert data["date"] == "2026-03-12"
-        assert data["occupied_count"] == 1
+        assert data["occupied_count"] == 2
         item = data["items"][0]
         assert item["reservation_id"] == "res_occ"
         assert item["room"]["id"] == "r101"

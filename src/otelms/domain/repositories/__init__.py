@@ -213,10 +213,13 @@ class RoomRepository(BaseRepository):
     async def get_occupied_for_date(
         self, hotel_id: str, target_date: date | str | None = None
     ) -> Sequence:
-        """Obtiene reservas con huésped en casa para una fecha.
+        """Obtiene reservas que ocupan noche en una fecha (noches vendidas).
 
-        Una habitación se considera ocupada en D si tiene un check-in
-        (status == 2) con date(check_in) <= D <= date(check_out).
+        Una habitación se considera ocupada la noche D si tiene reserva
+        vigente (status 1 o 2) con date(check_in) <= D < date(check_out).
+        El día de salida NO cuenta como ocupada (el huésped sale; ver
+        get_checkouts_for_date). La vista calendario de OtelMS no distingue
+        check-in, por eso se incluyen statuses 1 y 2.
         Retorna reservas con room/categoría/guest precargados,
         ordenadas por check_out (próximas salidas primero).
         """
@@ -233,9 +236,9 @@ class RoomRepository(BaseRepository):
             )
             .where(
                 Reservation.hotel_id == hotel_id,
-                Reservation.status == 2,  # Check-in (huésped en casa)
+                Reservation.status.in_([1, 2]),  # Reserva o Check-in vigente
                 func.date(Reservation.check_in) <= target_date,
-                func.date(Reservation.check_out) >= target_date,
+                func.date(Reservation.check_out) > target_date,
             )
             .order_by(Reservation.check_out)
         )

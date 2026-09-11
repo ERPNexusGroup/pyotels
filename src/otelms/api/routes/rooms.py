@@ -148,7 +148,8 @@ async def get_occupied_rooms(
     ),
     room_repo: RoomRepository = Depends(get_room_repo),
 ) -> OccupiedRoomsResponse:
-    """Habitaciones ocupadas en una fecha (huésped en casa, status == 2)."""
+    """Habitaciones ocupadas la noche de una fecha (noches vendidas: status 1 o 2,
+    check_in <= fecha < check_out; el día de salida no cuenta)."""
     reservations = await room_repo.get_occupied_for_date(hotel_id, target_date)
 
     items = [

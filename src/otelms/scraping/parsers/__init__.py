@@ -10,6 +10,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from otelms.config.constants import ReservationStatus
+from otelms.scraping.calendar_markup_v2 import parse_categories_v2, parse_grid_v2
 from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -129,6 +130,16 @@ class CalendarParser:
                 "rooms": rooms,
             })
 
+        if not categories:
+            # Fallback al markup actual (migración 2026: tr.calendar_tr,
+            # td.calendar_td, sin th). Ver calendar_markup_v2.
+            try:
+                categories = parse_categories_v2(html)
+                if categories:
+                    logger.info("Categories parsed with v2 markup", count=len(categories))
+            except Exception as e:
+                logger.warning("v2 categories fallback failed", error=str(e))
+
         return categories
 
     @staticmethod
@@ -202,6 +213,22 @@ class CalendarParser:
                                 CalendarParser._parse_tooltip(tooltip, cell_data)  # type: ignore[arg-type]  # bs4 Tag vs BeautifulSoup, ambos tienen find/find_all
 
                 cells.append(cell_data)
+
+        if not cells:
+            # Fallback al markup actual (migración 2026). Misma forma de salida.
+            # (las categorías pueden venir del legacy o del propio fallback)
+            try:
+                v2 = parse_grid_v2(html)
+                if v2["cells"] or v2["categories"]:
+                    logger.info(
+                        "Grid parsed with v2 markup",
+                        cells=len(v2["cells"]),
+                        categories=len(v2["categories"]),
+                    )
+                    v2["extracted_at"] = datetime.now(UTC).isoformat()
+                    return v2
+            except Exception as e:
+                logger.warning("v2 grid fallback failed", error=str(e))
 
         return {
             "cells": cells,
