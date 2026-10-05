@@ -29,6 +29,13 @@ x-redis-url: &redis-url redis://127.0.0.1:6381/0
 x-broker-url: &broker-url redis://127.0.0.1:6381/1
 x-backend-url: &backend-url redis://127.0.0.1:6381/2
 
+# Las URLs se escriben enteras en cada servicio en vez de usar los anclas de
+# arriba a propósito: en la forma de lista (`- KEY=valor`) un ancla YAML no se
+# resuelve dentro del escalar, así que `- CELERY_URL=*redis-url` llegaría al
+# contenedor como el texto literal "*redis-url" y Celery moriría al arrancar con
+# ModuleNotFoundError. Para deduplicar hay que usar la forma de mapa
+# (`KEY: *redis-url`), que el compose base no usa.
+
 services:
   postgres:
     network_mode: host
@@ -60,10 +67,10 @@ services:
     networks: !reset []
     command: ["uvicorn", "otelms.api.main:app", "--host", "0.0.0.0", "--port", "8010"]
     environment:
-      - DATABASE_URL=*db-url
-      - REDIS_URL=*redis-url
-      - CELERY_BROKER_URL=*broker-url
-      - CELERY_RESULT_BACKEND=*backend-url
+      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@127.0.0.1:5434/otelms
+      - REDIS_URL=redis://127.0.0.1:6381/0
+      - CELERY_BROKER_URL=redis://127.0.0.1:6381/1
+      - CELERY_RESULT_BACKEND=redis://127.0.0.1:6381/2
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
       interval: 30s
@@ -76,18 +83,18 @@ services:
     network_mode: host
     networks: !reset []
     environment:
-      - DATABASE_URL=*db-url
-      - REDIS_URL=*redis-url
-      - CELERY_BROKER_URL=*broker-url
-      - CELERY_RESULT_BACKEND=*backend-url
+      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@127.0.0.1:5434/otelms
+      - REDIS_URL=redis://127.0.0.1:6381/0
+      - CELERY_BROKER_URL=redis://127.0.0.1:6381/1
+      - CELERY_RESULT_BACKEND=redis://127.0.0.1:6381/2
     depends_on: !reset []
 
   beat:
     network_mode: host
     networks: !reset []
     environment:
-      - DATABASE_URL=*db-url
-      - REDIS_URL=*redis-url
-      - CELERY_BROKER_URL=*broker-url
-      - CELERY_RESULT_BACKEND=*backend-url
+      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@127.0.0.1:5434/otelms
+      - REDIS_URL=redis://127.0.0.1:6381/0
+      - CELERY_BROKER_URL=redis://127.0.0.1:6381/1
+      - CELERY_RESULT_BACKEND=redis://127.0.0.1:6381/2
     depends_on: !reset []

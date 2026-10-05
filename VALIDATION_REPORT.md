@@ -77,15 +77,33 @@ Docker CLI. Detalle completo en §5.
 `postgres` y `redis` levantan y quedan **healthy**. Postgres en 5434, Redis en
 6381 (no en los puertos por defecto: ver §5).
 
+Las dos imágenes construyen sin errores (`BUILD_EXIT=0`) y los cuatro servicios
+quedan arriba:
+
+```
+NAME           IMAGE                            STATUS
+otelms-api     docker.io/library/docker-api     Up
+otelms-worker  docker.io/library/docker-worker  Up
+otelms-postgres postgres:16-alpine              Up (healthy)
+otelms-redis   redis:7-alpine                   Up (healthy)
+```
+
+El build es lento pero correcto: `python -m camoufox fetch` descarga y extrae
+~500 MB de Firefox y tarda entre 15 y 20 min. El worker tarda ~13 min y la API
+~5 min después.
+
 ### Health de la API
 
+Validado **sobre el contenedor**, no solo sobre el venv local:
+
 ```json
-{"status":"healthy","version":"1.0.0","timestamp":"2026-10-05T05:19:16.724207",
+{"status":"healthy","version":"1.0.0","timestamp":"2026-10-05T05:44:03.839326",
  "checks":{"database":true,"cache":true}}
 ```
 
-`database` y `cache` en true. El chequeo de caché falló en los primeros 5 s tras
-arrancar (carrera del túnel SSH) y se estabilizó solo.
+`database` y `cache` en true. `GET /health/ready` → 200. El log de arranque
+confirma `Database initialized`, `Cache inicializado con Redis` e
+`Initializing browser pool`.
 
 Las rutas de health reales son `/health`, `/health/ready` y `/health/live` — el
 router tiene `prefix="/health"`. Un `GET /health/ready` sin el prefijo devuelve
@@ -93,10 +111,19 @@ router tiene `prefix="/health"`. Un `GET /health/ready` sin el prefijo devuelve
 
 ### Worker
 
-No verificado end-to-end. La imagen del worker **no llegó a construirse**: el
-build se quedó descargando el binario de Camoufox (~500 MB) durante más de 12
-minutos sin avanzar. La imagen de la API tampoco. Queda pendiente confirmar que
-`docker compose build api worker` termina con los dos Dockerfiles.
+El worker arranca y queda consumiendo:
+
+```
+Connected to redis://127.0.0.1:6381/1
+[queues] celery · scraping
+[tasks]  debug_task, cleanup_old_sync_logs, health_check, sync_calendar,
+         sync_categories, sync_full, sync_reservation_details
+celery@LenovoLegion5 ready.
+```
+
+Confirma en producción los dos commits más recientes de `dev`: el consumo de
+las colas `celery` **y** `scraping` (`4a8a5bf`) y el logger de structlog
+(`3085f64`).
 
 ---
 
@@ -255,10 +282,11 @@ ssh -L 5434:127.0.0.1:5434 -L 6381:127.0.0.1:6381 -L 8010:127.0.0.1:8010 \
     -N -i <key> -p 50566 user@127.0.0.1
 ```
 
-### Cómo se validó la API en esta fase
+### Cómo se validó la API
 
-Como la imagen no llegó a construirse, la API se validó corriendo desde el venv
-de Windows contra el Postgres y el Redis tunelizados:
+Primero se validó la API corriendo desde el venv de Windows contra el Postgres y
+el Redis tunelizados, y después ya con el contenedor, que es la validación que
+queda reflejada en §3 y §4. El comando del venv, por si hace falta reproducirlo:
 
 ```bash
 DATABASE_URL='postgresql+asyncpg://otelms:otelms_dev_password@localhost:5434/otelms' \
@@ -268,10 +296,7 @@ env -u PYTHONPATH .venv/Scripts/python.exe -m uvicorn otelms.api.main:app \
     --host 127.0.0.1 --port 8010
 ```
 
-El código ejecutado es el mismo del contenedor; solo cambia quién levanta el
-proceso.
-
-### OtrosFindings del override
+### Otros findings del override
 
 - **BuildKit no arranca** (levanta un contenedor, que necesita bridge). Hay que
   construir con `DOCKER_BUILDKIT=0`.
@@ -279,6 +304,13 @@ proceso.
   build de Podman (`unable to retrieve auth token: unauthorized`). Se resuelve
   bajando antes las imágenes base con el CLI de podman:
   `docker.io/library/python:3.12-slim-bookworm` y `ghcr.io/astral-sh/uv:latest`.
+- **Los anclas YAML no sirven en la forma de lista.** El compose base declara
+  `environment` como lista (`- KEY=valor`), y ahí `- CELERY_RESULT_BACKEND=*url`
+  no resuelve el ancla: llega al contenedor el texto literal `*backend-url` y
+  Celery muere al arrancar con `ModuleNotFoundError: No module named
+  '*backend-url'`. Por eso las URLs van escritas enteras en cada servicio. Para
+  deduplicar haría falta la forma de mapa (`KEY: *url`), que el compose base no
+  usa.
 
 ---
 
@@ -320,14 +352,17 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 - `/health`, `/hotels`, `/rooms`, `/rooms/available`, `/rooms/occupied`,
   `/rooms/checkouts`, `/reservations/today/checkins`.
 - Celery + Redis disponibles.
+- Build de las dos imágenes (`docker-api` y `docker-worker`) y arranque de los
+  cuatro servicios con el override de Podman.
 
 ### ⚠️ Datos parciales
 
 - Sync de calendario: 49 parseados vs 7 filas. Sin reconciliar.
 - Ocupación: el endpoint responde pero no se contrastó contra la columna
   "Ocupadas" del calendario.
-- Build de imágenes: sin verificar (§3).
-- Worker: sin verificar (§3).
+- Build de imágenes: verificado, pero **no** con el `docker compose build` que
+  pide el plan (Fase 0 no llega a la tarea de build); se verificó la corrección
+  de los dos Dockerfiles con `DOCKER_BUILDKIT=0` (§5).
 
 ### ❌ Falla
 
