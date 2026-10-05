@@ -503,7 +503,7 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 | Lista de huéspedes | ✅ 200 (arreglada) | ficha de huésped | ✅ |
 | Servicios del folio | 66 filas (Tarea 1.3) | tabla de consumos | ✅ cuadra |
 | Pagos del folio | 6 filas, 853.00 USD (Tarea 1.3) | tabla de pagos | ✅ cuadra |
-| In-house | no hay endpoint | columna "Ocupadas" | ❌ ausente (Tarea 1.4) |
+| In-house | ✅ derivado (`/reservations/in-house`) | no existe tal vista | ✅ Tarea 1.4 |
 | Ocupación por fecha | 2 para 2026-10-05 (`/rooms/occupied`) | columna "Ocupadas" | ⚠️ sin contrastar contra UI |
 | Close/open dates | solo escribe en BD local | restringe el calendario | ❌ no llama a OtelMS (Tarea 2.1) |
 | Check-in / check-out | no existe | botón en la reserva | ❌ ausente (Tareas 2.2, 2.3) |
@@ -520,6 +520,9 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 - Disponibilidad por categoría (Tarea 1.1): 414 celdas leídas del calendario y
   persistidas, 9 categorías × 46 días, verificadas contra el portal.
 - Servicios y pagos del folio (Tarea 1.3): 66 servicios y 6 pagos.
+- In-house (Tarea 1.4): derivado. **OtelMS no tiene endpoint de in-house** —
+  el menú completo está mapeado en `docs/otelms_endpoints.md` §4 y no lo tiene.
+  Sale de las reservas que pernoctan la fecha.
 - Scraping de categorías.
 - Persistencia en Postgres vía repositorios, con `sync_logs`.
 - `scripts/seed_testing.py` (idempotente) contra Postgres real.
@@ -585,8 +588,7 @@ El plan de Fase 1 sigue tal cual, con tres ajustes que se aprenden por el camino
 
 Los huecos que siguen abiertos:
 
-1. **In-house** (Tarea 1.4): no hay endpoint.
-2. **Ocupación por fecha**: el endpoint responde pero no se ha contrastado
+1. **Ocupación por fecha**: el endpoint responde pero no se ha contrastado
    contra la columna "Ocupadas" del calendario.
 
 Cerradas en esta fase:
@@ -596,6 +598,11 @@ Cerradas en esta fase:
   expuestas en `GET /categories/availability`.
 - **Servicios y pagos del folio** (Tarea 1.3): 66 servicios y 6 pagos desde
   `/reservation_c2/folio/{resid}`.
+- **In-house** (Tarea 1.4): no hay endpoint en el portal (menú completo
+  mapeado, §4 del doc de endpoints). Derivado en `GET /reservations/in-house`,
+  y **no por `Estado`**: de las 270 reservas, las 22 marcadas "Check in" tienen
+  la salida pasada y ninguna pernocta ese día. El criterio correcto es
+  `check_in <= fecha < check_out`.
 - **49 vs 7 reservas**: reconciliado. El sync del 2026-10-05 parsea 42 celdas
   ocupadas y persiste 42.
 

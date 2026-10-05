@@ -130,6 +130,7 @@ curl -H "X-API-Key: your-api-key" http://localhost:8000/hotels
 | `/reservations/{id}` | GET | Get reservation with details |
 | `/reservations/today/checkins` | GET | Today's check-ins |
 | `/reservations/today/checkouts` | GET | Today's check-outs |
+| `/reservations/in-house` | GET | Guests staying the night of a given date |
 | `/reservations/sync/calendar` | POST | Trigger calendar sync |
 | `/reservations/sync/categories` | POST | Trigger categories sync |
 | `/reservations/sync/full` | POST | Trigger full sync |
@@ -160,6 +161,27 @@ the value is scraped from the calendar's summary row (`div.calendar_sum`) and
 stored in `category_availability`. It is filled by the calendar sync, not by the
 categories sync — the numbers arrive with the grid. Details in
 `docs/otelms_endpoints.md` §2.1.
+
+### In-house
+
+`GET /reservations/in-house?hotel_id=18330&target_date=2026-10-05` lists who is
+sleeping in the hotel on a given night, with the nights elapsed and remaining:
+
+```json
+{"reservation_id": "23356", "guest_name": "Bejot Louis",
+ "room": {"id": "107", "name": "107", "category_id": "13"},
+ "check_in": "2026-09-20T05:00:00Z", "check_out": "2026-10-06T05:00:00Z",
+ "nights": 16, "nights_elapsed": 15, "nights_remaining": 1, "status": 1}
+```
+
+OtelMS has **no in-house view** — the whole menu was walked and it isn't there
+(`docs/otelms_endpoints.md` §4), so the list is derived from reservations. The
+obvious source of truth is the wrong one: of the 270 reservations in the portal,
+the 22 flagged `Estado == "Check in"` all have a check-out already in the past
+and none of them covers the day being asked about. The criterion that actually
+holds is the date range, `check_in <= target_date < check_out`, and the count is
+of reservations, not of occupied rooms. Guests and room numbers come from
+`RoomRepository.get_occupied_for_date`, which already joined them.
 
 ### Building API responses
 

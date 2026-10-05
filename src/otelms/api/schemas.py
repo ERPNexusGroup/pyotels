@@ -292,6 +292,42 @@ class CategoryAvailabilityResponse(BaseModel):
     items: list[CategoryAvailabilityRow] = []
 
 
+# ============================================================
+# IN-HOUSE (huéspedes dentro del hotel)
+# ============================================================
+class InHouseItem(BaseModel):
+    """Un huésped que pernocta la fecha consultada.
+
+    `status` es el estado que trae OtelMS, no el criterio de selección: el
+    portal deja reservas en "Check in" con salida ya pasada, así que el in-house
+    se decide por `check_in <= fecha < check_out`.
+    """
+
+    reservation_id: str
+    guest_name: str | None = None
+    room: RoomResponse
+    check_in: datetime
+    check_out: datetime
+    nights: int = Field(..., description="Noches de la estancia")
+    nights_elapsed: int = Field(..., description="Noches ya cumplidas hasta la fecha")
+    nights_remaining: int
+    adults: int = 1
+    children: int = 0
+    total_price: Decimal | None = None
+    status: int | None = Field(None, description="Estado en OtelMS: 1 Reservación, 2 Check in, 3 Check out")
+    source: str | None = None
+
+
+class InHouseResponse(BaseModel):
+    hotel_id: str
+    date: date
+    in_house_count: int
+    occupied_rooms: int = Field(
+        0, description="Habitaciones distintas ocupadas (una habitación, varios huéspedes)"
+    )
+    items: list[InHouseItem] = []
+
+
 # Forward references
 CategoryResponse.model_rebuild()
 RoomResponse.model_rebuild()

@@ -197,12 +197,90 @@ junto al script).
 
 ---
 
-## 4. Endpoints NO verificados
+## 4. Menú completo del portal
+
+Extraído de `/reservation_c2/status` ("Escritorio"), que es el único sitio
+donde vive el menú completo. **Estas son todas las rutas de la aplicación**;
+si algo no está aquí, no existe como página (salvo que sea un `POST` a un
+formulario):
+
+| Enlace del menú | Ruta |
+|---|---|
+| Tabla de reservas / HMS v1.0 | `/reservations/calendar/` |
+| HMS v2.0 | `/reservation_c2/calendar` |
+| ∑ Precios y disponibilidad | `/reservation_c2/price_calendar` |
+| Restricciones | `/reservation_c2/restrict_calendar` |
+| Estado | `/reservation_c2/status` |
+| Informes (lista de reservas) | `/reservation_c2/rlist/{página}` |
+| Crear reserva grupal | `/reservation_c2/group_reservation` |
+| Lista de comentarios | `/reviews_c2/reviews_list` |
+| Recomendaciones | `/recommendations/recommendations_list` |
+| Buzón | `/mailbox_c2/messageslist/1/1` |
+| Configuración | `/admin_settings_c2/global_settings` |
+| Ayuda | `https://wiki.otelms.com/` |
+
+Evidencia: `tests/manual/test_inhouse_discover.py`.
+
+### 4.1 No existe endpoint de in-house
+
+**No hay vista de in-house en OtelMS.** El menú está completo arriba y no la
+tiene. Se implementa derivado en `GET /reservations/in-house`.
+
+Lo importante es **no filtrar por `Estado`**. La lista de reservas
+(`/reservation_c2/rlist/{n}`) trae la columna `Estado` con valores `Reservación`,
+`Check in` y `Check out`, y parece la fuente obvious del in-house, pero no lo es.
+Barrido completo del 2026-10-05 (270 reservas en 9 páginas de 50):
+
+| Estado | Reservas |
+|---|---|
+| Reservación | 243 |
+| Check in | 22 |
+| Check out | 5 |
+
+**Las 22 "Check in" tienen la salida ya pasada** — van del 2026-08-08 al
+2026-10-03 — y ninguna pernocta ese día. Filtrar por estado daría 22 huéspedes
+que ya se fueron; el hotel estaba vacío. El estado en OtelMS es lo último que
+se actualiza y el que menos vale.
+
+El criterio correcto es el rango de fechas, `check_in <= fecha < check_out`, que
+es lo que ya hace `RoomRepository.get_occupied_for_date`.
+
+### 4.2 `/reservation_c2/rlist/{n}` — la lista de reservas
+
+La tabla más completa del portal: **52 filas, 23 columnas con cabecera
+nombrada**. Se lee por nombre de columna, nunca por posición.
+
+`#` · `Reserva` · `Номер/tov. Категорія` · `Тип номера` · `Номер` · `Гість` ·
+`Користувач` · `Кількість гостей` · `Додаткове ліжко` · `Місце для дитини` ·
+`Джерело` · `Тариф` · `Статус` · `Приїзд` · `Проживання` · `Від'їзд` · `Сума` ·
+`Знижка` · `Оплачено` · `Залишок` · `Дата` · `Телефон` · `E-mail`
+
+En el despliegue español salen traducidas (`Reserva`, `Habitación`, `Huésped`,
+`Estado`, `Entrada`, `Estancia`, `Salida`, `Importe`, `Descuento`, `Pagado`,
+`Saldo`), pero el encabezado es ukraniano en el HTML original.
+
+- El `{n}` es **paginación**, no un filtro: 50 filas por página. `rlist/0` y un
+  valor no numérico devuelven **500**.
+- Trae `Номер/Категория` (número + categoría en una celda) y `Тип номера`
+  (categoría), campos que el calendario no da.
+- Trae `Pagado` y `Saldo` separados; el calendario solo da el saldo.
+
+### 4.3 `/reservation_c2/restrict_calendar` y `/price_calendar`
+
+Dos rejillas más de 46 días, y **la primera fila de `restrict_calendar` es
+exactamente la disponibilidad del calendario** (`8, 10, 10, 10, 0, 0, 0, 10,
+10, 10, 0, 10, …`). Confirma por una segunda vía el `div.calendar_sum` de §2.1.
+`price_calendar` lleva las mismas cifras debajo de los precios por categoría.
+
+Son la vía natural para cerrar y abrir fechas (Fase 2, Tarea 2.1).
+
+---
+
+## 5. Endpoints NO verificados
 
 Ninguno de estos se ha visto funcionar. No escribas código contra ellos sin
 un `tests/manual/test_<nombre>.py` que lo compruebe antes:
 
-- Endpoint de in-house / huéspedes actuales.
-- Cierre y apertura de fechas (lo que hay en `scraping/restrictions.py` está
-  sin confirmar contra el portal).
+- Cierre y apertura de fechas: existen las vistas (`restrict_calendar`) pero no
+  se ha localizado el `POST` que las ejecuta.
 - Cualquier cosa de reservations_v2 / booking engine.

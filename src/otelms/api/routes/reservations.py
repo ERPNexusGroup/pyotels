@@ -1,18 +1,27 @@
 """
 Reservation endpoints.
 """
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from otelms.api.dependencies import get_reservation_repo, get_sync_service, verify_api_key
-from otelms.api.mappers import reservation_response
+from otelms.api.dependencies import (
+    get_reservation_repo,
+    get_room_repo,
+    get_sync_service,
+    verify_api_key,
+)
+from otelms.api.mappers import guest_name as _guest_name
+from otelms.api.mappers import reservation_response, room_response
 from otelms.api.schemas import (
+    InHouseItem,
+    InHouseResponse,
     PaginationParams,
     ReservationFilterParams,
     ReservationListResponse,
     ReservationResponse,
 )
-from otelms.domain.repositories import ReservationRepository
+from otelms.domain.repositories import ReservationRepository, RoomRepository
 from otelms.services.sync_service import SyncService
 from otelms.utils.logging import get_logger
 
@@ -54,6 +63,64 @@ async def list_reservations(
         page=pagination.page,
         page_size=pagination.page_size,
         total_pages=(total + pagination.page_size - 1) // pagination.page_size,
+    )
+
+
+@router.get("/in-house", response_model=InHouseResponse)
+async def get_in_house(
+    hotel_id: str = Query(..., description="Hotel ID"),
+    target_date: date = Query(
+        default_factory=date.today, description="Noche a consultar (YYYY-MM-DD)"
+    ),
+    room_repo: RoomRepository = Depends(get_room_repo),
+) -> InHouseResponse:
+    """Huéspedes dentro del hotel la noche de una fecha.
+
+    **OtelMS no tiene endpoint de in-house.** Se comprobó el menú entero
+    (`tests/manual/test_inhouse_discover.py`): no existe tal vista, así que el
+    listado se deriva de las reservas que pernoctan esa fecha.
+
+    El criterio es el rango de fechas, **no** `status == 2` ("Check in").
+    Contrastado contra el portal: de 270 reservas, las 22 marcadas "Check in"
+    tienen la salida ya pasada (entre 2026-08-08 y 2026-10-03) y ninguna
+    pernocta el día consultado. Filtrar por estado daría 22 huéspedes que ya se
+    fueron.
+
+    El día de salida no cuenta: el huésped se va esa mañana.
+    """
+    reservations = await room_repo.get_occupied_for_date(hotel_id, target_date)
+
+    items: list[InHouseItem] = []
+    for res in reservations:
+        # check_in/check_out son timestamps; las noches son días completos entre
+        # ambos. El día de salida no es una noche.
+        entrada = res.check_in.date() if res.check_in else target_date
+        salida = res.check_out.date() if res.check_out else target_date
+        noches = max((salida - entrada).days, 0)
+        cumplidas = max((target_date - entrada).days, 0)
+
+        items.append(InHouseItem(
+            reservation_id=res.id,
+            guest_name=_guest_name(res),
+            room=room_response(res.room),
+            check_in=res.check_in,
+            check_out=res.check_out,
+            nights=noches,
+            nights_elapsed=min(cumplidas, noches),
+            nights_remaining=max(noches - cumplidas, 0),
+            adults=res.adults or 1,
+            children=res.children or 0,
+            total_price=res.total_price,
+            status=res.status,
+            source=res.source,
+        ))
+
+    return InHouseResponse(
+        hotel_id=hotel_id,
+        date=target_date,
+        in_house_count=len(items),
+        occupied_rooms=len({r.room_id for r in reservations if r.room_id}),
+        items=items,
     )
 
 
