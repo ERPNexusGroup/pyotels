@@ -367,6 +367,33 @@ llamado contra el portal por eso: no es reversible con la certeza que hace
 falta. El código anterior lo usaba con los valores **invertidos** (0 = cerrar,
 1 = abrir), o sea que habría cerrado las fechas que se le pidieran abrir.
 
+### 4.5 La lectura: `GET /restrictions` no persiste nada
+
+`src/otelms/api/routes/restrictions.py` expone la rejilla como endpoint HTTP
+pero **no guarda nada en la base de datos** (a diferencia de la disponibilidad,
+que sí va a `category_availability`). Se decidió así a propósito, no por
+comodidad:
+
+- Las restricciones son pocas y muy móviles. Recepción abre un día y el
+  cambio se ve al momento; una tabla devolvería una foto justo de lo que más
+  importa ver al día.
+- La rejilla son 46 días. Una fila por celda cerrada son decenas, no miles, y
+  aun así se quedarían obsoletas entre syncs.
+
+La consecuencia práctica es que **esta ruta pega contra OtelMS en cada
+llamada**: es más lenta que el resto del API y cuenta como scraping. Por eso
+la respuesta trae `"source": "otelms/restrict_calendar"` siempre fijo, para
+que el cliente distinga una lectura en vivo de un dato cacheado. Sólo se
+devuelven las celdas **cerradas**: la ausencia de un par `{category_id, date}`
+significa "abierta", no "sin datos". El orden de `items` lo impone la ruta
+(fecha, categoría) y no el HTML de la rejilla.
+
+Lo que **no** se ha resuelto: la escritura (cerrar/abrir) no está expuesta por
+HTTP. `close_dates()` / `open_dates()` de `scraping/restrictions.py` funcionan y
+están probadas contra el portal, pero exponerlas significa escribir contra un
+portal de terceros sin `dry-run` ni undo, así que queda para cuando haya una
+decisión explícita sobre quién puede cerrar un día y con qué auditoría.
+
 ---
 
 ## 5. Endpoints NO verificados

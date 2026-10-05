@@ -142,6 +142,7 @@ curl -H "X-API-Key: your-api-key" http://localhost:8000/hotels
 | `/categories/{id}` | GET | Get category with rooms |
 | `/categories/{id}/rooms` | GET | Rooms of a category |
 | `/categories/availability` | GET | Availability per category and day, as OtelMS publishes it |
+| `/restrictions` | GET | Closed dates per category and rate, read live from the portal |
 
 ### Category availability
 
@@ -182,6 +183,29 @@ and none of them covers the day being asked about. The criterion that actually
 holds is the date range, `check_in <= target_date < check_out`, and the count is
 of reservations, not of occupied rooms. Guests and room numbers come from
 `RoomRepository.get_occupied_for_date`, which already joined them.
+
+### Closed dates (restrictions)
+
+`GET /restrictions?hotel_id=18330&date_from=2026-11-18&date_to=2026-11-19`
+returns only the **closed** cells of the OtelMS restriction grid:
+
+```json
+{"category_id": "21", "category_name": "Overbooking", "rate_id": "1",
+ "date": "2026-11-19", "closed": true}
+```
+
+Unlike every other endpoint in the API, this one **scrapes OtelMS on each
+call** — there is no `room_restrictions` table. That is deliberate: closures
+are few and move fast (reception opens a day and it changes within the hour),
+so a stored snapshot would be stale exactly where it matters most. The
+`source` field is always `"otelms/restrict_calendar"` so a client can tell a
+live reading from a cached one. Only closed cells are returned, so a missing
+`{category_id, date}` pair means **open**, not "no data". The grid holds 46
+days; asking for more returns fewer cells, not an error.
+
+The write side (closing and opening dates) is `src/otelms/scraping/restrictions.py`
+and is not exposed over HTTP yet. Closing a day is three chained calls, not one
+PUT — see `docs/otelms_endpoints.md` §4.4.
 
 ### Building API responses
 

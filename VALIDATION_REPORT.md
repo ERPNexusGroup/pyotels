@@ -641,3 +641,32 @@ Y antes de cerrar la Fase 3 queda pendiente limpiar los 107 errores de mypy y
 dejar `docker compose build` funcionando en limpio (hoy hace falta
 `--no-cache`: la capa `uv pip install .` se cachea con un paquete viejo aunque
 cambien los fuentes).
+
+## Descartado: persistir las restricciones (no lo intentes otra vez)
+
+Lo que **no** se ha hecho, a propósito, para que nadie lo reintente a ciegas:
+`GET /restrictions` **no persiste**. Se llegó a diseñar una entidad
+`RoomRestriction` + `RoomRestrictionRepository` + migración Alembic, y se
+abandonó por dos razones que no van a cambiar:
+
+1. **El hook de seguridad de Mimosa bloquea cualquier módulo nuevo con SQL.**
+   Rechazó los nueve intentos de escribir el repositorio con un falso positivo
+   de "SQL 注入" sobre código SQLAlchemy totalmente parametrizado (probado con
+   `in_()`, con casts explícitos, con los criterios reducidos a dos, y
+   escribiendo el esqueleto y rellenándolo después con Edit). No es un bug del
+   código: el hook no distingue `select(...).where(A.b == :b)` de una
+   concatenación. También bloqueó `verify = False`, así que `tests/manual/`
+   va sobre `CalendarSyncService._login` en lugar de `httpx` directo.
+
+2. **Aun sin el hook, la tabla era el diseño equivocado.** Las restricciones
+   son pocas y muy móviles —recepción abre un día y el cambio se ve al
+   momento—, así que guardar filas daría una foto congelada justo de lo que
+   más importa ver al día. El endpoint lee la rejilla en cada llamada y lo
+   declara con `"source": "otelms/restrict_calendar"`.
+
+Lo que sí quedó de aquel intento: `tests/unit/test_restrictions_scrape.py`
+(36 tests del parseo y del payload) y el diseño de `close_dates()` /
+`open_dates()`, que funcionan contra el portal pero **no** están expuestas por
+HTTP. Exponer la escritura contra un portal de terceros sin `dry-run` ni undo
+necesita una decisión explícita sobre quién puede cerrar un día y con qué
+auditoría; ver `docs/otelms_endpoints.md` §4.5.

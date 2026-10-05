@@ -293,6 +293,36 @@ class CategoryAvailabilityResponse(BaseModel):
 
 
 # ============================================================
+# RESTRICCIONES (celdas cerradas)
+# ============================================================
+class RestrictionRow(BaseModel):
+    """Una celda cerrada de la rejilla de restricciones.
+
+    La restricción la define la terna (categoría, tarifa, día): es lo que el
+    portal cierra. `closed` sale de las clases del `<td>`, que es la única
+    forma de leerlo: el portal no lo serializa en ningún atributo.
+    """
+
+    category_id: str
+    category_name: str | None = None
+    rate_id: str = Field("1", description="1 = Standard, 2 = Feriados")
+    date: date
+    closed: bool = True
+
+
+class RestrictionResponse(BaseModel):
+    hotel_id: str
+    date_from: date
+    date_to: date
+    source: str = Field(
+        "otelms/restrict_calendar",
+        description="Siempre en vivo: no hay tabla de restricciones, se lee del portal",
+    )
+    count: int
+    items: list[RestrictionRow] = []
+
+
+# ============================================================
 # IN-HOUSE (huéspedes dentro del hotel)
 # ============================================================
 class InHouseItem(BaseModel):
