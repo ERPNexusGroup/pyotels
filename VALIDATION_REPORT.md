@@ -12,14 +12,24 @@ el stack arranque en esta máquina.
 ## 1. Resumen ejecutivo
 
 El login HTTP, el scrape del calendario y la persistencia **funcionan end-to-end
-contra OtelMS real**. Sin embargo, tres de los endpoints públicos más importantes
-(`/reservations`, `/categories`, `/guests`) devuelven **HTTP 500**, y dos de los
-cuatro TODOs del plan siguen vacíos porque `services` y `payments` nunca se
-extraen.
+contra OtelMS real**, y los 500 que bloqueaban `/reservations`, `/categories` y
+`/guests` están arreglados (Tarea 0.5, §4.1). Dos de los cuatro TODOs del plan
+siguen vacíos porque `services` y `payments` nunca se extraen: es la Tarea 1.3.
 
-El plan de la Fase 1 asume que `/reservations` y `/categories` responden para
-verificar `capacity` y disponibilidad. **No responden.** Recomiendo insertar un
-arranque de Fase 1 con "Tarea 0.5 — arreglar los 500" antes de seguir.
+La validación de contenedores destapó dos fallos que **solo existían en la
+imagen del worker**, invisibles desde el host y presentes desde el despliegue:
+
+- **Los syncs programados nunca habían autenticado bien.** `api` y `worker`
+  tenían `OTELMS_DEFAULT_PASSWORD=${...:-changeme}` en `environment:`, que gana
+  sobre `env_file:`, y `podman-compose` no interpola `${}` desde el `.env` de la
+  raíz. El worker arrancaba con `changeme` y cada sync moría en "Sesión no
+  válida tras login". Ver §3.
+- **Camoufox no podía arrancar en el worker**, por librerías de GTK/X11/AT-SPI
+  ausentes. Toda tarea que necesitara el browser fallaba, y el host nunca lo
+  notó porque allí no se usa el contenedor. Ver §3.
+
+Ambos corregidos y verificados dentro del contenedor. La lección: ejecutar la
+suite desde Windows valida el código, no el despliegue.
 
 ---
 
@@ -144,6 +154,61 @@ Con `--timeout=45s --interval=60s --start-period=45s` el contenedor queda
 `healthy` y los ciclos siguientes devuelven `exit=0`. Un `unhealthy` aquí no
 significa worker muerto: hay que mirar el código de salida del log de health
 antes de mirar al worker.
+
+### Los contenedores nunca tuvieron las credenciales reales
+
+Este es el hallazgo más serio de la fase 0, y uno que la validación HTTP no
+habría detectado: **los syncs programados de `otelms-worker` estaban fallando
+desde el despliegue, todos, sin excepción.** El endpoint `/sync/...` dispara la
+tarea y devuelve 200; el error se comía el worker, a un `docker logs` de
+distancia.
+
+La causa era la interacción de dos comportamientos de compose que se anulan:
+
+```yaml
+environment:
+  - OTELMS_DEFAULT_PASSWORD=${OTELMS_DEFAULT_PASSWORD:-changeme}
+```
+
+1. Una entrada explícita en `environment:` **gana sobre `env_file:`**. El
+   `env_file: [../.env]` estaba, pero la línea de arriba lo pisaba.
+2. `podman-compose` **no interpola `${}` desde el `.env` de la raíz del repo**
+   (ese archivo no es un `env_file` de compose, así que nadie lo carga antes de
+   resolver la sustitución). La variable arriving vacía, caía al default:
+   `changeme`.
+
+El worker logged successfully contra `redis://127.0.0.1:6381/1` y por eso
+parecía sano; el login de OtelMS era lo único que fallaba, y reintentaba en
+bucle. Corregido borrando las tres líneas `OTELMS_DEFAULT_*` de `api` y `worker`
+para que el `.env` llegue por `env_file` sin shadowing. Un `grep OTELMS_DEFAULT`
+sobre el compose debería dar cero: si aparece, alguien ha reintroducido el bug.
+
+> Trampa al verificar: `.env` guardado con CRLF. Comparando los hashes de
+> contraseña leídos con `cut`/`sed` salía un carácter de más y la conclusión
+> era justo la contraria a la buena. Hay que parsear con Python y
+> `utf-8-sig` + `.strip()`.
+
+### Camoufox no podía arrancar en el worker
+
+Faltaban librerías del runtime de Firefox. El error cambiaba de nombre según
+cuál se añadiera (`libgtk-3.so.0` → `libmozgtk.so` → `libX11-xcb.so.1`),
+porque `libxul.so` las carga todas por cascada. Añadidas a
+`docker/Dockerfile.worker`:
+
+```
+libdbus-glib-1-2  libgtk-3-0  libatspi2.0-0  libx11-xcb1  libxshmfence1
+libxtst6  libxi6  libxt6  libxss1  libcairo-gobject2
+```
+
+Verificado dentro del contenedor, no en el host — que es donde pasaba: el
+Camoufox abre `example.com` y devuelve el título. Antes de esto, cualquier tarea
+que necesitara el browser (folio, acciones JS, o el fallback del calendario)
+fallaba aunque el HTTP ya se hubiera intentado. El host nunca lo notó porque
+allí el scrape corre en el proceso de Python del host, no en la imagen.
+
+> Lección de estos dos: los dos fallos vivían **solo** en la imagen del worker.
+> Ejecutar la suite desde Windows valida el código, no el despliegue. Lo que
+> faltaba era un smoke test que arranque el contenedor y lance una tarea real.
 
 ---
 
