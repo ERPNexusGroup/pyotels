@@ -1,0 +1,93 @@
+# Override de Docker Compose para Podman sobre WSL2.
+#
+# POR QUÉ EXISTE — dos limitaciones del entorno local, ninguna del proyecto:
+#
+# 1. El kernel de WSL2 (5.15) no soporta la expresión nftables `fib daddr` en
+#    cadenas de familia `inet`, que netavark 2.0 necesita para publicar puertos
+#    y montar su driver de firewall. Con red bridge, todo contenedor falla con
+#    "netavark (exit code 1): nftables error: ... Could not process rule".
+#    Workaround: `network_mode: host` para todos los servicios, que evita por
+#    completo netavark. A cambio no hay DNS de compose: los servicios se
+#    hablan por 127.0.0.1.
+#
+# 2. Sin publicación de puertos, el acceso desde Windows se hace por túnel SSH:
+#       ssh -L 8010:127.0.0.1:8010 -N -p 50566 -i <key> user@127.0.0.1
+#
+# PUERTOS — esta máquina Podman ya corre otro stack (autorespwhats) en red host
+# que ocupa 3000, 3002, 5432, 6379, 6380 y 8000. Por eso este stack usa
+# 5434 / 6381 / 8010 en lugar de los puertos por defecto. No se toca el otro stack.
+#
+# Uso:
+#   DOCKER_HOST=npipe:////./pipe/podman-machine-default \
+#     docker compose -f docker/docker-compose.yml -f docker/docker-compose.podman.yml up -d
+#
+# Este override es específico del entorno local de Windows+WSL2. En Docker o
+# Podman sobre Linux se usa únicamente docker/docker-compose.yml.
+
+x-db-url: &db-url postgresql+asyncpg://otelms:otelms_dev_password@127.0.0.1:5434/otelms
+x-redis-url: &redis-url redis://127.0.0.1:6381/0
+x-broker-url: &broker-url redis://127.0.0.1:6381/1
+x-backend-url: &backend-url redis://127.0.0.1:6381/2
+
+services:
+  postgres:
+    network_mode: host
+    ports: []
+    networks: !reset []
+    command: ["postgres", "-p", "5434"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -p 5434 -U otelms -d otelms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    network_mode: host
+    ports: []
+    networks: !reset []
+    command: ["redis-server", "--port", "6381", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6381", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  api:
+    network_mode: host
+    ports: []
+    networks: !reset []
+    command: ["uvicorn", "otelms.api.main:app", "--host", "0.0.0.0", "--port", "8010"]
+    environment:
+      - DATABASE_URL=*db-url
+      - REDIS_URL=*redis-url
+      - CELERY_BROKER_URL=*broker-url
+      - CELERY_RESULT_BACKEND=*backend-url
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on: !reset []
+
+  worker:
+    network_mode: host
+    networks: !reset []
+    environment:
+      - DATABASE_URL=*db-url
+      - REDIS_URL=*redis-url
+      - CELERY_BROKER_URL=*broker-url
+      - CELERY_RESULT_BACKEND=*backend-url
+    depends_on: !reset []
+
+  beat:
+    network_mode: host
+    networks: !reset []
+    environment:
+      - DATABASE_URL=*db-url
+      - REDIS_URL=*redis-url
+      - CELERY_BROKER_URL=*broker-url
+      - CELERY_RESULT_BACKEND=*backend-url
+    depends_on: !reset []
