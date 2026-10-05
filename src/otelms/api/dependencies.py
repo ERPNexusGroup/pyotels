@@ -13,6 +13,7 @@ from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey
 from otelms.domain.repositories import (
     ApiKeyRepository,
+    CategoryAvailabilityRepository,
     CategoryRepository,
     GuestRepository,
     HotelRepository,
@@ -50,6 +51,12 @@ async def get_hotel_repo(session: AsyncSession = Depends(get_db)) -> HotelReposi
 
 async def get_category_repo(session: AsyncSession = Depends(get_db)) -> CategoryRepository:
     return CategoryRepository(session)
+
+
+async def get_availability_repo(
+    session: AsyncSession = Depends(get_db),
+) -> CategoryAvailabilityRepository:
+    return CategoryAvailabilityRepository(session)
 
 
 async def get_room_repo(session: AsyncSession = Depends(get_db)) -> RoomRepository:

@@ -168,10 +168,12 @@ def parse_categories_v2(html: str) -> list[dict[str, Any]]:
 def parse_grid_v2(html: str) -> dict[str, Any]:
     """Reservas + categorías + locks del markup actual.
 
-    Retorna {"cells", "categories", "day_id_to_date", "locks"} donde cells
-    son dicts compatibles con SyncService._persist_calendar y locks es
-    [(room_id, date)] de celdas bg_padlock FUTURAS (informativo; el sync
-    aún no persiste bloqueos — ver RoomAvailability / close-open).
+    Retorna {"cells", "categories", "day_id_to_date", "locks", "availability"}
+    donde cells son dicts compatibles con SyncService._persist_calendar, locks
+    es [(room_id, date)] de celdas bg_padlock FUTURAS (informativo; el sync
+    aún no persiste bloqueos — ver RoomAvailability / close-open) y
+    availability es la disponibilidad por categoría y día que publica el
+    portal (ver parse_availability_v2).
     """
     soup = BeautifulSoup(html, "lxml")
     categories = parse_categories_v2(html)
@@ -252,7 +254,52 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
         "categories": categories,
         "day_id_to_date": day_id_to_date,
         "locks": locks,
+        "availability": parse_availability_v2(html),
     }
+
+
+def parse_availability_v2(html: str) -> list[dict[str, Any]]:
+    """Disponibilidad por categoría y día de la fila resumen del calendario.
+
+    Es la fila que `parse_categories_v2` descarta: un `td` con `room_id="0"` y
+    `category_id`, que lleva dentro un `div.calendar_sum` con el número de
+    habitaciones libres de esa categoría para ese día.
+
+        <td category_id="13" class="calendar_td" day_id="20731" room_id="0">
+          <div class="calendar_sum" id="availability_13_20731">8</div>
+
+    Retorna `[{category_id, date, available}]`. El número NO se recalcula como
+    `habitaciones - ocupadas`: contrastado contra el portal, difiere en 163 de
+    414 celdas (el hotel retiene habitaciones por encima de las ocupadas y pone
+    0 en días bloqueados). Ver `tests/manual/test_calendar_availability.py`.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    table = soup.find("table", class_=TABLE_CLASS)
+    if not table:
+        return []
+
+    availability: list[dict[str, Any]] = []
+    for td in table.find_all("td", attrs={"room_id": "0"}):
+        category_id = td.get("category_id")
+        raw_day = td.get("day_id")
+        div = td.find("div", class_=SUMMARY_CLASS)
+        if not (category_id and raw_day and div is not None):
+            continue
+        raw = div.get_text(strip=True)
+        if not raw.lstrip("-").isdigit():
+            continue
+        try:
+            iso_date = day_id_to_date(str(raw_day))
+        except (TypeError, ValueError):
+            continue
+        availability.append({
+            "category_id": str(category_id),
+            "date": iso_date,
+            "available": int(raw),
+        })
+
+    logger.info("Availability v2 parsed", cells=len(availability))
+    return availability
 
 
 def day_id_to_date_table(day_id: str) -> str:

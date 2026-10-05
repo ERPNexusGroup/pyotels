@@ -264,6 +264,34 @@ class CheckoutsResponse(BaseModel):
     items: list[CheckoutItem] = []
 
 
+# ============================================================
+# DISPONIBILIDAD POR CATEGORÍA (lo que publica OtelMS)
+# ============================================================
+class CategoryAvailabilityRow(BaseModel):
+    """Una celda del calendario: disponibilidad de una categoría en un día.
+
+    `available` es el número que da OtelMS, no `total - ocupadas`: el hotel
+    retiene habitaciones por encima de las ocupadas y marca 0 en días
+    bloqueados, así que recalcularlo da cifras equivocadas.
+    """
+
+    category_id: str
+    category_name: str | None = None
+    date: date
+    total_rooms: int | None = Field(
+        None, description="Habitaciones de la categoría, según el último sync"
+    )
+    available: int
+
+
+class CategoryAvailabilityResponse(BaseModel):
+    hotel_id: str
+    date_from: date
+    date_to: date
+    count: int
+    items: list[CategoryAvailabilityRow] = []
+
+
 # Forward references
 CategoryResponse.model_rebuild()
 RoomResponse.model_rebuild()

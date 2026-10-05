@@ -140,6 +140,26 @@ curl -H "X-API-Key: your-api-key" http://localhost:8000/hotels
 | `/categories` | GET | List categories with rooms |
 | `/categories/{id}` | GET | Get category with rooms |
 | `/categories/{id}/rooms` | GET | Rooms of a category |
+| `/categories/availability` | GET | Availability per category and day, as OtelMS publishes it |
+
+### Category availability
+
+`GET /categories/availability?hotel_id=18330&date_from=2026-10-05&date_to=2026-11-19`
+returns one row per category and day, the same number the OtelMS calendar shows:
+
+```json
+{"category_id": "13", "category_name": "Matrimonial", "date": "2026-10-05",
+ "total_rooms": 12, "available": 8}
+```
+
+`available` is **OtelMS's own figure**, not `total - occupied`. The two disagree
+on 163 of the 414 cells of a current sync: the hotel holds rooms back above the
+occupied ones (a 12-room category never goes above 10) and closes whole days
+without any reservation behind them. Recomputing it produces wrong numbers, so
+the value is scraped from the calendar's summary row (`div.calendar_sum`) and
+stored in `category_availability`. It is filled by the calendar sync, not by the
+categories sync — the numbers arrive with the grid. Details in
+`docs/otelms_endpoints.md` §2.1.
 
 ### Building API responses
 

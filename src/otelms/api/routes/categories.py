@@ -1,17 +1,35 @@
 """
 Category endpoints.
 """
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from otelms.api.dependencies import get_category_repo, get_room_repo, verify_api_key
+from otelms.api.dependencies import (
+    get_availability_repo,
+    get_category_repo,
+    get_room_repo,
+    verify_api_key,
+)
 from otelms.api.mappers import category_response, room_response
-from otelms.api.schemas import CategoryResponse, RoomResponse
-from otelms.domain.repositories import CategoryRepository, RoomRepository
+from otelms.api.schemas import (
+    CategoryAvailabilityResponse,
+    CategoryAvailabilityRow,
+    CategoryResponse,
+    RoomResponse,
+)
+from otelms.domain.repositories import (
+    CategoryAvailabilityRepository,
+    CategoryRepository,
+    RoomRepository,
+)
 from otelms.utils.logging import get_logger
 
 router = APIRouter(prefix="/categories", tags=["categories"], dependencies=[Depends(verify_api_key)])
 logger = get_logger(__name__)
+
+# El calendario de OtelMS cubre 46 días; es la ventana por defecto de la consulta.
+DEFAULT_AVAILABILITY_DAYS = 45
 
 
 @router.get("", response_model=list[CategoryResponse])
@@ -30,6 +48,63 @@ async def list_categories(
     """
     categories = await cat_repo.get_with_rooms(hotel_id)
     return [category_response(c) for c in categories]
+
+
+@router.get("/availability", response_model=CategoryAvailabilityResponse)
+async def list_category_availability(
+    hotel_id: str = Query(..., description="Hotel ID"),
+    date_from: date = Query(
+        default_factory=date.today, description="Primer día (YYYY-MM-DD)"
+    ),
+    date_to: date = Query(
+        None, description="Último día (default: date_from + 45, la ventana del calendario)"
+    ),
+    category_id: str | None = Query(
+        None, description="Filtra a una sola categoría"
+    ),
+    availability_repo: CategoryAvailabilityRepository = Depends(get_availability_repo),
+    cat_repo: CategoryRepository = Depends(get_category_repo),
+) -> CategoryAvailabilityResponse:
+    """Disponibilidad por categoría y día, tal como la publica OtelMS.
+
+    El número sale de la fila de resumen del calendario (`div.calendar_sum`), no
+    de restar las ocupadas al total: contrastado contra el portal, difieren 163
+    de 414 celdas porque el hotel retiene habitaciones y bloquea días enteros.
+    Se rellena con el último sync del calendario.
+    """
+    end = date_to or (date_from + timedelta(days=DEFAULT_AVAILABILITY_DAYS))
+    if end < date_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date_to debe ser posterior o igual a date_from",
+        )
+
+    rows = await availability_repo.get_range(
+        hotel_id, date_from, end, category_id=category_id
+    )
+
+    categories = await cat_repo.get_with_rooms(hotel_id)
+    names = {c.id: c.name for c in categories}
+    totals = {c.id: len(c.rooms) for c in categories}
+
+    items = [
+        CategoryAvailabilityRow(
+            category_id=row.category_id,
+            category_name=names.get(row.category_id),
+            date=row.date,
+            total_rooms=totals.get(row.category_id),
+            available=row.available,
+        )
+        for row in rows
+    ]
+
+    return CategoryAvailabilityResponse(
+        hotel_id=hotel_id,
+        date_from=date_from,
+        date_to=end,
+        count=len(items),
+        items=items,
+    )
 
 
 @router.get("/{category_id}", response_model=CategoryResponse)

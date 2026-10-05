@@ -46,6 +46,44 @@ deduplicar por `resid`.
 
 Evidencia: `tests/manual/test_http_calendar_ua.py`.
 
+### 2.1 Disponibilidad por categoría — la fila resumen
+
+**No existe endpoint de disponibilidad.** El portal la publica dentro del
+propio calendario, en una fila por categoría que `parse_categories_v2`
+descartaba por pensar que era ruido: celdas con `room_id="0"` y `category_id`,
+con un `div.calendar_sum` dentro.
+
+```html
+<td category_id="13" class="calendar_td" day_id="20731" room_id="0">
+  <div class="calendar_sum" id="availability_13_20731" style="width: 35px;">8</div>
+</td>
+```
+
+`day_id` es el mismo serial que usan las celdas normales (días desde epoch), y
+el `id` del div es `availability_{category_id}_{day_id}`.
+
+Con el calendario del 2026-10-05 (46 días, del 5 de octubre al 19 de noviembre)
+salen **414 celdas: 9 categorías × 46 días**.
+
+**El número no se puede recalcular.** Se contrastó contra
+`habitaciones - ocupadas` y difieren en **163 de 414 celdas**:
+
+| Categoría | Habitaciones | Fecha | OtelMS | Calculado |
+|---|---|---|---|---|
+| 13 Matrimonial | 12 | 2026-10-05 | 8 | 10 |
+| 13 Matrimonial | 12 | 2026-10-09 | 0 | 7 |
+| 13 Matrimonial | 12 | 2026-10-12 | 10 | 12 |
+| 14 Doble Individual | 4 | 2026-10-05 | 4 | 4 |
+
+Dos motivos: el hotel retiene habitaciones por encima de las ocupadas (la
+categoría 13 nunca pasa de 10 aunque tenga 12), y hay días a `0` que no están
+bloqueados por reservas sino cerrados a propósito (fines de semana, inventario).
+Para las categorías pequeñas (4, 2, 1 habitaciones) los dos números sí coinciden.
+
+Implementación: `parse_availability_v2()` y la tabla `category_availability`
+(ver `docs` y la Tarea 1.1 del `VALIDATION_REPORT.md`).
+Evidencia: `tests/manual/test_calendar_availability.py`.
+
 ---
 
 ## 3. Folio — `/reservation_c2/folio/{resid}`

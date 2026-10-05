@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.domain.entities import Hotel
 from otelms.domain.repositories import (
+    CategoryAvailabilityRepository,
     CategoryRepository,
     GuestRepository,
     HotelRepository,
@@ -142,6 +143,7 @@ class SyncResult:
     completed_at: datetime | None = None
     services_persisted: int = 0
     payments_persisted: int = 0
+    availability_persisted: int = 0
 
 
 class SyncService:
@@ -255,6 +257,7 @@ class SyncService:
                     "Calendar scraped over HTTP",
                     cells=len(parsed["cells"]),
                     categories=len(parsed["categories"]),
+                    availability=len(parsed.get("availability", [])),
                 )
                 return parsed
             logger.warning("HTTP calendar vacío, probando browser")
@@ -317,10 +320,13 @@ class SyncService:
 
             # Persistir en BD
             async with get_db_session() as session:
-                created, updated = await self._persist_calendar(session, calendar_data)
+                created, updated, availability = await self._persist_calendar(
+                    session, calendar_data
+                )
                 result.records_created = created
                 result.records_updated = updated
                 result.records_processed = created + updated
+                result.availability_persisted = availability
 
             result.success = True
             result.duration_ms = self._elapsed_ms(start)
@@ -540,8 +546,15 @@ class SyncService:
 
     async def _persist_calendar(
         self, session: AsyncSession, calendar_data: dict
-    ) -> tuple[int, int]:
-        """Persiste datos del calendario en BD."""
+    ) -> tuple[int, int, int]:
+        """Persiste datos del calendario en BD.
+
+        Devuelve (created, updated, availability). El tercer valor va aparte
+        porque las celdas de disponibilidad no son ni creadas ni actualizadas
+        de una en una: se reemplazan enteras por categoría (ver
+        CategoryAvailabilityRepository.replace) y por eso no encajan en el
+        contador mixto de categorías + habitaciones + reservas.
+        """
         cells = calendar_data.get("cells", [])
         categories_data = calendar_data.get("categories", [])
 
@@ -619,8 +632,15 @@ class SyncService:
             elif was_updated:
                 updated += 1
 
+        # 3. Disponibilidad por categoría y día. Va después de las categorías
+        # porque category_availability.category_id es FK a categories.id, y
+        # solo existen las categorías que trajo este mismo calendario.
+        availability = await CategoryAvailabilityRepository(session).replace(
+            self.hotel_id, calendar_data.get("availability", [])
+        )
+
         await session.commit()
-        return created, updated
+        return created, updated, availability
 
     async def _persist_categories(
         self, session: AsyncSession, categories_data: list[dict]

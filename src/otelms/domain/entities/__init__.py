@@ -1,11 +1,12 @@
 """
 Modelos de base de datos (SQLAlchemy 2.x) - Persistencia.
 """
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -84,6 +85,31 @@ class Category(Base):
     __table_args__ = (
         Index("ix_categories_hotel_id", "hotel_id"),
         UniqueConstraint("hotel_id", "id", name="uq_category_hotel_id"),
+    )
+
+
+class CategoryAvailability(Base):
+    """Habitaciones disponibles de una categoría en una fecha concreta.
+
+    El número lo publica OtelMS en la fila de resumen del calendario
+    (`div.calendar_sum`), no se recalcula: el portal retiene habitaciones por
+    encima de las ocupadas (una categoría de 12 nunca pasa de 10) y marca 0 en
+    días bloqueados aunque queden libres. Contrastar en
+    `tests/manual/test_calendar_availability.py`.
+    """
+
+    __tablename__ = "category_availability"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    category_id: Mapped[str] = mapped_column(String(64), ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    available: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_category_availability_hotel_date", "hotel_id", "date"),
+        UniqueConstraint("category_id", "date", name="uq_category_availability_date"),
     )
 
 

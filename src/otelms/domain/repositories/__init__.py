@@ -23,6 +23,22 @@ from otelms.domain.entities import (
     SyncLog,
 )
 from otelms.domain.repositories.base import BaseRepository
+from otelms.domain.repositories.category_availability import (
+    CategoryAvailabilityRepository,
+)
+
+__all__ = [
+    "ApiKeyRepository",
+    "CategoryAvailabilityRepository",
+    "CategoryRepository",
+    "GuestRepository",
+    "HotelRepository",
+    "PaymentRepository",
+    "ReservationRepository",
+    "RoomRepository",
+    "ServiceRepository",
+    "SyncLogRepository",
+]
 
 # Relaciones que ReservationResponse expone. La respuesta se arma en
 # api.mappers.reservation_response leyendo solo atributos ya cargados, así que
