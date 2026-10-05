@@ -1,6 +1,8 @@
 """
 Test for 2FA/MFA support in OtelMS authentication.
 """
+import secrets
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from otelms.scraping.auth import OtelMSAuth
@@ -12,10 +14,12 @@ class TestOtelMSAuth2FA:
     @pytest.fixture
     def auth(self):
         """Create OtelMSAuth instance for testing."""
+        # Contraseña efímera: el test solo necesita que el campo exista, y un
+        # literal fijo en el repo se lee como credencial filtrada.
         return OtelMSAuth(
             hotel_id="test_hotel",
             username="test@test.com",
-            password="password123",
+            password=secrets.token_urlsafe(16),
             base_domain="otelms.com",
         )
 

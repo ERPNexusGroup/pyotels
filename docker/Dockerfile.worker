@@ -57,9 +57,18 @@ ENV PYTHONUNBUFFERED=1 \
     CAMOUFOX_HEADLESS=1 \
     PATH="/home/appuser/.local/bin:${PATH}"
 
-# Health check (verificar que Celery worker está vivo y conectado a Redis)
-HEALTHCHECK --interval=30s --timeout=15s --start-period=20s --retries=3 \
-    CMD celery -A otelms.tasks.celery_app inspect ping -d celery@$HOSTNAME --timeout=10 || exit 1
+# Health check (verificar que Celery worker está vivo y conectado a Redis).
+# Sin `-d celery@$HOSTNAME`: dentro del contenedor HOSTNAME puede venir vacío y
+# el nombre real del nodo lo decide Celery con socket.gethostname(), así que el
+# filtro -d nunca coincide y el worker queda "unhealthy" aunque esté trabajando.
+#
+# El timeout debe ser holgado: cada intento levanta el CLI de celery, que importa
+# la app completa (logging, cifrado de credenciales, engine de BD) antes de
+# preguntar. Medido dentro del contenedor eso ronda los 16 s, así que con 15 s
+# podon cortaba el comando y reportaba exit 125 (fallo por timeout) en vez de
+# dejar pasar el "pong".
+HEALTHCHECK --interval=60s --timeout=45s --start-period=45s --retries=3 \
+    CMD celery -A otelms.tasks.celery_app inspect ping --timeout=10 || exit 1
 
 # Consume la cola default + scraping (task_routes manda los sync_* a "scraping";
 # sin -Q el beat programa pero nada ejecuta).

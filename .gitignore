@@ -87,3 +87,10 @@ restrict_*.html
 uploadrates_*.html
 sync_rooms_results.json
 calendar_analysis.txt
+
+# --- Artefactos de herramientas ---
+.mimosa/
+repomix-output.xml
+# Git Bash en Windows crea un archivo real llamado NUL cuando un comando tipo
+# `ssh ... > NUL` se ejecuta fuera de cmd.exe.
+NUL

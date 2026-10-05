@@ -1,10 +1,11 @@
 """Extraer datos completos de todas las reservas del calendar."""
 import re
 import json
+from pathlib import Path
+
 from bs4 import BeautifulSoup
 
-with open("calendario_debug.html", "r", encoding="utf-8") as f:
-    content = f.read()
+content = Path(__file__).parent.joinpath("calendario_debug.html").read_text(encoding="utf-8")
 
 soup = BeautifulSoup(content, "html.parser")
 res_items = soup.find_all(attrs={"resid": True})
@@ -54,6 +55,7 @@ print(f"Total reservas: {len(reservations)}")
 print(json.dumps(reservations[:2], indent=2, ensure_ascii=False))
 
 # Guardar
-with open("reservations_extracted.json", "w") as f:
-    json.dump(reservations, f, indent=2, ensure_ascii=False)
+Path(__file__).parent.joinpath("reservations_extracted.json").write_text(
+    json.dumps(reservations, indent=2, ensure_ascii=False)
+)
 print(f"\nSaved to reservations_extracted.json")

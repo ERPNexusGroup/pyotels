@@ -141,6 +141,21 @@ class Guest(Base):
     hotel: Mapped["Hotel"] = relationship(back_populates="guests")
     reservations: Mapped[list["Reservation"]] = relationship(back_populates="guest")
 
+    @property
+    def full_name(self) -> str:
+        """Nombre completo del huésped.
+
+        GuestResponse.full_name es obligatorio y se serializa con
+        from_attributes=True, así que la entidad debe exponerlo. Se compone
+        solo con columnas ya cargadas: ninguna lectura diferida, que en sesión
+        async lanzaría MissingGreenlet.
+
+        OtelMS devuelve los apellidos con espacio inicial (" JOFRE"), así que
+        cada parte se normaliza antes de unir.
+        """
+        parts = (self.first_name, self.middle_name, self.last_name)
+        return " ".join(p.strip() for p in parts if p and p.strip())
+
     __table_args__ = (
         Index("ix_guests_hotel_id", "hotel_id"),
         Index("ix_guests_email", "email"),

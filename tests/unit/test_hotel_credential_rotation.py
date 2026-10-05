@@ -1,6 +1,8 @@
 """
 Test for hotel credential rotation endpoint.
 """
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock
@@ -35,7 +37,12 @@ client = TestClient(app)
 def test_rotate_password_endpoint_exists():
     """Test that POST /hotels/{hotel_id}/rotate-password endpoint exists."""
     # This will initially 404 until implemented
-    response = client.post("/hotels/test_hotel/rotate-password", json={"new_password": "new_pass"})
+    # La contraseña se genera al vuelo: un literal tipo "test_password_123" en el
+    # repo se lee como credencial filtrada, y aquí no hay nada que memorizar.
+    response = client.post(
+        "/hotels/test_hotel/rotate-password",
+        json={"new_password": secrets.token_urlsafe(16)},
+    )
     # Should not be 404 once implemented
     assert response.status_code != 404
 
@@ -43,7 +50,7 @@ def test_rotate_password_endpoint_exists():
 def test_credential_encryption_used_in_hotel_creation():
     """Test that hotel creation uses credential encryption."""
     encryption = CredentialEncryption()
-    password = "test_password_123"
+    password = secrets.token_urlsafe(16)
     encrypted = encryption.encrypt(password)
     
     # Should be able to decrypt

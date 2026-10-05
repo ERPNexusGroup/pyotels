@@ -138,6 +138,39 @@ curl -H "X-API-Key: your-api-key" http://localhost:8000/hotels
 | `/guests/{id}` | GET | Get guest |
 | `/guests` | POST | Create guest |
 | `/categories` | GET | List categories with rooms |
+| `/categories/{id}` | GET | Get category with rooms |
+| `/categories/{id}/rooms` | GET | Rooms of a category |
+
+### Building API responses
+
+The response schemas use `from_attributes=True` over SQLAlchemy entities, which
+means an unloaded relationship blows up with `MissingGreenlet` during
+serialization. Rather than relying on `from_attributes` for nested schemas,
+endpoints call the mappers in `src/otelms/api/mappers.py`:
+
+```python
+from otelms.api.mappers import reservation_response
+
+reservations = await res_repo.get_by_hotel(hotel_id=hotel_id)
+return [reservation_response(r) for r in reservations]
+```
+
+Two rules keep this working:
+
+- **Eager loading lives in the repository that needs it.** The mappers only read
+  relationships that are already loaded (`obj.__dict__.get(name)` never issues a
+  query), so if a mapper comes back with an empty relation, the repository query
+  is missing a `selectinload`. `RESERVATION_DETAIL_OPTIONS` in
+  `domain/repositories/__init__.py` is the shared set for reservations.
+- **Break the cycle explicitly.** `CategoryResponse.rooms` and
+  `RoomResponse.category` reference each other; serializing them straight from an
+  ORM entity aborts with `recursion_loop`. The mapper returns the nested category
+  as a `{id, name}` stub with `rooms=[]`, which carries all the useful
+  information and cannot cycle.
+
+If you add a schema with a nested relationship, add the matching mapper and the
+matching `selectinload`. `tests/unit/test_api_relation_serialization.py` covers
+the current set.
 
 ### Query Parameters
 

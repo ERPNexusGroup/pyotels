@@ -178,6 +178,9 @@ muerto.
 
 ### Endpoints públicos — resultado real
 
+Estado tras la **Tarea 0.5** (ver §4.1). Los que fallaban en el primer barrido
+responden ya y son los que se marcan como arreglados.
+
 | Endpoint | Estado | Observación |
 |---|---|---|
 | `GET /health` | ✅ 200 | database + cache OK |
@@ -189,30 +192,84 @@ muerto.
 | `GET /rooms/checkouts` | ✅ 200 | 0 para 2026-10-05 |
 | `GET /reservations/today/checkins` | ✅ 200 | `[]` |
 | `POST /admin/api/sync` | ✅ 200 | calendar y categories |
-| `GET /reservations` | ❌ **500** | `MissingGreenlet` |
-| `GET /categories` | ❌ **500** | `MissingGreenlet` |
-| `GET /categories/{id}/rooms` | ❌ **500** | `MissingGreenlet` |
-| `GET /guests` | ❌ **500** | `Field required: full_name` |
+| `GET /reservations` | ✅ 200 *(arreglado)* | huésped, habitación, categoría, servicios y cobros anidados |
+| `GET /categories` | ✅ 200 *(arreglado)* | con sus habitaciones |
+| `GET /categories/{id}/rooms` | ✅ 200 *(arreglado)* | ahora `list[RoomResponse]`, antes `list[dict]` |
+| `GET /guests` | ✅ 200 *(arreglado)* | `full_name` poblado |
 
 ### Los tres 500, con causa
 
-**1. `/reservations` y `/categories` — `MissingGreenlet`.**
-Pydantic serializa la entidad ORM fuera del contexto async y dispara las
-relaciones lazy. Campos afectados:
+**1. `/reservations` — `MissingGreenlet` + recursión.**
+`ReservationResponse` se serializa con `from_attributes=True` sobre la entidad
+ORM, y `get_by_hotel` no precargaba ninguna relación: `guest`, `room`,
+`services` y `payments` se resolvían en diferido fuera del contexto async.
+Punto exacto: `api/routes/reservations.py`.
 
-- `Reservation`: `guest`, `room`, `services`, `payments` (28 errores de validación)
-- `Category`: `rooms` (9 errores de validación)
+**2. `/categories` y `/categories/{id}/rooms` — `MissingGreenlet` *y* ciclo
+infinito.** El primer diagnóstico atribuyó todo a lazy-loading, y era
+incompleto. Hay dos fallos encadenados:
 
-Puntos exactos: `api/routes/reservations.py:43` y `api/routes/categories.py:16`.
+- `get_by_hotel` no precargaba `Category.rooms`.
+- Aunque las precargara, **`CategoryResponse.rooms` y `RoomResponse.category`
+  son esquemas mutuamente recursivos**: `category → rooms → room.category →
+  rooms → …`. Pydantic aborta con
+  `recursion_loop - cyclic reference detected` en cuanto las relaciones están
+  cargadas. O sea, este endpoint no podía funcionar ni con eager loading.
+- `/categories/{id}/rooms` declaraba `response_model=list[dict]` sobre entidades
+  ORM, que tampoco es serializable.
 
-**2. `/guests` — `Field required: full_name`.**
-`GuestResponse` (`api/schemas.py:77`) declara `full_name: str` como obligatorio y
-usa `from_attributes=True`, pero la entidad `Guest` **no tiene ese atributo**:
-tiene `first_name`, `last_name`, `middle_name` sueltos y ningún `full_name`.
-Causa distinta de los otros dos: desajuste de esquema, no lazy-loading.
+`/rooms` ya escapaba a esto porque construye la respuesta a mano
+(`_room_response`) en vez de dejar que Pydantic lea la entidad.
 
-Ninguno de estos tres falla en los tests unitarios porque las rutas se prueban
-sin datos reales o contra respuestas ya serializadas.
+**3. `/guests` — `Field required: full_name`.**
+`GuestResponse` declara `full_name: str` como obligatorio y usa
+`from_attributes=True`, pero la entidad `Guest` no tenía ese atributo: tiene
+`first_name`, `last_name` y `middle_name` sueltos. Causa distinta: desajuste de
+esquema, no lazy-loading.
+
+Ninguno de estos fallaba en los tests unitarios porque las rutas se probaban sin
+datos reales o contra respuestas ya serializadas.
+
+---
+
+## 4.1 Tarea 0.5 — Arreglo de los 500
+
+Los cuatro endpoints se arreglan con una capa de mapeo explícito,
+**`src/otelms/api/mappers.py`**, que construye el esquema de respuesta desde
+columnas y relaciones ya cargadas. Es el mismo patrón que ya usaba `/rooms`, pero
+elevado a módulo compartido y extendido a huésped, servicio, cobro y reserva.
+
+Tres piezas:
+
+1. **`Guest.full_name`** (`domain/entities/__init__.py`) como `@property` que
+   compone nombre + segundo nombre + apellidos, sin tocar la base de datos.
+
+2. **Mappers en `api/mappers.py`.** `_loaded(obj, "rel")` lee `obj.__dict__`,
+   así que solo devuelve la relación si ya está precargada y `None` si no:
+   nunca dispara SQL. El ciclo se corta porque la categoría anidada dentro de
+   una habitación se devuelve como stub `{id, name}` con `rooms=[]`.
+
+3. **`RESERVATION_DETAIL_OPTIONS`** en `domain/repositories/__init__.py`, las
+   cuatro `selectinload` que `get_by_hotel` y `get_with_details` comparten, para
+   que el mapper encuentre las relaciones ya cargadas.
+
+Efectos colaterales resueltos de paso:
+
+- `/categories` ignora `with_rooms`: la respuesta ya incluye siempre las
+  habitaciones. El parámetro se conserva para no romper clientes.
+- `/categories/{id}/rooms` pasa de `response_model=list[dict]` (no serializable)
+  a `list[RoomResponse]`, alineándolo con `/rooms`.
+- `restrictions.py` importaba `get_auth_session` de `calendar_extract`, que **no
+  existe**: las tres funciones (`close_dates`, `open_dates`, `get_categories`)
+  morían con `ImportError` en cuanto se llamaban. Ahora usan
+  `get_authenticated_http_session` y aceptan un `client` inyectado, que es lo que
+  permite cubrirlas con `httpx.MockTransport`.
+
+**Verificación:** `pytest tests/unit` 137 pasan / 2 omitidos (antes 116), ruff 0
+errores, mypy sin errores nuevos en los archivos tocados (los 126 restantes son
+preexistentes y son trabajo de Fase 3). Los tests nuevos son
+`tests/unit/test_api_relation_serialization.py` (11) y
+`tests/unit/test_restrictions.py` (10).
 
 ---
 
@@ -266,19 +323,49 @@ publicación de puertos.
 
 La misma máquina Podman corre otro stack, `autorespwhats`, **también en red
 host**, ocupando 3000, 3002, 5432, 6379, 6380 y **8000**. Por eso este stack usa
-5434 / 6381 / 8010.
+5434 / 6381 / 8011.
 
 > **Incidente menor:** antes de detectar el conflicto, `otelms-redis` llegó a
 > hacer bind en el 6379 compartido. Se detuvo de inmediato y el Redis del otro
 > proyecto se restauró (`autorespwhats-redis-1` healthy). Ese Redis de
 > `autorespwhats` es ajeno a este repo y no debe tocarse.
 
+### 5.4 El 8010 quedó retenido por un socket que no se ve
+
+Al reconstruir las imágenes (`docker compose build`), el contenedor de la API
+entró en bucle de reinicio con:
+
+```
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8010):
+          address already in use
+```
+
+El puerto 8010 está ocupado por algo que **no se puede identificar con ninguna
+herramienta del sistema**:
+
+| Comprobación | Resultado |
+|---|---|
+| `bind()` desde la propia VM (`podman machine ssh`) | `EADDRINUSE` |
+| `bind()` con `SO_REUSEADDR` y con `SO_REUSEPORT` | `EADDRINUSE` en ambos |
+| `ss -ltnpa` / `ss -tanp` (con y sin sudo) | ningún socket en 8010 |
+| `/proc/net/tcp`, `tcp6`, `udp`, `udp6` en la VM | 0 coincidencias en 8010 |
+| `bind()` en contenedor con `--network=host --pid=host` | `EADDRINUSE` |
+| `lsof -i :8010`, `netns` adicionales, `rootlessport`/`pasta` | nada |
+| `bind()` en 8011, 8012, 8099 | OK |
+
+Es decir: hay un socket TCP escuchando en 8010 que no pertenece a ningún proceso
+visible desde la VM ni desde un contenedor con PID y netns del host. Se
+documenta como Lehman del entorno, no del proyecto. **Mitigación aplicada:** la
+API se movió a **8011** en `docker/docker-compose.podman.yml` (healthcheck
+incluido). Es el mismo criterio que ya se usó para 5434 y 6381.
+
 ### Acceso desde Windows
 
 Sin publicación de puertos, se usa un túnel SSH a la VM:
 
 ```bash
-ssh -L 5434:127.0.0.1:5434 -L 6381:127.0.0.1:6381 -L 8010:127.0.0.1:8010 \
+ssh -L 5434:127.0.0.1:5434 -L 6381:127.0.0.1:6381 -L 8011:127.0.0.1:8011 \
     -N -i <key> -p 50566 user@127.0.0.1
 ```
 
@@ -326,9 +413,9 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 | Habitaciones por categoría | 12 Matrimonial, 4 Doble Individual, 4 Triple, 6 Quadruple, 2 Quintuple, 1 Sextuple, 1 Suite Matrimonial, 1 Suite Familiar, 2 Overbooking | idem | ✅ cuadra |
 | **Capacity por categoría** | ❌ no existe el campo | visible en el calendario | ❌ ausente (Tarea 1.1) |
 | Reservas en calendario | 49 parseadas / 7 persistidas | según el rango del calendario | ⚠️ sin reconciliar |
-| Lista de reservas | ❌ 500 | lista de reservas | ❌ roto |
-| Lista de categorías | ❌ 500 | árbol de categorías | ❌ roto |
-| Lista de huéspedes | ❌ 500 | ficha de huésped | ❌ roto |
+| Lista de reservas | ✅ 200 (arreglada) | lista de reservas | ✅ |
+| Lista de categorías | ✅ 200 (arreglada) | árbol de categorías | ✅ |
+| Lista de huéspedes | ✅ 200 (arreglada) | ficha de huésped | ✅ |
 | Servicios del folio | 0 filas | tabla de consumos | ❌ nunca se extrae (Tarea 1.3) |
 | Pagos del folio | 0 filas | tabla de pagos | ❌ nunca se extrae (Tarea 1.3) |
 | In-house | no hay endpoint | columna "Ocupadas" | ❌ ausente (Tarea 1.4) |
@@ -350,7 +437,8 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 - `scripts/seed_testing.py` (idempotente) contra Postgres real.
 - Login admin + JWT (12 h).
 - `/health`, `/hotels`, `/rooms`, `/rooms/available`, `/rooms/occupied`,
-  `/rooms/checkouts`, `/reservations/today/checkins`.
+  `/rooms/checkouts`, `/reservations/today/checkins`, `/reservations`,
+  `/categories`, `/categories/{id}`, `/categories/{id}/rooms`, `/guests`.
 - Celery + Redis disponibles.
 - Build de las dos imágenes (`docker-api` y `docker-worker`) y arranque de los
   cuatro servicios con el override de Podman.
@@ -366,31 +454,41 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 
 ### ❌ Falla
 
-- `GET /reservations` → 500 `MissingGreenlet` (`guest`, `room`, `services`, `payments`).
-- `GET /categories` → 500 `MissingGreenlet` (`rooms`).
-- `GET /categories/{id}/rooms` → 500 `MissingGreenlet`.
-- `GET /guests` → 500 `Field required: full_name`.
 - `services` y `payments`: 0 filas, los TODOs de `sync_service.py` sin implementar.
+- `restrictions.close_dates` / `open_dates` / `get_categories`: existían pero no
+  eran ejecutables (importaban un símbolo inexistente). Corregidos en la Tarea
+  0.5 y cubiertos con `httpx.MockTransport`; falta probarlos contra el portal.
 - Docker Desktop: daemon no arranca. Bridge de Podman: incompatible con el kernel de WSL2.
+- Puerto 8010 retenido por un socket invisible (§5.4); la API se movió a 8011.
 
 ---
 
 ## 8. Recomendación para la Fase 1
 
-El plan de la Fase 1 empieza tocando `categories.py` (Tarea 1.1) y
-`reservations.py` (Tareas 1.3). Ambos archivos están detrás de un 500 que
-impede verificar nada por `curl`. Propone insertar:
+**La Tarea 0.5 quedó ejecutada (§4.1)**, así que las rutas que la Fase 1 iba a
+tocar ya responden y se pueden verificar por `curl`. El plan de Fase 1 sigue
+tal cual, con dos ajustes que se aprenden de la 0.5:
 
-**Tarea 0.5 — Desbloquear `/reservations`, `/categories` y `/guests`.**
+- **No basta con `selectinload`.** Para esquemas anidados y recursivos hay que
+  además cortar el ciclo en la capa de mapeo. Cualquier esquema nuevo que
+  exponga una relación tiene que decidir explícitamente hasta qué profundidad
+  anida.
+- **La carga de relaciones va en el repositorio que la necesita**, no en
+  `BaseRepository`: `RESERVATION_DETAIL_OPTIONS` cubre reservas y cada
+  repositorio futuro decide por su cuenta.
 
-1. En los repositorios, cargar las relaciones con `selectinload`/`joinedload`
-   en las consultas de lista, o devolver dicts planos desde la capa de
-   repositorio en vez de entidades ORM.
-2. Añadir `full_name` a la entidad `Guest` como `@property`, o convertirlo en
-   campo opcional derivado en el schema.
-3. Tests de integración que fallen hoy: consultar cada ruta con ≥1 fila real.
+Los huecos que siguen abiertos y son el objetivo de la Fase 1:
 
-Esto también ataca de paso 20 de los 139 errores de mypy (los de la familia
-"devuelvo entidad donde declaro schema"), que es la misma causa.
+1. **Capacity por categoría** (Tarea 1.1): no existe el campo y el calendario
+   sí lo muestra.
+2. **Servicios y pagos del folio** (Tarea 1.3): 0 filas, los TODOs de
+   `sync_service.py` (`#accommodation-services` y `#reservation-payments`) sin
+   implementar.
+3. **In-house** (Tarea 1.4): no hay endpoint.
+4. **49 reservas parseadas vs 7 persistidas**: reconciliar antes de dar por
+   buena la extracción.
 
-Después de eso, la Fase 1 sigue el plan tal cual.
+Y antes de cerrar la Fase 3 queda pendiente limpiar los 126 errores de mypy y
+dejar `docker compose build` funcionando en limpio (hoy hace falta
+`--no-cache`: la capa `uv pip install .` se cachea con un paquete viejo aunque
+cambien los fuentes).

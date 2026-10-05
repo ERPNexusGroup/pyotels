@@ -3,6 +3,8 @@ import requests
 import urllib3
 import json
 import re
+from pathlib import Path
+
 from bs4 import BeautifulSoup
 from otelms.config.settings import get_settings
 
@@ -56,6 +58,7 @@ else:
         print(f"  🧾 {res_id} ({res['guest_name'][:20]}): tables={len(tables)}, charges={charges}, services={services}")
 
         if charges > 0 or services > 0:
-            with open(f"guestfolio_{res_id}.html", "w", encoding="utf-8") as f:
-                f.write(gf.text)
+            Path(__file__).parent.joinpath(f"guestfolio_{res_id}.html").write_text(
+                gf.text, encoding="utf-8"
+            )
             print(f"     → Saved: guestfolio_{res_id}.html")

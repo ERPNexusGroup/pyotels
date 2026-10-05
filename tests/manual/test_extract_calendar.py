@@ -1,6 +1,8 @@
 """Extrae reservas del calendar y las guarda en BD."""
 import re
 import json
+from pathlib import Path
+
 import requests
 import urllib3
 from bs4 import BeautifulSoup
@@ -33,9 +35,8 @@ print(f"Login: {resp.status_code}")
 cal = session.get("https://desktop.otelms.com/reservation_c2/calendar", timeout=30)
 print(f"Calendar: {len(cal.text)} bytes")
 
-# Guardar HTML bruto para análisis
-with open("calendario_debug.html", "w", encoding="utf-8") as f:
-    f.write(cal.text)
+# Guardar HTML bruto para análisis (junto al script, nunca fuera del proyecto)
+Path(__file__).parent.joinpath("calendario_debug.html").write_text(cal.text, encoding="utf-8")
 
 soup = BeautifulSoup(cal.text, "html.parser")
 

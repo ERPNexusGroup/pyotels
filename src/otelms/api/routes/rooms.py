@@ -11,17 +11,17 @@ from otelms.api.dependencies import (
     get_room_repo,
     verify_api_key,
 )
+from otelms.api.mappers import guest_name as _guest_name
+from otelms.api.mappers import room_response as _room_response
 from otelms.api.schemas import (
     AvailableRoomsResponse,
     CategoryAvailability,
-    CategoryResponse,
     CheckoutItem,
     CheckoutsResponse,
     OccupiedRoomItem,
     OccupiedRoomsResponse,
     RoomResponse,
 )
-from otelms.domain.entities import Room
 from otelms.domain.repositories import (
     CategoryRepository,
     ReservationRepository,
@@ -31,42 +31,6 @@ from otelms.utils.logging import get_logger
 
 router = APIRouter(prefix="/rooms", tags=["rooms"], dependencies=[Depends(verify_api_key)])
 logger = get_logger(__name__)
-
-
-def _room_response(room: Room) -> RoomResponse:
-    """Construye RoomResponse solo desde columnas ya cargadas.
-
-    Evita acceder a relaciones lazy (room.category / category.rooms),
-    que en sesiones async disparan MissingGreenlet. La categoría se
-    incluye como {id, name} plano si viene eager-loadeada.
-
-    Habitaciones sin category_id (NULL en BD, posible en datos del
-    sync) usan el sentinel "uncategorized" para no romper el contrato
-    RoomResponse.category_id: el backfill real queda diferido.
-    """
-    category = None
-    loaded_cat = room.__dict__.get("category")
-    if loaded_cat is not None:
-        category = CategoryResponse(id=loaded_cat.id, name=loaded_cat.name or loaded_cat.id)
-
-    return RoomResponse(
-        id=room.id,
-        name=room.name,
-        category_id=room.category_id or "uncategorized",
-        category=category,
-        floor=room.floor,
-        max_occupancy=room.max_occupancy,
-        is_active=room.is_active,
-    )
-
-
-def _guest_name(reservation) -> str | None:
-    """Nombre completo del huésped o None si no hay guest asociado."""
-    guest = getattr(reservation, "guest", None)
-    if not guest:
-        return None
-    full = f"{guest.first_name or ''} {guest.last_name or ''}".strip()
-    return full or None
 
 
 @router.get("", response_model=list[RoomResponse])

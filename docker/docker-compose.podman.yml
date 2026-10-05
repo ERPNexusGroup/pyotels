@@ -11,11 +11,16 @@
 #    hablan por 127.0.0.1.
 #
 # 2. Sin publicación de puertos, el acceso desde Windows se hace por túnel SSH:
-#       ssh -L 8010:127.0.0.1:8010 -N -p 50566 -i <key> user@127.0.0.1
+#       ssh -L 8011:127.0.0.1:8011 -N -p 50566 -i <key> user@127.0.0.1
 #
 # PUERTOS — esta máquina Podman ya corre otro stack (autorespwhats) en red host
 # que ocupa 3000, 3002, 5432, 6379, 6380 y 8000. Por eso este stack usa
-# 5434 / 6381 / 8010 en lugar de los puertos por defecto. No se toca el otro stack.
+# 5434 / 6381 / 8011 en lugar de los puertos por defecto. No se toca el otro stack.
+#
+# El 8011 sustituye al 8010 porque el 8010 quedó retenido por un socket TCP
+# huérfano de una sesión anterior: bind() falla con EADDRINUSE desde la propia
+# VM y con SO_REUSEPORT, pero ni ss, ni /proc/net/tcp{,6}, ni lsof muestran
+# ningún socket en ese puerto. Se comprobó que 8011/8012/8099 están libres.
 #
 # Uso:
 #   DOCKER_HOST=npipe:////./pipe/podman-machine-default \
@@ -65,14 +70,14 @@ services:
     network_mode: host
     ports: []
     networks: !reset []
-    command: ["uvicorn", "otelms.api.main:app", "--host", "0.0.0.0", "--port", "8010"]
+    command: ["uvicorn", "otelms.api.main:app", "--host", "0.0.0.0", "--port", "8011"]
     environment:
       - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@127.0.0.1:5434/otelms
       - REDIS_URL=redis://127.0.0.1:6381/0
       - CELERY_BROKER_URL=redis://127.0.0.1:6381/1
       - CELERY_RESULT_BACKEND=redis://127.0.0.1:6381/2
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
       interval: 30s
       timeout: 10s
       retries: 3

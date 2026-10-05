@@ -24,6 +24,17 @@ from otelms.domain.entities import (
 )
 from otelms.domain.repositories.base import BaseRepository
 
+# Relaciones que ReservationResponse expone. La respuesta se arma en
+# api.mappers.reservation_response leyendo solo atributos ya cargados, así que
+# cualquier consulta de reservas que se vaya a serializar necesita esto: sin las
+# relaciones precargadas, leerlas dispara MissingGreenlet en sesión async.
+RESERVATION_DETAIL_OPTIONS = (
+    selectinload(Reservation.guest),
+    selectinload(Reservation.room).selectinload(Room.category),
+    selectinload(Reservation.services),
+    selectinload(Reservation.payments),
+)
+
 
 class HotelRepository(BaseRepository[Hotel]):
     """Repositorio para operaciones de Hotel."""
@@ -400,10 +411,10 @@ class ReservationRepository(BaseRepository):
         offset: int = 0,
         order_by: str = "check_in",
     ) -> Sequence:
-        """Obtiene reservas de un hotel con filtros."""
+        """Obtiene reservas de un hotel con filtros y relaciones precargadas."""
 
-
-        stmt = select(Reservation).where(Reservation.hotel_id == hotel_id)
+        stmt = select(Reservation).options(*RESERVATION_DETAIL_OPTIONS)
+        stmt = stmt.where(Reservation.hotel_id == hotel_id)
 
         if status is not None:
             stmt = stmt.where(Reservation.status == status)
@@ -436,12 +447,7 @@ class ReservationRepository(BaseRepository):
         """Obtiene reserva con todas las relaciones cargadas."""
         stmt = (
             select(Reservation)
-            .options(
-                selectinload(Reservation.guest),
-                selectinload(Reservation.room).selectinload(Room.category),
-                selectinload(Reservation.services),
-                selectinload(Reservation.payments),
-            )
+            .options(*RESERVATION_DETAIL_OPTIONS)
             .where(Reservation.hotel_id == hotel_id, Reservation.id == reservation_id)
         )
         result = await self.session.execute(stmt)

@@ -1,6 +1,8 @@
 """Test: extraer detalles de una reserva específica (guestfolio/pagos/servicios)."""
 import requests
 import urllib3
+from pathlib import Path
+
 from otelms.config.settings import get_settings
 
 urllib3.disable_warnings()
@@ -33,8 +35,7 @@ gf = session.get(guestfolio_url, timeout=30)
 print(f"\nGuestfolio {res_id}: {gf.status_code}, {len(gf.text)} bytes")
 
 # Guardar HTML
-with open("guestfolio_debug.html", "w", encoding="utf-8") as f:
-    f.write(gf.text)
+Path(__file__).parent.joinpath("guestfolio_debug.html").write_text(gf.text, encoding="utf-8")
 
 # Extraer secciones
 from bs4 import BeautifulSoup

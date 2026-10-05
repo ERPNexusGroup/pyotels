@@ -5,6 +5,7 @@ Reservation endpoints.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from otelms.api.dependencies import get_reservation_repo, get_sync_service, verify_api_key
+from otelms.api.mappers import reservation_response
 from otelms.api.schemas import (
     PaginationParams,
     ReservationFilterParams,
@@ -26,8 +27,14 @@ async def list_reservations(
     filters: ReservationFilterParams = Depends(),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> ReservationListResponse:
-    """Lista reservas con paginación y filtros."""
-    items = await res_repo.get_by_hotel(
+    """Lista reservas con paginación y filtros.
+
+    Las relaciones anidadas (huésped, habitación con su categoría, servicios y
+    cobros) se mapean a mano: ReservationResponse se serializa con
+    from_attributes y leerlas en diferido fuera del contexto async lanzaría
+    MissingGreenlet.
+    """
+    rows = await res_repo.get_by_hotel(
         hotel_id=hotel_id,
         status=filters.status,
         check_in_from=filters.check_in_from,
@@ -37,6 +44,7 @@ async def list_reservations(
         limit=pagination.page_size,
         offset=(pagination.page - 1) * pagination.page_size,
     )
+    items = [reservation_response(r) for r in rows]
 
     total = await res_repo.count_by_hotel(hotel_id, filters.status)
 
@@ -51,8 +59,8 @@ async def list_reservations(
 
 @router.get("/{reservation_id}", response_model=ReservationResponse)
 async def get_reservation(
+    reservation_id: str,
     hotel_id: str = Query(..., description="Hotel ID"),
-    reservation_id: str = ...,
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> ReservationResponse:
     """Obtiene una reserva con todos sus detalles."""
@@ -62,7 +70,7 @@ async def get_reservation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reservation {reservation_id} not found",
         )
-    return reservation
+    return reservation_response(reservation)
 
 
 @router.get("/today/checkins", response_model=list[ReservationResponse])
@@ -71,7 +79,8 @@ async def get_today_checkins(
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> list[ReservationResponse]:
     """Obtiene check-ins programados para hoy."""
-    return await res_repo.get_today_checkins(hotel_id)
+    rows = await res_repo.get_today_checkins(hotel_id)
+    return [reservation_response(r) for r in rows]
 
 
 @router.get("/today/checkouts", response_model=list[ReservationResponse])
@@ -80,7 +89,8 @@ async def get_today_checkouts(
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> list[ReservationResponse]:
     """Obtiene check-outs programados para hoy."""
-    return await res_repo.get_today_checkouts(hotel_id)
+    rows = await res_repo.get_today_checkouts(hotel_id)
+    return [reservation_response(r) for r in rows]
 
 
 @router.post("/sync/calendar", response_model=dict)
