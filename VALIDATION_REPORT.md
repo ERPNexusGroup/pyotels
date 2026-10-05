@@ -605,6 +605,37 @@ Cerradas en esta fase:
   `check_in <= fecha < check_out`.
 - **49 vs 7 reservas**: reconciliado. El sync del 2026-10-05 parsea 42 celdas
   ocupadas y persiste 42.
+- **Cierre y apertura de fechas** (Tarea 2.1): el flujo real son dos POST
+  encadenados, `ajax_calendar_restricts` (selección) y `save_restricts`
+  (guardado). El paso de selección **no se puede saltar**: sin él el portal
+  responde `{"ok":1, "count_restricts_data":0}` y no cambia nada, diciendo que
+  fue bien. `count_restricts_data` es el único indicador fiable.
+
+## Fallos reales encontrados por el camino
+
+Tres bugs que ningún test previo habría cazado, porque los tres estaban en
+código que nadie ejecutaba contra el portal:
+
+1. **`get_authenticated_http_session` no funcionaba nunca.** OtelMS no redirige
+   tras el login, contesta 200 con un `<meta refresh>`; la función comprobaba
+   `"login" in resp.url.path` y lanzaba `AuthenticationError` en el 100% de los
+   casos. Sólo la usaba `restrictions.py`, sin llamadas de producción, así que
+   llevaba meses sin estorbar. Ahora sigue el refresh y comprueba el body.
+
+2. **`restrictions.py` tenía los valores de cierre al revés.** Assumía
+   `restrict_type` 0 = cerrar y 1 = abrir; la página pone 1 = Cerrar y 2 =
+   Abrir. Con el código anterior, `open_dates()` habría **cerrado** las fechas.
+   Encima mandaba `categories[]` a un endpoint cuyo form no lleva categorías, y
+   ese endpoint no se ha ejercido contra el portal. Las pruebas unitarias
+   antiguas pasaban porque comprobaban el contrato equivocado, no porque el
+   código hiciese algo útil: se han sustituido por otras que fijan el flujo
+   verificado.
+
+3. **La imagen no recarga el código montado.** El compose monta `../src` en
+   `/app/src`, pero el Dockerfile hace `uv pip install .` al sistema, así que
+   Python resuelve `otelms` desde site-packages y el bind mount no se ve. Un
+   contenedor reiniciado seguía sirviendo el código viejo, con un 404 en los
+   endpoints nuevos. Hace falta `build --no-cache` + `up -d --force-recreate`.
 
 Y antes de cerrar la Fase 3 queda pendiente limpiar los 107 errores de mypy y
 dejar `docker compose build` funcionando en limpio (hoy hace falta

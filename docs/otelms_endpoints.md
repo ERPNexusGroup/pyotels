@@ -22,8 +22,29 @@ El POST responde con el HTML de destino, no con un JSON: **el login se da por
 bueno si la respuesta contiene `reservation_c2/calendar`**, no por el código
 HTTP (que es 200 también cuando falla).
 
-Origen: `scraping/auth.py` (no tocar). Verificado en cada script de
-`tests/manual/`.
+Ojo con cómo lo devuelve: **no es un 302, es un
+`<meta http-equiv='refresh' content='0;url=/reservation_c2/calendar'>`.** Un
+cliente con `follow_redirects=True` no lo sigue, la respuesta se queda en
+`/login_c2/do_single_login` y la sesión queda a medio hacer. Por eso:
+
+- El criterio de éxito es el refresh del body, nunca la URL final. Comprobar
+  `"login" in resp.url.path` da falso negativo **siempre** con este portal:
+  eso es lo que hacía que `get_authenticated_http_session` lanzara
+  `AuthenticationError` sin excepción. Corregido en `scraping/auth.py`.
+- Hay que hacer GET al destino del refresh para completar las cookies.
+
+Origen: `scraping/auth.py` y `services/calendar_sync_service.py`. Verificado en
+cada script de `tests/manual/`.
+
+---
+
+## 1.1 Login HTTP asíncrono (`get_authenticated_http_session`)
+
+Devuelve un `httpx.AsyncClient` ya autenticado. **No se puede meter en
+`async with`**: el login ya lo usó para las peticiones y httpx sólo acepta
+`__aenter__` una vez, sobre un cliente sin abrir. Se cierra con
+`await client.aclose()`. Es lo que hace `_client_for()` en
+`scraping/restrictions.py`.
 
 ---
 
@@ -272,7 +293,79 @@ exactamente la disponibilidad del calendario** (`8, 10, 10, 10, 0, 0, 0, 10,
 10, 10, 0, 10, …`). Confirma por una segunda vía el `div.calendar_sum` de §2.1.
 `price_calendar` lleva las mismas cifras debajo de los precios por categoría.
 
-Son la vía natural para cerrar y abrir fechas (Fase 2, Tarea 2.1).
+`restrict_calendar` es además la vista desde la que se cierran y abren fechas.
+Consta de tres formularios:
+
+| Form | method | action | Campos |
+|---|---|---|---|
+| búsqueda | GET | `/reservation_c2/search` | `search` |
+| filtro/rejilla | POST | `/reservation_c2/restrict_calendar` | `bool`, `date_shift`, `month_shift`, `today`, `restrict_rates[]`, `categories[]` |
+| cerrar/abrir | POST | `/reservation_c2/save_restrict_close_open` | `restrict_type`, `date` |
+
+`categories[]` son las 9 categorías (13 Matrimonial … 21 Overbooking) y
+`restrict_rates[]` las dos tarifas (1 Standard, 2 Feriados).
+
+### 4.4 Cerrar y abrir fechas: el POST real son dos, y sólo uno funciona
+
+Sonó como un endpoint y son dos distintos. La evidencia está en
+`tests/manual/test_restrict_select_and_modal.py`, que reproduce la selección de
+la UI por HTTP, y en `test_restrict_full_flow.py`, que la ejecuta entera.
+
+**El que funciona: `ajax_calendar_restricts` → `save_restricts`.** Son dos
+llamadas encadenadas:
+
+1. **`POST /reservation_c2/ajax_calendar_restricts`**, con la selección que
+   hace el arrastre de la UI. El campo se llama `resstrict_data` (con tres
+   "s", del portal) y va indexado:
+
+   ```
+   resstrict_data[0][rate_id]=1
+   resstrict_data[0][date]=20776          ← el day_id numérico, NO la fecha ISO
+   resstrict_data[0][fulldate]=2026-11-19 ← aquí sí la fecha ISO
+   resstrict_data[0][category_id]=21
+   ```
+
+   El servidor guarda la selección y devuelve un modal de 5 KB con el form
+   `#dialogForm`: `category_id`, `rate_id`, `datein`, `dateout`, `closed`
+   (0 Abierto / 1 Cerrado / 2 No cambiar), `closedonarrival`, `closedondeparture`,
+   `minstaythrought`, `minstayarrival`, `maxstay` y siete `week[0..6]`.
+
+2. **`POST /reservation_c2/save_restricts`**, con ese form serializado
+   (es lo que hace `$('#modal-dialog2 form').serialize()`). Responde JSON:
+
+   ```json
+   {"ok":1,"intdatein":20776,"intdateout":20776,"category_id":"21","rate_id":"1",
+    "restricts_data":{"21":{"1":{"20776":{"closed":"1", "day":"18"}}}},
+    "count_restricts_data":1,"days":{"20776":"18"}}
+   ```
+
+**El paso 1 no se puede saltar.** Un POST directo a `save_restricts` responde
+`{"ok":1, ..., "count_restricts_data":0}` y **no cambia nada**: el portal acepta
+la llamada, dice que fue bien y deja la celda igual. Reproducido en
+`test_restrict_save_roundtrip.py` (cambió: False) frente a
+`test_restrict_full_flow.py` (cambió: True). `count_restricts_data` es el número
+de días realmente afectados y es el único sitio donde se ve si la operación
+sirvió; `ok:1` solo no significa nada.
+
+**Estado de una celda.** Se lee de las clases del `<td>`, porque el portal no lo
+serializa en ningún atributo: abierta es `calendar_td ui-selectee` con su
+`<div class="current_data3">` y el número de día; cerrada pierde ese div y gana
+`bg_padlock` + `calendar_price_change`. El modal además devuelve `closed` con la
+opción vigente marcada, que sirve para consultar sin cerrar nada.
+
+**Verificado en vivo.** Round-trip de una celda (categoría 21 Overbooking,
+tarifa 1, 2026-11-19 — el último día de la rejilla y el más lejos de cualquier
+estancia): cerrada → `bg_padlock` y `count_restricts_data:1`; abierta →
+celda idéntica a la de partida. Quedó como estaba.
+
+**El que no se ha ejercido: `save_restrict_close_open`.** El JS de la misma
+página pone `restrict_type = 1` en `close_save()` y `restrict_type = 2` en
+`open_save()`, o sea 1 = Cerrar y 2 = Abrir. Pero su form **no lleva
+categorías** — sólo `restrict_type` y el rango `date` del daterangepicker—, así
+que qué celdas tocaría no está determinado por el propio request. No se ha
+llamado contra el portal por eso: no es reversible con la certeza que hace
+falta. El código anterior lo usaba con los valores **invertidos** (0 = cerrar,
+1 = abrir), o sea que habría cerrado las fechas que se le pidieran abrir.
 
 ---
 
@@ -281,6 +374,6 @@ Son la vía natural para cerrar y abrir fechas (Fase 2, Tarea 2.1).
 Ninguno de estos se ha visto funcionar. No escribas código contra ellos sin
 un `tests/manual/test_<nombre>.py` que lo compruebe antes:
 
-- Cierre y apertura de fechas: existen las vistas (`restrict_calendar`) pero no
-  se ha localizado el `POST` que las ejecuta.
+- `/reservation_c2/save_restrict_close_open`: el form y el JS existen y se han
+  leído (§4.4), pero no se ha llamado contra el portal.
 - Cualquier cosa de reservations_v2 / booking engine.

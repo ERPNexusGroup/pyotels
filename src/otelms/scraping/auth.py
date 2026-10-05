@@ -3,6 +3,7 @@ Autenticación y gestión de sesión para OtelMS.
 Maneja login híbrido (requests + Playwright), persistencia de cookies, auto-relogin, 2FA/MFA.
 """
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 
@@ -463,6 +464,34 @@ class SessionManager:
         return await self.cache.delete(key)
 
 
+_META_REFRESH = re.compile(
+    r"""<meta[^>]+http-equiv=['"]?refresh['"]?[^>]*content=['"][^'"]*url=([^'";]+)""",
+    re.IGNORECASE,
+)
+
+
+def _meta_refresh_target(body: str) -> str | None:
+    """URL de destino de un `<meta http-equiv=refresh>`, si lo hay.
+
+    El login de OtelMS no devuelve 302 sino un refresh en el body, así que
+    `follow_redirects` no lo sigue y la sesión queda a medio hacer.
+    """
+    match = _META_REFRESH.search(body)
+    return match.group(1).strip() if match else None
+
+
+def _login_failed(resp: httpx.Response) -> bool:
+    """Si el POST de login no autenticó.
+
+    No se puede mirar `resp.url.path`: OtelMS no redirige, así que tras un login
+    correcto la URL sigue siendo `/login_c2/do_single_login` y ese chequeo daba
+    falso negativo siempre. Lo que sí distingue el éxito es el refresh al
+    calendario, que sólo se emite con sesión válida.
+    """
+    landing = _meta_refresh_target(resp.text)
+    return "/reservation_c2/" not in (landing or "")
+
+
 async def get_authenticated_http_session(hotel_id: str) -> httpx.AsyncClient:
     """Crea una sesión HTTP autenticada (sin proxy) para requests directos."""
     client = httpx.AsyncClient(
@@ -491,8 +520,16 @@ async def get_authenticated_http_session(hotel_id: str) -> httpx.AsyncClient:
         headers={"Referer": login_url},
     )
 
-    if "login" in resp.url.path:
+    if _login_failed(resp):
         raise AuthenticationError(f"Login failed for hotel {hotel_id}", hotel_id=hotel_id)
+
+    # OtelMS no redirige tras el login: contesta 200 con un
+    # <meta http-equiv='refresh' content='0;url=/reservation_c2/calendar'>. Sin
+    # seguir ese refresh, la sesión sigue sin cookies de aplicación y la
+    # siguiente página protegida devuelve el login otra vez.
+    landing = _meta_refresh_target(resp.text)
+    if landing:
+        await client.get(f"{client.base_url}{landing}")
 
     logger.info("Authenticated HTTP session created", hotel_id=hotel_id)
     return client

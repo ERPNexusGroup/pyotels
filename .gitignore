@@ -84,6 +84,7 @@ calendar_*.html
 calendar_*.json
 folio_*.html
 restrict_*.html
+restrict_*.json
 uploadrates_*.html
 sync_rooms_results.json
 calendar_analysis.txt
