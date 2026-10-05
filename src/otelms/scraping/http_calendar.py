@@ -6,7 +6,8 @@ items con resid, tooltips y availability sums), así que el sync de fase 1
 (categorías + grilla de reservas) NO necesita Playwright: login POST + GET,
 igual que OtelMSAuth._perform_login pero devolviendo el HTML crudo.
 
-El browser queda reservado para folio/detalles/acciones JS (fase 2+).
+El browser queda reservado para acciones JS (fase 2+). El folio también
+está server-rendered y se lee por HTTP: ver scraping/http_folio.py.
 """
 import httpx
 
@@ -20,25 +21,39 @@ LOGIN_ERROR_KEYWORDS = ("incorrect", "error", "failed", "invalid", "inválido", 
 TWOFA_MARKERS = ("2fa", "two-factor", "two_factor", "verification code", "otp", "challenge")
 
 
-async def fetch_calendar_html(
+async def login_client(
     hotel_id: str,
     username: str,
     password: str,
     base_domain: str = "otelms.com",
-    target_date: str | None = None,
     timeout_s: float = 60.0,
     transport: httpx.AsyncHTTPTransport | None = None,
-) -> str:
-    """Login HTTP + GET del calendario. Retorna HTML crudo o lanza AuthenticationError."""
+) -> httpx.AsyncClient:
+    """Login HTTP y devuelve el cliente ya autenticado.
+
+    Va aparte del GET porque lo necesitan varias cosas con sesiones
+    distintas: el calendario (una petición) y los folios de todas las
+    reservas del día (una cada uno). Compartir la sesión evita repetir
+    el login por cada folio, que es lo que hace que OtelMS tire la
+    sesión a mitad de sincronización.
+
+    La verificación TLS se deja activa a propósito: el certificado de
+    desktop.otelms.com valida contra el CA store del sistema, comprobado
+    tanto desde Windows como desde dentro del contenedor del worker. Si
+    algún día deja de hacerlo, saltará el error de TLS y quedará a la
+    vista en el log, que es justo lo que interesa.
+
+    El cliente se devuelve abierto: quien lo reciba es dueño de cerrarlo.
+    """
     urls = OtelMSUrls(base_domain, hotel_id)
     headers = {
         "User-Agent": "pyotels/1.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
-    async with httpx.AsyncClient(
-        verify=False, timeout=timeout_s, follow_redirects=True, headers=headers,
-        transport=transport,
-    ) as client:
+    client = httpx.AsyncClient(
+        timeout=timeout_s, follow_redirects=True, headers=headers, transport=transport
+    )
+    try:
         await client.get(urls.login_url)
 
         resp = await client.post(
@@ -56,10 +71,37 @@ async def fetch_calendar_html(
             )
         body_lower = resp.text.lower()
         if any(m in body_lower for m in TWOFA_MARKERS):
-            raise AuthenticationError("2FA challenge detected (no soportado en sync HTTP)", hotel_id=hotel_id)
+            raise AuthenticationError(
+                "2FA challenge detected (no soportado en sync HTTP)", hotel_id=hotel_id
+            )
         if "login" in str(resp.url).lower() and any(k in body_lower for k in LOGIN_ERROR_KEYWORDS):
             raise AuthenticationError("Credenciales incorrectas", hotel_id=hotel_id)
+    except BaseException:
+        # El cliente ya está abierto y su __aexit__ no va a correr nunca,
+        # así que si el login falla hay que cerrarlo a mano.
+        await client.aclose()
+        raise
+    return client
 
+
+async def fetch_calendar_html(
+    hotel_id: str,
+    username: str,
+    password: str,
+    base_domain: str = "otelms.com",
+    target_date: str | None = None,
+    timeout_s: float = 60.0,
+    transport: httpx.AsyncHTTPTransport | None = None,
+) -> str:
+    """Login HTTP + GET del calendario. Retorna HTML crudo o lanza AuthenticationError."""
+    urls = OtelMSUrls(base_domain, hotel_id)
+    # El cliente viene ya abierto por login_client, así que no se puede
+    # entrar con `async with` (httpx no admite abrirlo dos veces): se
+    # cierra a mano.
+    client = await login_client(
+        hotel_id, username, password, base_domain, timeout_s, transport
+    )
+    try:
         cal = await client.get(urls.calendar_url(target_date))
         if "single_login" in str(cal.url).lower() or "single_login" in cal.text[:2000]:
             raise AuthenticationError(
@@ -67,3 +109,5 @@ async def fetch_calendar_html(
             )
         logger.info("Calendar fetched over HTTP", hotel_id=hotel_id, bytes=len(cal.text))
         return cal.text
+    finally:
+        await client.aclose()
