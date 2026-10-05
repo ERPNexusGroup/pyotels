@@ -5,6 +5,11 @@ URLs conocidas:
 - /reservation_c2/folio/{reserv_id} — "Prevista de la reserva" (invoice)
 - /reservation_c2/guestfolio/{reserv_id} — perfil de huésped (limitado)
 - /reservation_c2/calendar — lista de todas las reservas
+
+Las columnas del folio se localizan por el texto de su cabecera, nunca por
+posición: las tablas traen celdas vacías y el HTML es server-side, así que
+filtrar las vacías y leer por índice desplaza todos los campos en cuanto
+una celda se rellena. Ver docs/otelms_endpoints.md §3.
 """
 import html
 import re
@@ -13,78 +18,135 @@ from decimal import Decimal, InvalidOperation
 
 from bs4 import BeautifulSoup
 
+# Índices de tabla dentro del folio. Confirmados contra el portal: el folio
+# trae 11 tablas y los cargos van en la 1, los pagos en la 2 y el precio por
+# noche en la 7. Ver docs/otelms_endpoints.md §3.1.
+_CHARGES_TABLE = 1
+_PAYMENTS_TABLE = 2
+_ROOM_CHARGES_TABLE = 7
+
+
+def _column_indexes(table) -> dict[str, int]:
+    """Mapea el texto de cada cabecera de columna a su índice de celda.
+
+    Se resuelve una sola vez por tabla y luego cada campo se lee por su
+    columna, de modo que una celda vacía en medio no arrastra al resto.
+    """
+    head_row = table.find("tr")
+    if head_row is None:
+        return {}
+    indexes: dict[str, int] = {}
+    for idx, th in enumerate(head_row.find_all(["th", "td"])):
+        label = th.get_text(strip=True)
+        if label and label not in indexes:
+            indexes[label] = idx
+    return indexes
+
+
+def _cell(cells: list[str], indexes: dict[str, int], *labels: str) -> str:
+    """Primer valor no vacío entre varias etiquetas posibles de cabecera."""
+    for label in labels:
+        idx = indexes.get(label)
+        if idx is not None and idx < len(cells):
+            value = cells[idx].strip()
+            if value:
+                return value
+    return ""
+
 
 def parse_folio(html_content: str, reservation_id: str | int) -> dict:
     """Parsea el HTML del folio y extrae servicios, pagos y charges.
 
-    Tablas en /reservation_c2/folio/{id}:
-      T2: Charges (ID, Nombre, Entidad, Cantidad, Precio, Importe)
-      T3: Payments (Fecha, Fecha creación, #, Entidad, Descripción, Tipo, Cantidad, Método, Card, Estado)
-      T8: Room charges (Fecha, Descripción, Importe)
-      T11: Services (Nombre, Сумма)
+    Tablas en /reservation_c2/folio/{id} (índices confirmados en
+    docs/otelms_endpoints.md §3.1):
+      T1: Charges  — Fecha y hora | № | Título | Entidad legal |
+                     Descripción | Número | Precio | Cantidad
+      T2: Payments — Fecha de pago | Fecha de creación | № | Entidad legal |
+                     Descripción | Tipo | Cantidad | Método de pago |
+                     vPOS Número | vPOS Estado | Сheque fiscal
+      T7: Room charges — Fecha | Precio por una noche | Precio
+
+    En T1 la columna "Cantidad" **no** es el número de unidades sino el
+    importe de la línea; las unidades están en "Número". En T2 "Cantidad" sí
+    es el importe del pago.
     """
     soup = BeautifulSoup(html_content, "html.parser")
     tables = soup.find_all("table")
-    result = {
+    result: dict = {
         "reservation_id": str(reservation_id),
         "services": [],
         "payments": [],
         "room_charges": [],
     }
 
-    # Tabla 2: Charges/Servicios
-    if len(tables) >= 3:
-        rows = tables[1].find_all("tr")[1:]
-        for row in rows:
-            cells = row.find_all(["td", "th"])
-            values = [c.get_text(strip=True) for c in cells]
-            non_empty = [v for v in values if v.strip()]
-            if "Total:" in values:
+    # Tabla 1: cargos. La fila de total del pie no es un cargo.
+    if len(tables) > _CHARGES_TABLE:
+        table = tables[_CHARGES_TABLE]
+        indexes = _column_indexes(table)
+        for row in table.find_all("tr")[1:]:
+            cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
+            if not cells or any(c.rstrip(":") == "Total" for c in cells):
                 continue
-            if len(non_empty) >= 3:
-                result["services"].append({
-                    "id": non_empty[0],
-                    "name": non_empty[1],
-                    "legal_entity": non_empty[2],
-                    "quantity": _parse_decimal(non_empty[3]) if len(non_empty) > 3 else None,
-                    "price": _parse_decimal(non_empty[4]) if len(non_empty) > 4 else None,
-                    "amount": _parse_decimal(non_empty[5]) if len(non_empty) > 5 else None,
-                })
-
-    # Tabla 3: Pagos
-    if len(tables) >= 4:
-        rows = tables[2].find_all("tr")[1:]
-        for row in rows:
-            cells = row.find_all(["td", "th"])
-            values = [c.get_text(strip=True) for c in cells]
-            non_empty = [v for v in values if v.strip()]
-            if "Total:" in values:
+            line_no = _cell(cells, indexes, "№", "N°")
+            title = _cell(cells, indexes, "Título", "Titulo")
+            if not line_no or not title:
                 continue
-            if len(non_empty) >= 6:
-                result["payments"].append({
-                    "date": non_empty[0],
-                    "invoice_num": non_empty[2],
-                    "legal_entity": non_empty[3],
-                    "description": non_empty[4],
-                    "amount": _parse_decimal(non_empty[6]) if len(non_empty) > 6 else None,
-                    "payment_type": non_empty[7] if len(non_empty) > 7 else "",
-                    "card_number": non_empty[8] if len(non_empty) > 8 else "",
-                    "card_status": non_empty[9] if len(non_empty) > 9 else "",
-                })
+            result["services"].append({
+                "id": line_no,
+                "name": title,
+                "legal_entity": _cell(cells, indexes, "Entidad legal"),
+                "description": _cell(cells, indexes, "Descripción"),
+                "date": _cell(cells, indexes, "Fecha y hora de prestación de servicios"),
+                "quantity": _parse_decimal(_cell(cells, indexes, "Número")),
+                "price": _parse_decimal(_cell(cells, indexes, "Precio")),
+                "amount": _parse_decimal(_cell(cells, indexes, "Cantidad")),
+            })
 
-    # Tabla 8: Room charges
-    if len(tables) >= 9:
-        rows = tables[7].find_all("tr")[1:]
-        for row in rows:
-            cells = row.find_all(["td", "th"])
-            values = [c.get_text(strip=True) for c in cells]
-            non_empty = [v for v in values if v.strip()]
-            if len(non_empty) >= 2:
-                result["room_charges"].append({
-                    "date": non_empty[0],
-                    "description": non_empty[1],
-                    "amount": _parse_decimal(non_empty[2]) if len(non_empty) > 2 else None,
-                })
+    # Tabla 2: pagos.
+    if len(tables) > _PAYMENTS_TABLE:
+        table = tables[_PAYMENTS_TABLE]
+        indexes = _column_indexes(table)
+        for row in table.find_all("tr")[1:]:
+            cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
+            if not cells or any(c.rstrip(":") == "Total" for c in cells):
+                continue
+            payment_no = _cell(cells, indexes, "№", "N°")
+            amount = _cell(cells, indexes, "Cantidad")
+            if not payment_no and not amount:
+                continue
+            result["payments"].append({
+                "id": payment_no,
+                "date": _cell(cells, indexes, "Fecha de pago"),
+                "created_at": _cell(cells, indexes, "Fecha de creación"),
+                "invoice_num": payment_no,
+                "legal_entity": _cell(cells, indexes, "Entidad legal"),
+                "description": _cell(cells, indexes, "Descripción"),
+                "payment_type": _cell(cells, indexes, "Tipo"),
+                "amount": _parse_decimal(amount),
+                "method": _cell(cells, indexes, "Método de pago"),
+                "card_number": _cell(cells, indexes, "vPOS Número de la tarjeta"),
+                "card_status": _cell(cells, indexes, "vPOS Estado"),
+            })
+
+    # Tabla 7: precio por noche de la habitación. La columna central no es
+    # una descripción de cargo sino el nombre de la tarifa aplicada.
+    if len(tables) > _ROOM_CHARGES_TABLE:
+        table = tables[_ROOM_CHARGES_TABLE]
+        indexes = _column_indexes(table)
+        for row in table.find_all("tr")[1:]:
+            cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
+            if not cells:
+                continue
+            date = _cell(cells, indexes, "Fecha")
+            rate = _cell(cells, indexes, "Precio por una noche")
+            amount = _cell(cells, indexes, "Precio")
+            if not (rate or amount):
+                continue
+            result["room_charges"].append({
+                "date": date,
+                "description": rate,
+                "amount": _parse_decimal(amount),
+            })
 
     return result
 
