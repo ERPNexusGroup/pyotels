@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Check-in</title>
+    <link rel="shortcut icon" href="/images/favicon.ico" type="image/x-icon">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-touch-fullscreen" content="yes">
+    <meta name="description" content="Tectonic Admin Theme">
+    <meta name="author" content="KaijuThemes">
+
+
+    <link href='https://fonts.googleapis.com/css?family=Asap:300,400,400italic,600,600italic,700' rel='stylesheet' type='text/css'>
+        
+    <link type="text/css" href="/assets/fonts/font-awesome/css/font-awesome.min.css" rel="stylesheet">         <!-- Font Awesome -->
+    <link type="text/css" href="/assets/fonts/ionicons/css/ionicons.css" rel="stylesheet">              <!-- Themify Icons -->
+    <link type="text/css" href="/assets/fonts/elegant-icons/css/style.css" rel="stylesheet">              <!-- Ion Icons -->
+    <link type="text/css" href="/assets/css/styles.css" rel="stylesheet">                                     <!-- Core CSS with all styles -->
+    <link type="text/css" href="/assets/css/denis.css" rel="stylesheet">                                     <!-- Core CSS with all styles -->
+    <link type="text/css" href="/assets/plugins/codeprettifier/prettify.css" rel="stylesheet">                <!-- Code Prettifier -->
+    <link type="text/css" href="/assets/plugins/iCheck/skins/minimal/blue.css" rel="stylesheet">              <!-- iCheck -->
+    <link type="text/css" href="/assets/plugins/wijets/wijets.css" rel="stylesheet">              <!-- Wijets -->
+    <link type="text/css" href="/assets/js/jqueryui.css" rel="stylesheet"> <!-- jqueryui -->
+	<link type="text/css" href="/assets/plugins/charts-chartistjs/chartist.min.css" rel="stylesheet">              <!-- Chartist -->
+
+	<link type="text/css" href="/assets/plugins/form-daterangepicker/daterangepicker-bs3.css" rel="stylesheet">                   <!-- DateRangePicker -->
+	<link type="text/css" href="/assets/css/echartsHome.css" rel="stylesheet">
+	<link type="text/css" href="/assets/plugins/switchery/switchery.css" rel="stylesheet">                        <!-- Switchery -->
+	<link rel="stylesheet" type="text/css" href="/css/styles_calendarv2.css" />
+    <link rel="stylesheet" type="text/css" href="/css/styles_maria.css" />
+
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js"></script>
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.13/jquery-ui.min.js"></script>
+</head>
+<body class="infobar-offcanvas layout-horizontal topnav-collapsed">
+<script type="text/javascript">
+$(document).ready(function() {
+	/*$("#print_invoice").click(function(e) {
+		$(".modal-dialog").removeClass('w-modal_1');
+    	var result = $("#ajaxPlumbumBlock").empty();
+    	var data = new Array;
+		var x=new Object;
+		var ajaxlink;
+		x.landing_page = 1;
+		x.reservation_id = $(this).attr('reservation_id');
+		x.template_area_id = 3;
+		ajaxlink = "/reservation_c2/ajax_print_invoice";
+
+		data.push(x);
+		var id = $(this).attr('href');
+		$.ajax({
+			url: ajaxlink,
+            data: ({reservations : data}),
+            type:'post',
+            success: function(data) {
+
+			result.html(data);
+
+		  }
+			});
+    });
+	*/
+	
+	$("#check_Allprint_page").click(function(e) {
+		$('#check_Allprint_page_form').attr("target", "_blank");
+		$('#check_Allprint_page_form').submit();
+	});
+	
+	$("#check_Allprint").click(function(e) {
+		$(".modal-dialog").removeClass('w-modal_1');
+    	var result = $("#ajaxPlumbumBlock").empty();
+    	var data = new Array;
+		var x=new Object;
+		var ajaxlink;
+
+		x.id = $(this).attr('reservation_id');
+		ajaxlink = "/reservation_c2/ajax_check_Allprint";
+
+		data.push(x);
+		var id = $(this).attr('href');
+		$.ajax({
+			url: ajaxlink,
+            data: ({reservations : data}),
+            type:'post',
+            success: function(data) {
+
+			result.html(data);
+
+		  }
+			});
+    });
+});
+</script>
+<link rel="stylesheet" type="text/css" href="/css/themes/styles_01.css">
+<script type="text/javascript">
+var LHCChatOptions = {};
+LHCChatOptions.opt = {widget_height:340,widget_width:300,popup_height:520,popup_width:500,domain:''};
+(function() {
+var _l = 'spa' + '/';
+var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;
+var referrer = (document.referrer) ? encodeURIComponent(document.referrer.substr(document.referrer.indexOf('://')+1)) : '';
+var location  = (document.location) ? encodeURIComponent(window.location.href.substring(window.location.protocol.length)) : '';
+po.src = 'https://otelmschat.otelms.com/index.php/'+_l+'chat/getstatus/(click)/internal/(position)/original/(ma)/br/(top)/350/(units)/pixels/(leaveamessage)/true/(department)/10/(theme)/1?r='+referrer+'&l='+location;
+var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);
+})();
+
+function Open_Chat(){
+  lh_inst.openRemoteWindow();
+}
+	$(document).ready(function(){
+		 setInterval('show_time()',280000);
+						$('.alarm').click(function(e) {
+							var ajaxlink;
+							var answer_id;
+							var alarm_id;
+							answer_id = $(this).attr('answer_id');
+							alarm_id = $(this).attr('alarm_id');
+							ajaxlink = "/hms_amessages/set_answer/" + alarm_id + "/" + answer_id;
+							$.ajax({
+								url : ajaxlink,
+								success : function(data) {
+
+								}
+							});
+							$(this).parent().remove();
+
+
+							//$('.alarm_box_' + alarm_id).remove();
+						});
+
+						$('.hms_notification').click(function(e) {
+							var ajaxlink;
+							var answer_id;
+							var alarm_id;
+							var reservation_id = 0;
+							//var transfer_url = "";
+
+							answer_id = $(this).attr('answer_id');
+							alarm_id = $(this).attr('alarm_id');
+							if ($(this).attr('reservation_id') !== 'undefined') {
+								reservation_id = $(this).attr('reservation_id');
+							}
+							
+							//if (typeof($(this).attr('transfer_url')) != 'undefined' && $(this).attr('transfer_url') !== null) {
+							//	transfer_url = $(this).attr('transfer_url');
+							//}
+
+							ajaxlink = "/hms_notification/set_answer/" + alarm_id + "/" + answer_id;
+							$.ajax({
+								url : ajaxlink,
+								success : function(data) {
+									if(reservation_id > 0){
+										window.location.href = '/reservation_c2/folio/' + reservation_id + '/1';
+									}
+									
+									
+									//if(transfer_url != ""){
+									//	window.location.href = transfer_url;
+									//}
+
+								}
+							});
+							$(this).parent().remove();
+							if(answer_id == "remove_all"){
+								$('#header_messages').empty();
+							}
+							//$('.alarm_box_' + alarm_id).remove();
+						});
+
+						$('.notification').click(function(e) {
+							var ajaxlink;
+							var notification_id;
+							notification_id = $(this).attr('notification_id');
+							ajaxlink = "/hms_amessages/set_notification_reminddate/" + notification_id;
+							$.ajax({
+								url : ajaxlink,
+								success : function(data) {
+
+								}
+							});
+							$(this).parent().remove();
+							//$('.alarm_box_' + alarm_id).remove();
+						});
+	});
+	function show_time() {
+		//alert("+");
+		 $.ajax({
+             url: "/ajax/update_time_c2",
+             cache: false,
+             success: function(html){
+                 $("#uptime").html(html);
+             }
+         });
+	}
+
+</script>
+
+
+
+<div class="col-md-12 header_messages">
+	<div class="panel-body" id="header_messages">
+    		
+	</div>
+</div>
+<header id="topnav" class="navbar navbar-default navbar-fixed-top clearfix" role="banner">
+
+	<div class="navbar-header">
+    <a class="navbar-brand" href="/reservation_c2/calendar">
+      <img class="img-dark" src="/images/logo_rgb_OtelMS_border_xxs_icon.png" alt="">
+    </a>
+
+    <span class="header-time">
+    ID: 18330
+    <br>
+    <div id="uptime">08:56</div>
+    </span>
+  </div>
+
+<span id="trigger-leftbar" class="toolbar-trigger">
+		<a data-toggle="tooltips" data-placement="right" title="Toggle Leftbar"><span class="icon"><i class="ion-android-arrow-back"></i></span></a>
+</span>
+
+
+  <span class="toolbar-trigger">
+    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#tectonic-topnav-collapsible" aria-expanded="false">
+      <span class="icon"><i class="ion-more"></i></span>
+    </button>
+  </span>
+
+  <!-- Togglable navigation -->
+  <div class="collapse navbar-collapse" id="tectonic-topnav-collapsible">
+    <ul class="yamm nav navbar-nav navbar-left">
+      <li class="dropdown d0">
+        <a class="dropdown-toggle" data-toggle="dropdown" href="#" aria-expanded="false">
+          <span class="icon"><i class="ion-shuffle"></i></span>
+
+        </a>
+       <ul class="dropdown-menu">
+
+          
+
+        </ul>
+      </li>
+      <li class="dropdown">
+<!--        <a class="dropdown-toggle" href="/reservation_c2/calendar" aria-expanded="false">
+          <span class="icon"><i class="ion-ios-keypad"></i></span>
+          <span class="text  hidden-sm3">Tabla de reservas</span>
+        </a>-->
+				<a class="dropdown-toggle" data-toggle="dropdown" href="#" aria-expanded="false">
+					<span class="icon"><i class="ion-ios-keypad"></i></span>
+					<span class="text hidden-sm2">Tabla de reservas</span>
+				</a>
+        <ul class="dropdown-menu" style="left:0!important;">
+          <li><a href="/reservation_c2/calendar"><i class="fa ion-ios-keypad"></i><span>Tabla de reservas</span></a></li>
+          <li><a href="/reservation_c2/price_calendar">
+          <i class="icon_sum">∑</i><span>Precios y disponibilidad</span>
+          </a></li>
+          <li><a href="/reservation_c2/restrict_calendar"><i class="fa fa-ban"></i><span>Restricciones</span></a></li>
+        </ul>
+
+      </li>
+       <li class="dropdown">
+        <a class="dropdown-toggle" href="/reservation_c2/status" aria-expanded="false">
+          <span class="icon"><i class="fa fa-check-square-o"></i></span>
+          <span class="text hidden-sm2">Estado</span>
+        </a>
+      </li>
+      <li class="dropdown d0">
+		<a class="dropdown-toggle" data-toggle="dropdown" href="#" aria-expanded="false">
+			<span class="icon"><i class="fa fa-comments-o"></i></span>
+			<span class="text hidden-xl2">Reputación</span>
+		</a>
+        <ul class="dropdown-menu" style="left:0!important;">
+          <li><a href="/reviews_c2/dashboard"><i class="fa fa-comments-o"></i><span>Reputación</span></a></li>
+          <li><a href="/reviews_c2/reviews_list"><i class="fa fa-comments-o"></i><span>Lista de comentarios</span></a></li>
+        </ul>
+
+      </li>
+      <li class="dropdown ">
+        <a class="dropdown-toggle" href="/recommendations/recommendations_list" aria-expanded="false">
+          <span class="icon"><i class="fa fa-tasks"></i></span>
+
+          <span class="badge badge-deep-purple">8</span>
+          <span class="text  hidden-sm2">Recomendaciones</span>
+        </a>
+      </li>
+      <li class="dropdown">
+        <a class="dropdown-toggle" href="/reservation_c2/rlist/1" aria-expanded="false">
+          <span class="icon"><i class="fa fa-list-ul"></i></span>
+          <span class="text  hidden-sm2">Informes</span>
+        </a>
+      </li>
+
+
+      <li class="dropdown">
+        <a class="dropdown-toggle"  href="/admin_settings_c2/global_settings" aria-expanded="false">
+          <span class="icon"><i class="fa fa-cog"></i></span>
+          <span class="text  hidden-sm2">Configuración</span>
+        </a>
+      </li>
+
+      <li class="dropdown dropdown-lg d0">
+        <a class="dropdown-toggle" href="/reservations/calendar/" aria-expanded="false">
+          <span class="icon">
+          <i class="fa fa-pencil-square-o"></i>
+          </span>
+          <span class="text hidden-sm1b">HMS v1.0</span>
+        </a>
+      </li>
+
+      
+
+ <!--     <li class="hidden-sm hidden-md hidden-lg"><a href=""><span class="icon"><i class="ion-plus"></i></span><span class="text hidden-lg hidden-sm hidden-md">Add item</span></a></li>  -->
+    </ul>
+    <ul class="yamm nav navbar-nav navbar-right">
+	
+	<li class="dropdown d0" id="trial_period">
+        <a class="dropdown-toggle" data-toggle="dropdown" href="#" aria-expanded="false">
+          <span class="icon"><i class="ion-alert"></i></span>
+          <span class="text hidden-xl4" style="">Días que quedan: -736</span>
+          <span class="trial_icons hidden-xl4">Periodo de prueba</span>
+        </a>
+	</li>
+
+	
+      <li class="dropdown" id="toolbar-search">
+      		<form name="search_form" action="/reservation_c2/search" method="GET">
+            <input type="text" name="search" class="form-control" placeholder="Buscar...">
+            <button class="" type="submit"><i class="ion-search"></i></button>
+            </form>
+          </li>
+
+      <li class="dropdown dropdown-lg">
+        <a href="/chmanager_c2/uploadrooms">
+        <!-- <a href="#" class="dropdown-toggle" data-toggle='dropdown' style="width:42px;"> -->
+          <span class="icon"><i class="ion-ios-world"></i></span>
+          <span class="text hidden-sm hidden-lg hidden-md">Sincronización</span>
+          
+          <span class="badge badge-danger" style="bottom: 4px;right: 4px;top: unset;">1</span>
+        </a>
+
+        <div class="dropdown-menu notifications">
+          <div class="dropdown-header clearfix">
+            <span class="pull-left">
+            Estado: Encendido
+            </span>
+            <span class="pull-right">
+            <a href="/dc_cron/dc_log_semafor_OFF" class="pull-left">
+            <i class="ion-android-done-all"></i>
+            Apagar
+            </a>
+            </span>
+          </div>
+          <div class="scroll-pane" style="height:220px;">
+            <ul class="media-list scroll-content">
+            	<li>
+					<span class="category-heading">{}</span>
+				</li>
+				
+
+            </ul>
+          </div>
+          <div class="dropdown-header clearfix">
+         	<span class="pull-left">
+            <a href="/chmanager/syncstatus">Sincronización:</a>
+            2026-10-05 07:48
+            </span>
+          </div>
+          <div class="scroll-pane" style="height:220px;">
+            <ul class="media-list scroll-content">
+            	<li>
+				<span class="category-heading">{}</span>
+				</li>
+				
+				<li class="media new">
+					<a href="/">
+						<div class="media-left">
+							<span class="icon red"><i class="fa ion-close-round"></i></span>
+						</div>
+						<div class="media-body">
+							<span class="name"></span> Airbnb
+							<span class="time">2026-10-05 07:48:18</span>
+						</div>
+					</a>
+				</li>
+				
+            </ul>
+          </div>
+
+
+
+          <div class="dropdown-footer clearfix">
+         	<span class="pull-right">
+            <a href='/chmanager_c2/dcerrors'>errores (1)</a>
+            </span>
+          </div>
+        </div>
+      </li>
+      <li class="dropdown dropdown-lg">
+        <a href="#" class="dropdown-toggle" data-toggle='dropdown'>
+          <span class="icon"><i class="ion-android-mail"></i></span>
+          <span class="text hidden-sm hidden-lg hidden-md">Aviso</span>
+          <span class="badge badge-deep-purple">37</span> 
+          <!-- <span class="label label-deep-purple hidden-lg hidden-sm hidden-md">text</span> -->
+        </a>
+
+        <div class="dropdown-menu notifications">
+          <div class="dropdown-header clearfix">
+            <span class="pull-left">37 nuevas notificaciones</span>
+            <span class="mark-read pull-right"><i class="ion-android-done-all"></i></span>
+          </div>
+          <div class="scroll-pane">
+            <ul class="media-list scroll-content">
+            
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2327/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6525874643), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-10-02 22:59:04</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2326/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5403009676), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-10-02 05:19:47</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2325/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6155095273/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-23 18:42:50</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2324/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6155095273/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-23 18:42:49</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2323/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6155095273/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-23 18:42:49</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2322/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6138211022), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-19 14:29:24</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2321/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5908777597), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-19 04:51:24</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2320/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6155095273), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-18 18:19:24</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2319/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6691271977), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-18 18:14:49</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2318/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5500743627), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-18 17:50:04</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2317/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6856650327), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-18 12:59:49</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2316/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6750024204/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-16 21:01:44</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2315/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6750024204/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-16 21:01:44</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2314/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6304303548), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-16 00:42:23</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2313/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6750024204), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-15 04:52:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2312/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (5278479447/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-13 20:02:04</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2311/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (5470497790/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-13 20:00:23</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2310/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6795737600/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-13 04:23:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2309/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6795737600), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-13 03:50:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2308/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Airbnb,  Nueva reserva  (HM23WWW2KX/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-12 22:45:49</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2307/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6581741384), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-12 19:49:23</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2306/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6890857764/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-12 17:30:02</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2305/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5470497790), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-12 17:19:43</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2304/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (5897915755/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-12 16:09:04</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2303/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5897915755), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-12 14:24:28</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2302/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (5451687908/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-12 01:26:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2301/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5302484749), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-10 15:14:04</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2300/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Expedia.com,  Nueva reserva  (2555171830/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-09 23:55:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2297/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5278479447), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-08 23:18:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2296/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5059931051), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-08 21:58:44</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2295/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, (отмена (2)) Cancelación (отмена (2)) (5974485472/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-08 21:55:02</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2294/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Expedia.com,  Nueva reserva  (2553505570/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-08 01:11:02</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2293/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (5509341365), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-05 19:37:54</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2292/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com,  Cancelación  (6357300439/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-05 18:19:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2291/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Booking.com, Nueva reserva (6357300439), Hotel Ensueños by HHG</span>
+                    <span class="time">2026-09-05 15:22:25</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2290/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Expedia.com,  Cancelación  (2551403344/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-05 02:22:02</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              <li class="media new">
+                <a href="/mailbox_c2/showmessages/2289/1">
+                  <div class="media-left">
+                    <span class="icon success"><i class="fa fa-envelope"></i></span>
+                  </div>
+                  <div class="media-body">
+                    <span class="name">HMS OtelMS, Expedia.com,  Nueva reserva  (2551403344/), Harmony Hotel Group</span>
+                    <span class="time">2026-09-05 02:11:03</span><!--  2 min ago -->
+                  </div>
+                </a>
+              </li>
+              
+              
+            </ul>
+          </div>
+          <div class="dropdown-footer clearfix">
+            <a href="/mailbox_c2/messageslist/1/1" class="pull-left">Todas las notificaciones</a>
+            <!--a href="#" class="pull-right">Configuración</a-->
+          </div>
+        </div>
+      </li>
+
+		<li class="dropdown dropdown-lg">
+			<a href="#" class="dropdown-toggle" data-toggle='dropdown'>
+				<span class="icon"><i class="ion-help"></i></span>
+				<span class="text hidden-sm hidden-lg hidden-md">Ayuda</span>
+			</a>
+			<ul class="dropdown-menu">
+				<li><span class="dropdown-header">Ayuda</span></li>
+				<li><a href="https://wiki.otelms.com/" target="_blank"><i class="ion-help"></i><span>FAQ</span></a></li>
+				<li><a href="#" onclick="Open_Chat();"><i class="fa fa-commenting"></i><span><span class="help-chat-green">Chat</span></span>
+					</a>
+				</li>
+				<li><div class="d0" id="lhc_status_container"></div></li>
+				<li><a href="/home/feedback_c2"><i class="fa fa-comment"></i><span>Mensaje nuevo</span></a></li>
+				<li class="{messages_class}"><a href="/support/ticketslist_c2"><i class="fa fa-history"></i><span>Historial</span></a></li>
+				<!-- <li class="{messages_v2_class}"><a href="/messages_c2/support_msgs_list/1"><i class="fa fa-history"></i><span>Historial V2</span></a></li> -->
+			</ul>
+		</li>
+
+      <li class="dropdown username">
+        <a class="dropdown-toggle" data-toggle="dropdown" href="#" aria-expanded="false">
+          <span class="icon visible-xs"><i class="ion-android-person"></i></span>
+          <span class="avatar"><img class="img-responsive img-rounded" src="/images/mw_avatar.png"></span>
+        </a>
+        <ul class="dropdown-menu">
+          <li>
+            <div class="userinfo">
+              <span class="avatar"><img class="img-responsive img-circle" src="/images/mw_avatar_big.png"></span>
+              <span class="name">WalterCun</span>
+              <span class="email">gerencia@harmonyhotelgroup.com</span>
+            </div>
+          </li>
+          <li role="separator" class="divider"></li>
+          <li><a href="/users_c2/currentuedit/"><i class="ion-android-create"></i><span>Cambiar perfil</span></a></li>
+          <li role="separator" class="divider"></li>
+          <li><a href="/login/DoLogOut"><i class="ion-arrow-right-c"></i><span>Salida</span></a></li>
+        </ul>
+      </li>
+
+    </ul>
+  </div><!-- /.navbar-collapse -->
+</header>
+
+
+<div id="wrapper">
+  <div id="layout-static">
+   <form id="check_Allprint_page_form" name="check_Allprint_page_form" action="/reservation_c2/check_Allprint_page" method="POST">
+					<input type="hidden" name="reservation_id" value="23565"/>
+					</form>
+					
+ <div class="one-content-wrapper">
+<div class="static-content">
+<div class="page-content foliof">
+<div class="panel panel-default alt">
+  
+<div class="page-heading">
+<div class="blocktitle">
+    <h1>
+    Check-in: Reserva No. 23565 (ROJAS  ALEX ) 
+    </h1>
+</div>
+<div class="options"></div>
+</div>        
+
+
+<div class="container-fluid">
+<div class="row" data-widget-group="group-demo">
+<div class="panel panel-default nomarg">
+
+<div class="panel-heading  p0 bb0">
+    <div class="newTabs">
+        <ul>
+        
+            <li class="">
+            <a href="/master_c2/step_1/23565">Detalles de la reserva</a>
+            </li>
+        
+            <li class="">
+            <a href="/master_c2/step_2/23565">Información sobre los huéspedes</a>
+            </li>
+        
+            <li class="">
+            <a href="/master_c2/step_3/23565">Servicios y pagos.</a>
+            </li>
+        
+            <li class="active">
+            <a href="/master_c2/step_4/23565">Check-in</a>
+            </li>
+        
+          
+        </ul>
+    </div>
+</div>
+
+<div class="panel-body">
+
+						<div class="folio1">
+							<div class="col-md-2">
+								<b>Check-in:</b><br>2026-10-09 14:00
+							</div>
+							<div class="col-md-2">
+								<b>Check-out:</b><br>2026-10-11 12:00
+							</div>
+							<div class="col-md-2">
+								<b>Noches:</b><br>2
+							</div>
+						</div>
+
+						<div class="clear"></div>
+						<div class="linef3 clear"></div>
+
+						<div class="folio1">
+							<div class="col-md-2">
+								<b>Tipo de habitación:</b><br>Matrimonial
+							</div>
+							<div class="col-md-2">
+								<b>Habitación:</b><br>203
+							</div>
+						</div>
+
+						<div class="clear"></div>
+						<div class="linef3 clear"></div>
+
+						<div class="folio1">
+							<div class="col-md-12">
+								<b>Huéspedes:</b>
+                                <br/>	
+													
+									<img class="svgicon1" src="/assets/img/babyicon5.svg" alt=""> ALEX  ROJAS   (18958)<br>
+							
+
+
+                            
+							</div>
+						</div>
+
+						<div class="clear"></div>
+						<div class="linef3 clear"></div>
+
+						<div class="folio1">
+							<div class="col-md-12">
+								<b>Servicios:</b><br>	
+													
+								
+							</div>
+						</div>
+
+						<div class="clear"></div>
+						<div class="linef3 clear"></div>
+
+						<div class="folio1">
+							<div class="col-md-12">
+								<b>Saldo:</b><br>						
+								-46.00
+							</div>
+						</div>
+						
+
+						<div class="clear"></div>
+						<div class="linef3 clear"></div>
+
+						<div class="folio1">
+							<div class="col-md-12">
+								<b>Notas:</b><br>						
+							SIN DESAYUNO 
+UN VEHICULO DE LA HB 104 
+							</div>
+						</div>
+
+
+			        </div>	
+			   		<div class="panel-footer">
+						<div class="row">
+							<div class="col-sm-12">
+								<a href="/master_c2/step_3/23565" class="pull-left pull-left btn btn-default mw-85">Atrás</a>
+								
+	<a id="check_Allprint" href="#select_result" reservation_id="23565" href="#select_result" data-toggle="modal" 
+	class="btn btn-primary btn-label uppnone mw-85 mr-3"><i class="fa fa-print"></i>Imprimir </a>
+								<a href="/reservation_c2/set_checkin/23565/status" class="btn-success pull-right btn mw-85 ">Check-in</a>
+								
+							</div>
+						</div>
+					</div>
+				</div>
+     
+ </div><!--.panel .panel-default .nomarg-->
+</div><!--.row-->
+  <!-- Модальное окно N -->
+<div class="modal fade" id="select_result" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div id="ajaxPlumbumBlock">
+      
+      </div>
+    </div>
+  </div>
+</div><!-- Модальное окно 4 -->
+</div><!--.container-fluid-->
+        
+
+
+</div><!--.panel .panel-default .alt-->
+<footer role="contentinfo">
+	<div class="footer_wrapper">
+		<ul class="list-unstyled list-inline pull-left">
+			<li><h6 class="m0">COPYRIGHT &copy; 2026 OtelMS.COM drev.1010 b.pr07-n2</h6></li>
+		</ul>
+	</div>
+</footer>   
+<script>
+$('link[rel$=icon]').remove();
+$('head').append( $('<link rel="shortcut icon" type="image/x-icon"/>' ).attr( 'href', "/images//favicon.ico" ) ); 
+</script>
+</div><!--.page-content .foliof-->
+</div><!--.static-content-->
+</div><!--.one-content-wrapper-->
+
+</div>
+</div>
+
+  
+
+  
+  <!-- Load site level scripts -->
+
+<script type="text/javascript" src="/assets/js/jquery-1.10.2.min.js"></script>							<!-- Load jQuery -->
+<script type="text/javascript" src="/assets/js/jqueryui-1.9.2.min.js"></script>						<!-- Load jQueryUI -->
+
+<script type="text/javascript" src="/assets/js/bootstrap.min.js"></script> 								<!-- Load Bootstrap -->
+
+<script type="text/javascript" src="/assets/plugins/easypiechart/jquery.easypiechart.js"></script> 		<!-- EasyPieChart-->
+<script type="text/javascript" src="/assets/plugins/sparklines/jquery.sparklines.min.js"></script>  		<!-- Sparkline -->
+<script type="text/javascript" src="/assets/plugins/jstree/dist/jstree.min.js"></script>  				<!-- jsTree -->
+
+<script type="text/javascript" src="/assets/plugins/codeprettifier/prettify.js"></script> 				<!-- Code Prettifier  -->
+<script type="text/javascript" src="/assets/plugins/bootstrap-switch/bootstrap-switch.js"></script> 		<!-- Swith/Toggle Button -->
+
+<script type="text/javascript" src="/assets/plugins/bootstrap-tabdrop/js/bootstrap-tabdrop.js"></script>  <!-- Bootstrap Tabdrop -->
+
+<script type="text/javascript" src="/assets/plugins/iCheck/icheck.min.js"></script>     					<!-- iCheck -->
+
+<script type="text/javascript" src="/assets/js/enquire.min.js"></script> 									<!-- Enquire for Responsiveness -->
+
+<script type="text/javascript" src="/assets/plugins/bootbox/bootbox.js"></script>							<!-- Bootbox -->
+
+<script type="text/javascript" src="/assets/plugins/nanoScroller/js/jquery.nanoscroller.min.js"></script> <!-- nano scroller -->
+
+<script type="text/javascript" src="/assets/plugins/jquery-mousewheel/jquery.mousewheel.min.js"></script> 	<!-- Mousewheel support needed for jScrollPane -->
+
+<script type="text/javascript" src="/assets/js/application.js"></script>
+<script type="text/javascript" src="/assets/demo/demo.js"></script>
+<script type="text/javascript" src="/assets/demo/demo-switcher.js"></script>
+
+<script type="text/javascript" src="/assets/plugins/pulsate/jQuery.pulsate.min.js"></script>
+<script type="text/javascript" src="/assets/plugins/localisation/js/jquery.localize.min.js"></script>
+<script type="text/javascript" src="/assets/plugins/localisation/js/demo-localisation.js"></script>
+<script type="text/javascript" src="/assets/demo/demo-jqueryui.js"></script>
+
+<script type="text/javascript" src="/assets/plugins/switchery/switchery.js"></script>                             <!-- Switchery -->
+
+<script type="text/javascript" src="/assets/plugins/wijets/wijets.js"></script>                                   <!-- Wijet -->
+<script type="text/javascript" src="/assets/plugins/charts-chartistjs/chartist.min.js"></script>                  <!-- Chartist -->
+<script type="text/javascript" src="/assets/plugins/charts-chartistjs/chartist-plugin-tooltip.js"></script>       <!-- Chartist -->
+
+<script type="text/javascript" src="/assets/plugins/easypiechart/jquery.easypiechart.min.js"></script>            <!-- EasyPieChart-->
+
+<script type="text/javascript" src="/assets/plugins/switchery/switchery.js"></script>                             <!-- Switchery -->
+<script type="text/javascript" src="/assets/plugins/easypiechart/jquery.easypiechart.min.js"></script>            <!-- EasyPieChart-->
+<script type="text/javascript" src="/assets/plugins/jQuery-Mapael/js/raphael/raphael-min.js"></script>            <!-- Load Raphael as Dependency -->
+<script type="text/javascript" src="/assets/plugins/jquery-mousewheel/jquery.mousewheel.min.js"></script>         <!-- MouseWheel Support -->
+<script type="text/javascript" src="/assets/plugins/jQuery-Mapael/js/jquery.mapael.js"></script>                  <!-- jQuery Mapael -->
+<script type="text/javascript" src="/assets/plugins/jQuery-Mapael/js/maps/world_countries.js"></script>           <!-- Vector Data of World Countries -->
+
+<script type="text/javascript" src="/assets/plugins/knob/jquery.knob.min.js"></script>
+
+<script type="text/javascript" src="/assets/demo/demo-index-map.js"></script>
+<script type="text/javascript" src="/assets/js/echarts.js"></script>
+
+<script type="text/javascript" src="/assets/plugins/charts-flot/jquery.flot.min.js"></script>
+<script type="text/javascript" src="/assets/plugins/charts-flot/jquery.flot.stack.min.js"></script>
+<script type="text/javascript" src="/assets/plugins/charts-flot/jquery.flot.pie.min.js"></script>
+<script type="text/javascript" src="/assets/plugins/charts-flot/jquery.flot.orderBars.min.js"></script>
+<script type="text/javascript" src="/assets/plugins/charts-flot/jquery.flot.resize.js"></script>
+
+<script type="text/javascript" src="/assets/plugins/charts-flot/jquery.flot.tooltip.min.js"></script>
+
+<script type="text/javascript" src="/assets/plugins/charts-chartjs/Chart.min.js"></script>
+
+<script type="text/javascript" src="/assets/plugins/form-daterangepicker/moment.min.js"></script>                         <!-- Moment.js for Date Range Picker -->
+<script type="text/javascript" src="/assets/plugins/form-daterangepicker/daterangepicker.js"></script>
+</body>
+</html>

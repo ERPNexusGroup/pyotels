@@ -394,6 +394,81 @@ están probadas contra el portal, pero exponerlas significa escribir contra un
 portal de terceros sin `dry-run` ni undo, así que queda para cuando haya una
 decisión explícita sobre quién puede cerrar un día y con qué auditoría.
 
+### 4.6 Check-in, check-out y mover una reserva
+
+Descubierto en el folio, que es donde vive el botón. Cada reserva tiene dos
+enlaces con `reservation_id` y su respective URL:
+
+```html
+<a id="do_checkin"  href="/master_c2/step_1/23565/?landing_page=folio">
+<a id="do_checkout" href="/master_c2/checkout_step_1/23565?landing_page=folio">
+```
+
+Esos dos **no hacen nada**: abren un asistente de varios pasos.
+
+| Asistente | Pasos | El último hace |
+|---|---|---|
+| Check-in | `step_1` detalles · `step_2` huéspedes · `step_3` servicios y pagos · `step_4` | el check-in |
+| Check-out | `checkout_step_1` fechas · `checkout_step_2` factura preliminar · `checkout_step_3` | el check-out |
+
+**Las tres operaciones reales, leídas del `panel-footer` del último paso:**
+
+| Operación | Método | URL |
+|---|---|---|
+| Check-in | `GET` | `/reservation_c2/set_checkin/{resid}/status` |
+| Check-out | `GET` | `/reservation_c2/set_checkout/{resid}/status` |
+| Mover / cambiar fechas | `POST` | `/reservation_c2/update_reservation` |
+
+Ojo con las dos primeras: son **un enlace `<a href>` verde**, no un form. Sin
+token, sin POST, sin confirmación. El `/status` final es un segmento literal
+de la ruta, no un parámetro. Es decir: **`GET` a esas URLs cambia el estado de
+una estancia real.** Que no se confunda con que sean inofensivas por ser GET.
+
+La tercera es distinta. `/master_c2/step_1` postea a `update_reservation` con
+26-30 campos: `reservation_id`, `room_id`, `category`, `datein`, `dateout`,
+`duration`, `adults`, `checkintime`, `checkouttime`, `price_type`,
+`percent_discount`, `service_main_amount` y **un `day_price[day_id]` por
+noche**. La pestaña del check-out se titula "Cambiar las fechas de la
+estancia", o sea que ese form *es* la operación de mover.
+
+`landing_page` vale `master_checkin` o `master_checkout` y decide a qué
+asistente vuelve el portal. No es decorativo.
+
+Dos trampas medidas, no supuestas:
+
+1. **El form del check-out de una reserva que no ha llegado trae
+   `duration` negativo.** Para 23565 (llegada 2026-10-09, consultada el
+   2026-10-05) el portal devuelve `dateout` = hoy y `duration` = `-4`.
+   Reenviar ese form tal cual guardaría una estancia de -4 noches.
+2. **El `room_id` sale dos veces**: un `hidden` con la habitación actual y un
+   `select`. El `select` sólo trae la actual; la lista real se repuebla por
+   JS al cambiar `category`. Los dos campos tienen que coincidir.
+
+Por eso `move_reservation()` **relee el form del portal y sólo cambia el campo
+pedido** en vez de construir el payload: los precios por noche los pone el
+portal, no esta API. Un `day_price` inventado es un cobro inventado.
+
+### 4.7 Las clases del folio NO dicen si el huésped ha llegado
+
+En el folio (`/reservation_c2/folio/{resid}`) los dos botones traen una clase
+extra: `withtoggle` o `withtoggle d0`.
+
+`d0` parece un marcador de "deshabilitado", y la hipótesis era que
+serviría para saber el estado de arrivals sin ejecutar un check-out. **Es
+falsa**, y hay contraejemplo limpio:
+
+| resid | realidad | check-in | check-out |
+|---|---|---|---|
+| 23356 | dentro desde 2026-09-20 | `withtoggle` | `withtoggle d0` |
+| 23565 | llega 2026-10-09, nunca ha llegado | `withtoggle` | `withtoggle d0` |
+| 23552 | — | `withtoggle d0` | `withtoggle` |
+| 23558 | — | `withtoggle d0` | `withtoggle` |
+
+23356 y 23565 tienen **HTML idéntico** y estados opuestos. Lo que estas clases
+miden es otra cosa (por lo visto, si la fecha de salida está cerca), pero no
+es el arrival. No se construya un detector de check-in encima de esto: el
+criterio que sí se sostiene es el rango de fechas, como en §4.1.
+
 ---
 
 ## 5. Endpoints NO verificados
@@ -401,6 +476,17 @@ decisión explícita sobre quién puede cerrar un día y con qué auditoría.
 Ninguno de estos se ha visto funcionar. No escribas código contra ellos sin
 un `tests/manual/test_<nombre>.py` que lo compruebe antes:
 
+- `/reservation_c2/set_checkin/{resid}/status` y
+  `/reservation_c2/set_checkout/{resid}/status`: las URLs están **leídas del
+  HTML** y el cliente de `src/otelms/scraping/checkin.py` está probado con
+  `MockTransport`, pero **no se han llamado contra el portal**. Un check-in
+  mueve una estancia con huéspedes dentro y un check-out cierra una factura.
+- `/reservation_c2/update_reservation`: mismo caso. El form se ha leído y
+  parseado en vivo contra 23565 y 23356, pero no se ha enviado ninguno.
 - `/reservation_c2/save_restrict_close_open`: el form y el JS existen y se han
   leído (§4.4), pero no se ha llamado contra el portal.
 - Cualquier cosa de reservations_v2 / booking engine.
+
+Reproducir: `tests/manual/test_checkin_wizard.py`,
+`test_checkin_final_steps.py`, `test_move_update_reservation.py`,
+`test_checkin_state_detect.py`. Los cuatro son **sólo GET**.

@@ -207,6 +207,36 @@ The write side (closing and opening dates) is `src/otelms/scraping/restrictions.
 and is not exposed over HTTP yet. Closing a day is three chained calls, not one
 PUT — see `docs/otelms_endpoints.md` §4.4.
 
+### Check-in, check-out and moving a reservation
+
+`src/otelms/scraping/checkin.py` speaks to the three reservation operations:
+
+```python
+await check_in(hotel_id, reservation_id)                    # GET  /reservation_c2/set_checkin/{id}/status
+await check_out(hotel_id, reservation_id)                   # GET  /reservation_c2/set_checkout/{id}/status
+await move_reservation(hotel_id, reservation_id, room_id="110")
+```
+
+`move_reservation` deliberately **does not build the request payload**. It
+re-reads the form OtelMS just served and changes only the field you asked for,
+so the per-night `day_price[]` values are the portal's own and never invented —
+on a real reservation an invented price is a real charge. It also refuses to
+move a reservation that hasn't arrived yet, because OtelMS's own check-out
+form then carries a **negative duration** (measured: `-4`).
+
+**These three are not exposed over HTTP, and none of them has been called
+against the live portal.** The URLs are read from the portal HTML and the
+client is covered by `tests/unit/test_checkin.py` with `httpx.MockTransport`,
+but a `GET` to `set_checkin` checks a real guest into a real room and
+`set_checkout` closes a real invoice. `docs/otelms_endpoints.md` §4.6 has the
+full map and §5 lists them as unverified.
+
+One thing that looks like a way to read arrival state but isn't: the folio's
+`#do_checkin` / `#do_checkout` classes (`withtoggle` vs `withtoggle d0`) are
+**identical for a guest who is in-house and one who hasn't arrived yet**
+(§4.7). The date-range criterion from the in-house endpoint is the one that
+holds.
+
 ### Building API responses
 
 The response schemas use `from_attributes=True` over SQLAlchemy entities, which

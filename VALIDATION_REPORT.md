@@ -505,9 +505,10 @@ de lo que el portal expone y de lo ya documentado en `tests/manual/`.
 | Pagos del folio | 6 filas, 853.00 USD (Tarea 1.3) | tabla de pagos | ✅ cuadra |
 | In-house | ✅ derivado (`/reservations/in-house`) | no existe tal vista | ✅ Tarea 1.4 |
 | Ocupación por fecha | 2 para 2026-10-05 (`/rooms/occupied`) | columna "Ocupadas" | ⚠️ sin contrastar contra UI |
-| Close/open dates | solo escribe en BD local | restringe el calendario | ❌ no llama a OtelMS (Tarea 2.1) |
-| Check-in / check-out | no existe | botón en la reserva | ❌ ausente (Tareas 2.2, 2.3) |
-| Mover reserva | solo escribe en BD local | mueve de habitación | ❌ no llama a OtelMS (Tarea 2.4) |
+| Close/open dates | `scraping/restrictions.py` | restringe el calendario | ✅ round-trip verificado |
+| Check-in | `scraping/checkin.py` | botón en la reserva | ⚠️ URL leída, sin ejecutar (Tarea 2.2) |
+| Check-out | `scraping/checkin.py` | botón en la reserva | ⚠️ URL leída, sin ejecutar (Tarea 2.3) |
+| Mover reserva | `scraping/checkin.py` | mueve de habitación | ⚠️ form leído, sin enviar (Tarea 2.4) |
 
 ---
 
@@ -641,6 +642,53 @@ Y antes de cerrar la Fase 3 queda pendiente limpiar los 107 errores de mypy y
 dejar `docker compose build` funcionando en limpio (hoy hace falta
 `--no-cache`: la capa `uv pip install .` se cachea con un paquete viejo aunque
 cambien los fuentes).
+
+## Fase 2 — qué está escrito y qué no
+
+La Fase 2 (check-in / check-out / mover) está implementada **en la capa de
+scraping**, no en la API HTTP:
+
+| Operación | Módulo | Contra el portal |
+|---|---|---|
+| Cerrar / abrir fechas | `scraping/restrictions.py` | **sí**, round-trip verificado |
+| Check-in | `scraping/checkin.py` | no — URL leída del HTML |
+| Check-out | `scraping/checkin.py` | no — URL leída del HTML |
+| Mover / cambiar fechas | `scraping/checkin.py` | no — form leído, nunca enviado |
+
+Las tres de check-in/out están **descubiertas**, no verificadas. Es
+deliberado y no un olvido: `set_checkin` y `set_checkout` son enlaces
+`<a href>` verdes, o sea un `GET` que cambia el estado de una estancia real
+con huéspedes dentro y cierra una factura. Descubrir la URL leyendo el HTML es
+seguro; ejecutarla contra una reserva real de este hotel no lo es sin que
+alguien lo decida.
+
+Igual que con el cierre de fechas (§4.5), **no se han expuesto por HTTP**.
+Falta la decisión de quién puede hacer un check-in y con qué traza; hasta
+entonces el cliente existe y está probado, pero sólo lo puede llamar código.
+
+### Un hallazgo que evita un bug
+
+Las clases del folio (`#do_checkin`, `#do_checkout`: `withtoggle` frente a
+`withtoggle d0`) **parecen** un detector de "¿ha llegado el huésped?" y no lo
+son: la reserva 23356, que está dentro desde el 20 de septiembre, y la 23565,
+que llega el 9 de octubre y nunca ha llegado, devuelven HTML idéntico. Si
+alguien hubiera construido sobre esas clases un endpoint de arrivals, habría
+devuelto exactamente lo contrario de la verdad. El criterio que sí se sostiene
+es el rango de fechas (`check_in <= hoy < check_out`), como ya se documentó en
+§4.1 para el in-house.
+
+### La trampa del `duration` negativo
+
+El paso 1 del check-in y el del check-out postean al mismo endpoint
+(`/reservation_c2/update_reservation`) con 26-30 campos, uno de ellos un
+`day_price[day_id]` por noche. Para una reserva que aún no ha llegado, el
+form del check-out devuelve `dateout` = hoy y **`duration` = -4**. Reenviarlo
+tal cual —que es lo que haría un cliente ingenuo que serializa el form y lo
+manda— guardaría una estancia de duración negativa. Por eso
+`move_reservation()` relee el form, cambia sólo lo pedido y se niega a
+mover una reserva con duración negativa.
+
+---
 
 ## Descartado: persistir las restricciones (no lo intentes otra vez)
 
