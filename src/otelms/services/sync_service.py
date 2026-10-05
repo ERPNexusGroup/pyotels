@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +21,10 @@ from otelms.domain.repositories import (
     SyncLogRepository,
 )
 from otelms.domain.repositories.database import get_db_session
+from otelms.scraping.exceptions import AuthenticationError
+from otelms.scraping.folio_extract import parse_folio
 from otelms.scraping.http_calendar import fetch_calendar_html
+from otelms.scraping.http_folio import FolioClient
 from otelms.scraping.orchestrator import ScrapingOrchestrator
 from otelms.scraping.parsers import CalendarParser
 from otelms.utils.crypto import credential_encryption  # For password decryption
@@ -28,6 +32,76 @@ from otelms.utils.logging import get_logger
 from otelms.utils.telemetry import record_celery_metric
 
 logger = get_logger(__name__)
+
+
+def _pick(detail: dict, *keys: str) -> object:
+    """Primer valor no vacío entre varias claves y varios sitios.
+
+    Los datos llegan en dos formas: la celda del calendario los trae en
+    plano ('guest_name', 'check_in'), el modal los anidaba en
+    'basic_info'/'accommodation', y la tabla de campos del calendario los
+    usa como etiquetas de su idioma ('Llegada', 'Huésped'). Los tres se
+    miran aquí para que el sync no dependa de cuál de los dos caminos
+    trajo la reserva.
+    """
+    sources = (
+        detail,
+        detail.get("basic_info") or {},
+        detail.get("accommodation") or {},
+        detail.get("fields") or {},
+    )
+    for key in keys:
+        for source in sources:
+            value = source.get(key)
+            if value not in (None, ""):
+                return value
+    return None
+
+
+def _reservation_id(detail: dict) -> str | None:
+    """Identificador de reserva de una entrada del sync.
+
+    El calendario lo llama 'reservation_id', el modal 'reservation_number'.
+    Que se lean los dos en un solo sitio es lo que evita que uno de los dos
+    caminos termine buscando folios por una clave que nunca va a existir:
+    con la clave equivocada el folio salía vacío y el sync reportaba
+    éxito sin haber guardado ningún cargo.
+    """
+    value = (
+        detail.get("reservation_id")
+        or detail.get("reservation_number")
+        or detail.get("id")
+    )
+    return str(value) if value else None
+
+
+def _cell_date(cell: dict) -> str:
+    """Fecha de una celda del calendario; '' si no la tiene.
+
+    La celda sintética que se crea para una reserva pedida a mano no trae
+    fecha, y tiene que quedar por detrás de cualquier celda real.
+    """
+    return str(cell.get("date") or cell.get("check_in") or "")
+
+
+def _parse_otelms_datetime(value: object) -> datetime | None:
+    """Normaliza a datetime lo que traiga el folio.
+
+    El folio mezcla '2026-09-27' con '2026-08-10 03:31:00'. Las columnas
+    del modelo son DateTime(timezone=True), así que se devuelve UTC.
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    logger.warning("Fecha de folio ilegible, se descarta", value=text)
+    return None
 
 
 @dataclass
@@ -66,6 +140,8 @@ class SyncResult:
     duration_ms: int = 0
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
+    services_persisted: int = 0
+    payments_persisted: int = 0
 
 
 class SyncService:
@@ -188,7 +264,8 @@ class SyncService:
         scrape_result = await self._orchestrator.scrape_calendar(target_date)
         if not scrape_result.success:
             raise RuntimeError(scrape_result.error or "Unknown error")
-        return scrape_result.data
+        data: dict = scrape_result.data
+        return data
 
     async def _scrape_categories_data(self, target_date: str | None = None) -> list[dict]:
         """Categorías: HTTP directo primero, browser como fallback."""
@@ -207,7 +284,8 @@ class SyncService:
         scrape_result = await self._orchestrator.scrape_categories(target_date)
         if not scrape_result.success:
             raise RuntimeError(scrape_result.error or "Unknown error")
-        return scrape_result.data
+        data: list[dict] = scrape_result.data
+        return data
 
     async def sync_calendar(self, target_date: str | None = None) -> SyncResult:
         """Sincroniza calendario (grid de reservas)."""
@@ -315,10 +393,19 @@ class SyncService:
 
     async def sync_reservation_details(
         self,
-        target_date: str,
+        target_date: str | None = None,
         reservation_ids: list[str] | None = None,
     ) -> SyncResult:
-        """Sincroniza detalles de reservas."""
+        """Sincroniza detalles de reservas: reserva, huésped, cargos y pagos.
+
+        Va por HTTP entero. Ni el modal ni el folio necesitan browser: el
+        calendario y el folio son server-rendered. El browser se queda solo
+        como respaldo, y de hecho hoy es la parte que peor funciona —el
+        extractor de grilla del navegador devuelve 0 celdas mientras que la
+        grilla por HTTP devuelve las 13— así que dejarlo como camino
+        principal hacía que este sync no guardara nada y aun así reportara
+        success=True.
+        """
         start = self._start_timer()
         result = SyncResult(
             operation="details_sync",
@@ -330,28 +417,36 @@ class SyncService:
         try:
             await self._ensure_ready()
 
+            # El orquestador exige fecha; sin ella se sincroniza el día de
+            # hoy, que es lo que quiere el CLI al llamarlo sin argumentos.
+            if target_date is None:
+                target_date = datetime.now(UTC).strftime("%Y-%m-%d")
+
             async with get_db_session() as session:
                 sync_log_repo = SyncLogRepository(session)
                 log = await sync_log_repo.create_log(self.hotel_id, "detail")
 
-            scrape_result = await self._orchestrator.scrape_reservation_details(
-                target_date, reservation_ids
-            )
-
-            if not scrape_result.success:
-                result.errors.append(scrape_result.error or "Unknown error")
+            details = await self._reservation_details(target_date, reservation_ids)
+            if not details:
+                result.errors.append(
+                    f"Sin reservas que sincronizar para {target_date}"
+                )
                 if log:
                     await self._complete_log(log.id, result)
                 record_celery_metric("sync_reservation_details", "error", self._elapsed_ms(start) / 1000)
                 return result
 
+            folios = await self._fetch_folios(details)
+
             async with get_db_session() as session:
-                created, updated = await self._persist_reservation_details(
-                    session, scrape_result.data
+                created, updated, svc_count, pmt_count = (
+                    await self._persist_reservation_details(session, details, folios)
                 )
                 result.records_created = created
                 result.records_updated = updated
                 result.records_processed = created + updated
+                result.services_persisted = svc_count
+                result.payments_persisted = pmt_count
 
             result.success = True
             result.duration_ms = self._elapsed_ms(start)
@@ -558,12 +653,178 @@ class SyncService:
         await session.commit()
         return created, updated
 
+    async def _reservation_details(
+        self, target_date: str, reservation_ids: list[str] | None = None
+    ) -> list[dict]:
+        """Reservas del día, una entrada por reserva, desde el calendario HTTP.
+
+        Una reserva ocupa varias celdas (una por cada noche), así que se
+        deduplica por resid: sin esto, una reserva de 16 noches se
+        persistiría 16 veces y sus cargos se multiplicarían.
+
+        La celda del calendario trae más que el modal (huésped, fechas,
+        saldo, comentarios), así que el detalle sale mejor por aquí que
+        abriendo 13 modales.
+        """
+        calendar = await self._scrape_calendar_data(target_date)
+        cells = [
+            c for c in calendar.get("cells", []) if c.get("reservation_id")
+        ]
+
+        by_res: dict[str, dict] = {}
+        for cell in cells:
+            res_id = str(cell["reservation_id"])
+            if reservation_ids and res_id not in reservation_ids:
+                continue
+            existing = by_res.get(res_id)
+            if existing is None or _cell_date(cell) < _cell_date(existing):
+                # Ante varias celdas de la misma reserva gana la más
+                # temprana: es la de llegada, y check_in debe ser la real.
+                by_res[res_id] = cell
+
+        if reservation_ids:
+            # El caller pidió reservas concretas. Si el calendario del día
+            # no las tiene (son de otra fecha), se añaden igualmente: su
+            # folio se puede leer igual y de ahí salen los cargos.
+            for res_id in reservation_ids:
+                by_res.setdefault(res_id, {"reservation_id": res_id})
+
+        return list(by_res.values())
+
+    async def _fetch_folios(self, details: list[dict]) -> dict[str, str]:
+        """Descarga el folio de cada reserva del lote.
+
+        Ni el modal ni el calendario traen consumos ni pagos: eso solo está
+        en /reservation_c2/folio/{id}. Sin esta llamada, services y payments
+        no se pueden tener.
+
+        Si el login falla no se tumba el sync. El calendario ya da la
+        reserva y el huésped, que es lo importante; quedarse sin los cargos
+        de un día es malo, pero perder el día entero también.
+        """
+        res_ids: list[str] = []
+        for detail in details:
+            res_id = _reservation_id(detail)
+            if res_id and res_id not in res_ids:
+                res_ids.append(res_id)
+
+        if not res_ids:
+            return {}
+
+        try:
+            async with FolioClient(
+                self.hotel_id, self.username, self.password, self.base_domain
+            ) as client:
+                folios = await client.fetch_many(res_ids)
+        except AuthenticationError as exc:
+            logger.warning("Folio login failed, skipping charges", error=str(exc))
+            return {}
+
+        logger.info("Folios fetched", fetched=len(folios), requested=len(res_ids))
+        return folios
+
+    @staticmethod
+    def _service_rows(folio: dict, reservation_id: str) -> list[dict]:
+        """Cargos + precio por noche, en las columnas del modelo Service.
+
+        El modelo pide `date` obligatoria y los cargos de tipo
+        'Alojamiento' la traen vacía (se imputan a las noches de la
+        reserva, que llegan en room_charges). Por eso se encadenan ambas
+        listas y se rellena la fecha con la primera noche disponible.
+
+        El id se compone con el de la reserva porque `Service.id` es clave
+        primaria **sola**: los números de línea del folio (49839, 49842...)
+        se repiten entre reservas distintas y sin el prefijo el INSERT
+        revienta con duplicate key. El id de la noche tenía el mismo
+        problema: dos reservas con una noche el mismo día lo compartían.
+        """
+        first_night = next(
+            (c.get("date") for c in folio.get("room_charges", []) if c.get("date")),
+            None,
+        )
+
+        rows = []
+        # Se construyen dicts nuevos en vez de retocar los del folio: si
+        # se mutaran, la fecha heredada se colaría en el folio original y
+        # en la siguiente reserva que compartiese ese parseo.
+        for svc in folio.get("services", []):
+            rows.append((svc.get("date") or first_night, svc))
+        for charge in folio.get("room_charges", []):
+            rows.append((
+                charge.get("date"),
+                {
+                    "id": f"night-{charge.get('date')}",
+                    "name": charge.get("description") or "Alojamiento",
+                    "legal_entity": None,
+                    "description": "Precio por noche",
+                    "price": charge.get("amount"),
+                    "amount": charge.get("amount"),
+                },
+            ))
+
+        out = []
+        for raw_date, src in rows:
+            parsed_date = _parse_otelms_datetime(raw_date)
+            if parsed_date is None:
+                # Sin fecha no hay fila: Service.date es NOT NULL.
+                continue
+            price = src.get("price") or src.get("amount") or Decimal("0")
+            total = src.get("amount") or src.get("price") or Decimal("0")
+            out.append({
+                # Service llama title/total a lo que el parser llama
+                # name/amount; mandar ambas rompería el constructor.
+                "id": f"{reservation_id}-{src.get('id')}",
+                "title": src.get("name") or "Consumo",
+                "total": total,
+                "price": price,
+                "date": parsed_date,
+                "quantity": src.get("quantity") or Decimal("1"),
+                "description": src.get("description") or None,
+                "legal_entity": src.get("legal_entity") or None,
+            })
+        return out
+
+    @staticmethod
+    def _payment_rows(folio: dict, reservation_id: str) -> list[dict]:
+        """Pagos del folio en las columnas del modelo Payment.
+
+        El id lleva el de la reserva delante por lo mismo que en los
+        servicios: `Payment.id` es clave primaria sola.
+        """
+        rows = []
+        for idx, pmt in enumerate(folio.get("payments", [])):
+            payment_date = _parse_otelms_datetime(pmt.get("date") or pmt.get("created_at"))
+            if payment_date is None:
+                continue
+            rows.append({
+                # El folio numera los pagos, pero si viniera vacío mejor un
+                # id sintético estable que perder el pago entero.
+                "id": f"{reservation_id}-{pmt.get('id') or f'p{idx}'}",
+                "date": payment_date,
+                "amount": pmt.get("amount") or Decimal("0"),
+                "method": pmt.get("method") or pmt.get("payment_type") or None,
+                "reference": pmt.get("invoice_num") or pmt.get("id") or None,
+                "status": pmt.get("card_status") or None,
+                "card_number": pmt.get("card_number") or None,
+                "card_type": pmt.get("payment_type") or None,
+            })
+        return rows
+
     async def _persist_reservation_details(
-        self, session: AsyncSession, details: list[dict]
-    ) -> tuple[int, int]:
-        """Persiste detalles completos de reservas."""
+        self,
+        session: AsyncSession,
+        details: list[dict],
+        folios: dict[str, str] | None = None,
+    ) -> tuple[int, int, int, int]:
+        """Persiste detalles completos de reservas, con sus cargos y pagos.
+
+        Devuelve (created, updated, services, payments).
+        """
         created = 0
         updated = 0
+        services_total = 0
+        payments_total = 0
+        folios = folios or {}
 
         res_repo = ReservationRepository(session)
         guest_repo = GuestRepository(session)
@@ -571,43 +832,47 @@ class SyncService:
         pmt_repo = PaymentRepository(session)
 
         for detail in details:
-            res_id = detail.get("reservation_number") or detail.get("id")
+            res_id = _reservation_id(detail)
             if not res_id:
                 continue
 
-            basic = detail.get("basic_info", {})
-            accommodation = detail.get("accommodation", {})
+            # Las celdas del calendario traen los campos en plano. Se leen
+            # aquí los de una reserva, pero `basic_info` se conserva para
+            # quien venga del modal, que es lo que devolvía este sync antes.
             guest_data = detail.get("guest", {})
+            guest_name = _pick(detail, "guest_name", "huésped", "guest")
 
-            # Huésped completo
             guest_id = None
             if guest_data:
                 guest, _ = await guest_repo.upsert_from_scraper(
                     self.hotel_id, guest_data
                 )
                 guest_id = guest.id
-            elif basic.get("guest_name"):
+            elif guest_name:
                 guest, _ = await guest_repo.get_or_create_by_name(
-                    self.hotel_id, basic["guest_name"]
+                    self.hotel_id, str(guest_name)
                 )
                 guest_id = guest.id
 
-            # Actualizar reserva con datos completos
             res_data = {
-                "id": res_id,
+                "id": str(res_id),
                 "hotel_id": self.hotel_id,
-                "room_id": basic.get("room") or accommodation.get("room"),
+                "room_id": _pick(detail, "room", "room_id"),
                 "guest_id": guest_id,
-                "check_in": basic.get("check_in") or accommodation.get("check_in"),
-                "check_out": basic.get("check_out") or accommodation.get("check_out"),
-                "status": basic.get("status") or 1,
-                "adults": basic.get("guest_count") or 1,
+                "check_in": _parse_otelms_datetime(
+                    _pick(detail, "check_in", "llegada")
+                ),
+                "check_out": _parse_otelms_datetime(
+                    _pick(detail, "check_out", "salida")
+                ),
+                "status": _pick(detail, "status") or 1,
+                "adults": _pick(detail, "guest_count", "cantidad de huéspedes") or 1,
                 "children": 0,
                 "babies": 0,
-                "total_price": basic.get("total") or basic.get("balance"),
+                "total_price": _pick(detail, "total", "balance"),
                 "currency": "USD",
-                "source": basic.get("source"),
-                "notes": basic.get("comments"),
+                "source": _pick(detail, "source", "Fuente", "channel"),
+                "notes": _pick(detail, "comments", "comentarios"),
             }
 
             res, is_new, was_updated = await res_repo.upsert_from_scraper(
@@ -618,26 +883,31 @@ class SyncService:
             elif was_updated:
                 updated += 1
 
-            # Servicios (si hay en accommodation o basic)
-            services: list[dict] = []
-            # TODO(#accommodation-services): extraer servicios del accommodation modal
-            # - El modal de alojamiento tiene pestaña de servicios (minibar, spa, etc.)
-            # - Parsear tabla HTML → list[dict] con id, name, price, quantity, reservation_id
-            # - Requiere navegación al modal de detalles de reserva
-            if services:
-                await svc_repo.bulk_upsert(res_id, services)
+            # Servicios y pagos vienen del folio, no del modal: es el
+            # único sitio donde están. Sin folio descargado no hay nada
+            # que guardar y la reserva se queda como estaba.
+            folio_html = folios.get(str(res_id))
+            if not folio_html:
+                continue
 
-            # Pagos
-            payments: list[dict] = []
-            # TODO(#reservation-payments): extraer pagos
-            # - Modal de pagos tiene tabla con: fecha, método, monto, estado, referencia
-            # - Parsear tabla → list[dict] con amount, method, status, date, reference
-            # - Requiere navegación al modal de pagos de la reserva
+            try:
+                folio = parse_folio(folio_html, str(res_id))
+            except Exception as exc:
+                logger.warning(
+                    "Folio parse failed", reservation_id=res_id, error=str(exc)
+                )
+                continue
+
+            services = self._service_rows(folio, str(res_id))
+            if services:
+                services_total += await svc_repo.bulk_upsert(str(res_id), services)
+
+            payments = self._payment_rows(folio, str(res_id))
             if payments:
-                await pmt_repo.bulk_upsert(res_id, payments)
+                payments_total += await pmt_repo.bulk_upsert(str(res_id), payments)
 
         await session.commit()
-        return created, updated
+        return created, updated, services_total, payments_total
 
     # ============================================================
     # LOG HELPERS
