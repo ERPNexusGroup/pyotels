@@ -4,7 +4,7 @@ Celery tasks for scraping operations.
 import asyncio
 from collections.abc import Coroutine
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any
 
 from celery import Task, shared_task
 from sqlalchemy import delete, text
@@ -18,10 +18,8 @@ from otelms.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-T = TypeVar("T")
 
-
-def run_async(coro: Coroutine[Any, Any, T]) -> T:
+def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
     """Helper to run async function in Celery task."""
     return asyncio.run(coro)
 

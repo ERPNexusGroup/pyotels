@@ -10,7 +10,6 @@ import html
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 from bs4 import BeautifulSoup
 
@@ -90,7 +89,7 @@ def parse_folio(html_content: str, reservation_id: str | int) -> dict:
     return result
 
 
-def _parse_decimal(val: str) -> Optional[Decimal]:
+def _parse_decimal(val: str) -> Decimal | None:
     if not val:
         return None
     try:
@@ -153,6 +152,57 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
         })
 
     return reservations
+
+
+def extract_guest_data(folio_html: str) -> dict:
+    """Extrae datos de huésped desde HTML del folio.
+
+    El formulario usa labels rusos: <label>Имя</label> <input value="DATA">
+    Campos extraídos: first_name, last_name, middle_name, gender,
+    birth_date, phone, email, country, city, language, etc.
+    """
+    label_map = {
+        "Имя": "first_name",
+        "Фамилия": "last_name",
+        "Отчество": "middle_name",
+        "Пол": "gender",
+        "Дата рождения": "birth_date",
+        "Телефон": "phone",
+        "Email": "email",
+        "Страна": "country",
+        "Город": "city",
+        "Улица": "street",
+        "Дом": "house",
+        "Квартира": "apartment",
+        "Почтовый индекс": "postal_code",
+        "Язык общения гостя": "language",
+        "Категория гостя": "guest_category",
+    }
+
+    guest_data = {}
+    for russ_label, en_field in label_map.items():
+        # Pattern: <label>RUSSIAN</label> ... <input ... value="DATA">
+        pattern = re.escape(russ_label) + r"</label>\s*<input[^>]*value=\"([^\"]*)\""
+        match = re.search(pattern, folio_html)
+        if match:
+            value = match.group(1).strip()
+            if value:
+                guest_data[en_field] = value
+
+        # For select fields (country, city)
+        if not guest_data.get(en_field):
+            pattern2 = re.escape(russ_label) + r"</label>\s*<select[^>]*>\s*<option[^>]*selected[^>]*>([^<]+)</option>"
+            match = re.search(pattern2, folio_html)
+            if match:
+                guest_data[en_field] = match.group(1).strip()
+
+    # Gender: radio button checked (value="1" for male, "2" for female)
+    if not guest_data.get("gender"):
+        gender_match = re.search(r'<input[^>]*name="pol2"[^>]*value="(\d)"[^>]*checked', folio_html)
+        if gender_match:
+            guest_data["gender"] = gender_match.group(1)
+
+    return guest_data
 
 
 def _parse_date(date_str: str) -> datetime | None:

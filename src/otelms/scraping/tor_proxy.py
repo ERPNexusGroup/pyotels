@@ -6,9 +6,9 @@ circuito. Cada `rotate_circuit()` reinicia el circuito obteniendo una IP fresca.
 
 import asyncio
 import hashlib
-import logging
 from datetime import UTC, datetime
 
+import httpx
 from stem import Signal
 from stem.control import Controller
 
@@ -79,8 +79,6 @@ class TorProxyManager:
 
     async def verify_proxy(self) -> str | None:
         """Verificar que la proxy funciona devolviendo la IP actual."""
-        import httpx
-
         async with httpx.AsyncClient(proxy=self.PROXY_URL, timeout=httpx.Timeout(10)) as client:
             resp = await client.get("https://httpbin.org/ip")
             if resp.status_code == 200:

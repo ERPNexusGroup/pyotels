@@ -1,7 +1,8 @@
-"""Extraer todos los datos de reservas del calendar usando data-title."""
-import re
+"""Extractores de datos de calendar y folios desde HTML de OtelMS."""
 import html
-import json
+import re
+from datetime import datetime
+
 from bs4 import BeautifulSoup
 
 
@@ -18,7 +19,6 @@ def parse_tooltip(data_title: str) -> dict:
 
     fields = {}
     if divs:
-        # Primer div: "Reserva №ID (Tipo), Canal"
         first = divs[0].get_text(strip=True)
         match = re.match(r"Reserva\s*№(\d+)\s*\(([^)]+)\)(?:,\s*(.+))?", first)
         if match:
@@ -26,8 +26,6 @@ def parse_tooltip(data_title: str) -> dict:
             fields["reservation_type"] = match.group(2)
             if match.group(3):
                 fields["channel"] = match.group(3).strip()
-
-        # Resto: "key: value"
         for div in divs[1:]:
             text = div.get_text(strip=True)
             if ":" in text:
@@ -37,8 +35,22 @@ def parse_tooltip(data_title: str) -> dict:
     return fields
 
 
-def extract_all_reservations(html_content: str) -> list[dict]:
-    """Extrae todas las reservas del HTML del calendar."""
+def _parse_date(date_str: str) -> datetime | None:
+    if not date_str:
+        return None
+    date_str = date_str.strip()
+    if date_str in ("0000-00-00", "0000-00-00 00:00:00"):
+        return None
+    try:
+        return datetime.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        return None
+
+
+def extract_reservations_from_calendar(html_content: str) -> list[dict]:
+    """Extrae todos los elementos con atributo `resid` (calendar_item)
+    y parsea el `data-title` (tooltip con detalles de la reserva).
+    """
     soup = BeautifulSoup(html_content, "html.parser")
     res_items = soup.find_all(attrs={"resid": True})
 
@@ -56,10 +68,10 @@ def extract_all_reservations(html_content: str) -> list[dict]:
             "reservation_type": fields.get("reservation_type", ""),
             "channel": fields.get("channel", ""),
             "guest_name": fields.get("huésped", "").strip(),
-            "check_in": fields.get("llegada", ""),
-            "check_out": fields.get("salida", ""),
-            "created_at": fields.get("fecha de creación", ""),
-            "modified_at": fields.get("fecha de modificación", ""),
+            "check_in": _parse_date(fields.get("llegada", "")),
+            "check_out": _parse_date(fields.get("salida", "")),
+            "created_at": _parse_date(fields.get("fecha de creación", "")),
+            "modified_at": _parse_date(fields.get("fecha de modificación", "")),
             "guest_count": int(fields.get("cantidad de huéspedes", "0"))
                 if fields.get("cantidad de huéspedes", "").isdigit() else None,
             "balance": fields.get("balance", ""),
@@ -70,12 +82,3 @@ def extract_all_reservations(html_content: str) -> list[dict]:
         })
 
     return reservations
-
-
-if __name__ == "__main__":
-    with open("calendario_debug.html", "r", encoding="utf-8") as f:
-        content = f.read()
-
-    reservations = extract_all_reservations(content)
-    print(f"Total: {len(reservations)}")
-    print(json.dumps(reservations[:3], indent=2, ensure_ascii=False))
