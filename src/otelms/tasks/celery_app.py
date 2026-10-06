@@ -1,6 +1,8 @@
 """
 Celery application configuration for background tasks.
 """
+from typing import Any
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -79,12 +81,12 @@ celery_app.autodiscover_tasks([
 
 
 @celery_app.task(bind=True, ignore_result=True)
-def debug_task(self):
+def debug_task(self: Any) -> None:
     """Debug task for testing."""
     logger.info("Debug task request: %r", self.request)
 
 
-def main():
+def main() -> None:
     """Entry point for running Celery worker."""
     celery_app.start()
 

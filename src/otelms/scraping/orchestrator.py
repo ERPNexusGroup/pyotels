@@ -125,7 +125,7 @@ class ScrapingOrchestrator:
             logger.warning("Rate limiter ping failed", error=str(e))
 
         try:
-            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # el pool devuelve BrowserContext/Page según el backend
+            async with browser_pool.acquire() as page:
                 await self._auth.login(page.context)
         except Exception as e:
             logger.warning("Eager browser login failed (se reintentará en el scrape)", error=str(e))
@@ -173,7 +173,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
+            async with browser_pool.acquire() as page:
                 # Rate limiting - use per-hotel config
                 await rate_limiter.wait_if_needed(self.hotel_id)
 
@@ -215,7 +215,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
+            async with browser_pool.acquire() as page:
                 await rate_limiter.wait_if_needed(self.hotel_id)
                 await self._auth.ensure_valid_session(page.context)
 
@@ -248,7 +248,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
+            async with browser_pool.acquire() as page:
                 await rate_limiter.wait_if_needed(self.hotel_id)
                 await self._auth.ensure_valid_session(page.context)
 
@@ -307,7 +307,7 @@ class ScrapingOrchestrator:
         try:
             await self._ensure_ready()
 
-            async with browser_pool.acquire() as page:  # type: ignore[var-annotated]  # Page se reutiliza entre scopes del mismo método
+            async with browser_pool.acquire() as page:
                 await rate_limiter.wait_if_needed(self.hotel_id)
                 await self._auth.ensure_valid_session(page.context)
 

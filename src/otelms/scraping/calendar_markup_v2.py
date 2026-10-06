@@ -23,7 +23,7 @@ SyncService._persist_calendar / _persist_categories.
 import html as _ihtml
 import re
 from datetime import date, timedelta
-from typing import Any, cast
+from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 

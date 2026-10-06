@@ -2,7 +2,7 @@
 Políticas de retry con tenacity para scraping robusto.
 """
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from tenacity import (
     AsyncRetrying,
@@ -124,9 +124,9 @@ navigation_retry = AsyncRetrying(
 
 async def with_retry[T](
     func: Callable[..., Awaitable[T]],
-    *args,
+    *args: Any,
     retry_policy: AsyncRetrying = scraping_retry,
-    **kwargs,
+    **kwargs: Any,
 ) -> T:
     """
     Ejecuta una función con política de retry.
@@ -162,11 +162,16 @@ class RetryContext:
             reraise=True,
         )
 
-    async def __call__(self, func: Callable[..., T], *args, **kwargs) -> T:
-        return await self.retry_policy(func, *args, **kwargs)
+    async def __call__(self, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+        # tenacity tipa __call__ con typevar WrappedFn que no se unifica con Callable[..., T]
+        # runtime es correcto; ignorar el error de tipo.
+        return await self.retry_policy(func, *args, **kwargs)  # type: ignore[type-var]
 
     async def __aenter__(self) -> "RetryContext":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None,
+        exc_val: BaseException | None, exc_tb: Any | None,
+    ) -> bool:
         return False  # No suprimir excepciones

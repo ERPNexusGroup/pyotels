@@ -3,7 +3,8 @@ Cache wrapper con soporte para Redis y diskcache fallback.
 """
 import fnmatch
 import pickle
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import diskcache
 import redis.asyncio as redis
@@ -57,7 +58,15 @@ class RedisCache(CacheBackend):
         try:
             data = await self.client.get(key)
             if data:
-                return pickle.loads(data)
+                # pickle es el único serializador stdlib que round-tripa
+                # objetos arbitrarios (datetime, Decimal, set) que guarda el
+                # sync service; json los obligaría a str. El trust boundary
+                # es nuestro propio Redis (mismo stack, misma red), no una
+                # entrada externa, así que el riesgo de deserialización
+                # arbitraria aquí es aceptable. Si en el futuro abramos el
+                # cache a datos de terceros, cambiar a msgpack/json.
+                # decode_responses=False garantiza que data es bytes.
+                return pickle.loads(cast(bytes, data))
         except Exception as e:
             logger.warning("Redis get error", key=key, error=str(e))
         return None
@@ -66,8 +75,8 @@ class RedisCache(CacheBackend):
         try:
             data = pickle.dumps(value)
             if ttl:
-                return await self.client.setex(key, ttl, data)
-            return await self.client.set(key, data)
+                return cast(bool, await self.client.setex(key, ttl, data))
+            return cast(bool, await self.client.set(key, data))
         except Exception as e:
             logger.warning("Redis set error", key=key, error=str(e))
             return False
@@ -162,7 +171,7 @@ class DiskCacheBackend(CacheBackend):
 class CacheManager:
     """Gestor de cache con fallback automático."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._backend: CacheBackend | None = None
         self._use_redis = False
 
@@ -212,7 +221,9 @@ class CacheManager:
     async def clear_pattern(self, pattern: str) -> int:
         return await self.backend.clear_pattern(pattern)
 
-    async def get_or_set(self, key: str, factory, ttl: int | None = None) -> Any:
+    async def get_or_set(
+        self, key: str, factory: Callable[[], Any] | Any, ttl: int | None = None,
+    ) -> Any:
         """Obtiene del cache o ejecuta factory y guarda resultado."""
         value = await self.get(key)
         if value is not None:

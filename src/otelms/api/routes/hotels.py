@@ -26,7 +26,7 @@ async def list_hotels(
         hotels = await hotel_repo.get_active()
     else:
         hotels = await hotel_repo.get_all(limit=100)
-    return hotels
+    return [HotelResponse.model_validate(h) for h in hotels]
 
 
 @router.get("/{hotel_id}", response_model=HotelResponse)
@@ -41,7 +41,7 @@ async def get_hotel(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Hotel {hotel_id} not found",
         )
-    return hotel
+    return HotelResponse.model_validate(hotel)
 
 
 @router.post("", response_model=HotelResponse, status_code=status.HTTP_201_CREATED)
@@ -64,7 +64,7 @@ async def create_hotel(
     payload["password_hash"] = pwd_hash
     payload["encrypted_password"] = credential_encryption.encrypt(hotel_data.password)
     hotel = await hotel_repo.create(**payload)
-    return hotel
+    return HotelResponse.model_validate(hotel)
 
 
 @router.patch("/{hotel_id}", response_model=HotelResponse)
@@ -87,7 +87,7 @@ async def update_hotel(
 
     await hotel_repo.session.flush()
     await hotel_repo.session.refresh(hotel)
-    return hotel
+    return HotelResponse.model_validate(hotel)
 
 
 @router.delete("/{hotel_id}", status_code=status.HTTP_204_NO_CONTENT)

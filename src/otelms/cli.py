@@ -6,6 +6,7 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import typer
 import uvicorn
@@ -157,14 +158,16 @@ def run_scraper(
                     console.print(f"[red]Strategy desconocida: {strategy}[/red]")
                     raise typer.Exit(1)
 
-                console.print(f"[green]✓ Scraping completado: {len(result)} items[/green]")
+                # ScrapingResult tiene .data (lista) y .success
+                data = result.data if result.success else []
+                console.print(f"[green]✓ Scraping completado: {len(data)} items[/green]")
 
                 if output:
                     with Path(output).open("w", encoding="utf-8") as f:
-                        json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+                        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
                     console.print(f"[green]✓ Guardado en {output}[/green]")
                 else:
-                    console.print_json(data=result[:5] if isinstance(result, list) else result)
+                    console.print_json(data=data[:5] if isinstance(data, list) else data)
 
             finally:
                 await orchestrator.close()
@@ -225,7 +228,21 @@ def run_sync(
             table = Table(title="Resultados de Sincronización")
             table.add_column("Métrica", style="cyan")
             table.add_column("Valor", style="green")
-            for key, value in result.items():
+            # SyncResult es un dataclass, no dict; convertir para mostrar
+            result_dict = {
+                "operation": result.operation,
+                "hotel_id": result.hotel_id,
+                "success": result.success,
+                "records_processed": result.records_processed,
+                "records_created": result.records_created,
+                "records_updated": result.records_updated,
+                "errors": result.errors,
+                "duration_ms": result.duration_ms,
+                "services_persisted": result.services_persisted,
+                "payments_persisted": result.payments_persisted,
+                "availability_persisted": result.availability_persisted,
+            }
+            for key, value in result_dict.items():
                 table.add_row(key.replace("_", " ").title(), str(value))
             console.print(table)
 
@@ -393,7 +410,7 @@ def run_shell() -> None:
     console.print("[bold blue]OtelMS API Shell[/bold blue]")
     console.print("Objetos disponibles: db_session, Hotel, Reservation, Guest, Category, Room, SyncService")
 
-    async def get_session():
+    async def get_session() -> Any:
         async with get_db_session() as s:
             return s
 
