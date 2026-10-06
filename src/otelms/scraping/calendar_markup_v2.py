@@ -23,9 +23,9 @@ SyncService._persist_calendar / _persist_categories.
 import html as _ihtml
 import re
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, cast
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from otelms.utils.logging import get_logger
 
@@ -41,6 +41,26 @@ SUMMARY_CLASS = "calendar_sum"
 SIDEBAR_CLASS = "calendar_rooms_dott"
 LOCKED_CLASS = "bg_padlock"
 ROW_BOX_PREFIX = "btn_close_box"
+
+
+def _attr(node: Tag, name: str) -> str:
+    """Lee un atributo como str, aplastando listas de valores si el HTML las trae.
+
+    bs4 tipa `Tag.get()` como `str | AttributeValueList`; sin esta
+    helper cada `item.get("resid")` obliga a un cast a mano en cada uso.
+    """
+    value = node.get(name)
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else " ".join(value)
+
+
+def _classes(node: Tag) -> list[str]:
+    """Lista de clases de un elemento, tipada para poder iterar sin unión."""
+    raw = node.get("class")
+    if raw is None:
+        return []
+    return raw if isinstance(raw, list) else [raw]
 
 
 def day_id_to_date(day_id: str | int) -> str:
@@ -91,7 +111,7 @@ def _category_name_map(soup: BeautifulSoup) -> dict[str, str]:
             cid = first_td.get("category_id") if first_td else None
             if not cid:
                 for tr in tb.find_all("tr", recursive=False):
-                    for c in tr.get("class", []):
+                    for c in _classes(tr):
                         if c.startswith(ROW_BOX_PREFIX):
                             cid = c[len(ROW_BOX_PREFIX):]
                             break
@@ -137,7 +157,7 @@ def parse_categories_v2(html: str) -> list[dict[str, Any]]:
         # así que se agrupa por categoría a lo largo de todos los tbodies.
         for tr in tb.find_all("tr", recursive=False):
             cat_id: str | None = None
-            for c in tr.get("class", []):
+            for c in _classes(tr):
                 if c.startswith(ROW_BOX_PREFIX):
                     cat_id = str(c[len(ROW_BOX_PREFIX):])
             cells = tr.find_all("td", recursive=False)
@@ -190,7 +210,7 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
     today = date.today().isoformat()
     if table:
         for td in table.find_all("td", class_=CELL_CLASS):
-            raw_day = td.get("day_id")
+            raw_day = _attr(td, "day_id")
             if not raw_day:
                 continue
             raw_day = str(raw_day)
@@ -202,23 +222,23 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
                     continue
                 day_id_to_date[raw_day] = iso_date
 
-            raw_room = td.get("room_id")
-            if raw_room and raw_room != "0" and LOCKED_CLASS in (td.get("class") or []):
+            raw_room = _attr(td, "room_id")
+            if raw_room and raw_room != "0" and LOCKED_CLASS in _classes(td):
                 if iso_date >= today:
                     locks.append({"room_id": str(raw_room), "date": iso_date})
 
             item = td.find("div", class_=ITEM_CLASS)
             if item is None:
                 continue
-            resid = item.get("resid")
+            resid = _attr(item, "resid")
             if not resid:
                 continue
-            fields = parse_tooltip_v2(item.get("data-title", ""))
+            fields = parse_tooltip_v2(_attr(item, "data-title"))
             # Alias con mayúscula para compatibilidad con _persist_calendar.
             fields.setdefault("Fuente", fields.get("fuente", ""))
             cat_info = room_to_category.get(str(raw_room), {"id": "", "name": ""})
             try:
-                status = int(item.get("status") or 1)
+                status = int(_attr(item, "status") or "1")
             except (TypeError, ValueError):
                 status = 1
             check_in = fields.get("llegada", iso_date)
