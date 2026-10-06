@@ -3,6 +3,7 @@ import hashlib
 import json
 from datetime import datetime
 from decimal import Decimal
+from typing import cast
 
 import requests
 from sqlalchemy import create_engine, select
@@ -188,9 +189,12 @@ class CalendarSyncService:
             )
             self.db.add(existing)
 
-        # check_in/check_out ya vienen parseados como datetime de extract_reservations_from_calendar
-        existing.check_in = _as_datetime(res.get("check_in")) or self._parse_date(res.get("check_in") or "")
-        existing.check_out = _as_datetime(res.get("check_out")) or self._parse_date(res.get("check_out") or "")
+        # check_in/check_out ya vienen parseados como datetime de extract_reservations_from_calendar.
+        # _as_datetime cubre el caso datetime; _parse_date el string. El plugin de
+        # SQLAlchemy tipa la columna como SQLCoreOperations[datetime] y rechaza
+        # datetime | None; el valor runtime es nullable, así que el cast es seguro.
+        existing.check_in = cast(datetime, _as_datetime(res.get("check_in")) or self._parse_date(res.get("check_in") or ""))
+        existing.check_out = cast(datetime, _as_datetime(res.get("check_out")) or self._parse_date(res.get("check_out") or ""))
         existing.status = res.get("status", 1)
         existing.adults = res.get("guest_count") or 1
         existing.source = res.get("channel", "")

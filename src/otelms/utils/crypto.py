@@ -19,7 +19,7 @@ class CredentialEncryption:
     using Fernet symmetric encryption with PBKDF2 key derivation.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cipher: Fernet | None = None
         self._initialize_cipher()
 

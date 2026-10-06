@@ -4,7 +4,9 @@ Incluye rate limiting adaptativo que ajusta RPM basado en éxito/error.
 """
 import asyncio
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 
 import redis.asyncio as redis
 
@@ -185,9 +187,10 @@ class TokenBucket:
         """
 
         now = time.time()
-        return await self.redis.eval(
+        # redis.eval tipa Any; el script Lua devuelve un number (tokens).
+        return cast(float, await self.redis.eval(
             lua_script, 1, self.key, self.rate, self.burst, now
-        )
+        ))
 
     async def reset(self) -> None:
         """Resetea el bucket."""
@@ -226,7 +229,7 @@ class RateLimiter:
         return self._buckets[key]
 
     @asynccontextmanager
-    async def limit(self, hotel_id: str | None = None, tokens: int = 1):
+    async def limit(self, hotel_id: str | None = None, tokens: int = 1) -> AsyncIterator[None]:
         """Context manager que adquiere tokens antes de entrar."""
         bucket = self.get_bucket(hotel_id)
         await bucket.take(tokens)
