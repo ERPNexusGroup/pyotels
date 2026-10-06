@@ -3,10 +3,22 @@ import html
 import re
 from datetime import datetime
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 
-def parse_tooltip(data_title: str) -> dict:
+def _attr(node: Tag, name: str) -> str:
+    """Lee un atributo como str, aplastando listas de valores si el HTML las trae.
+
+    bs4 tipa `Tag.get()` como `str | AttributeValueList`; sin esta
+    helper cada `item.get("resid")` obliga a un cast a mano en cada uso.
+    """
+    value = node.get(name)
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else " ".join(value)
+
+
+def parse_tooltip(data_title: str) -> dict[str, str]:
     """Parsea el HTML dentro de data-title (con entidades escapadas).
 
     El primer div es especial:
@@ -17,12 +29,12 @@ def parse_tooltip(data_title: str) -> dict:
     soup = BeautifulSoup(decoded, "html.parser")
     divs = soup.find_all("div")
 
-    fields = {}
+    fields: dict[str, str] = {}
     if divs:
         first = divs[0].get_text(strip=True)
         match = re.match(r"Reserva\s*№(\d+)\s*\(([^)]+)\)(?:,\s*(.+))?", first)
         if match:
-            fields["reservation_id"] = int(match.group(1))
+            fields["reservation_id"] = match.group(1)
             fields["reservation_type"] = match.group(2)
             if match.group(3):
                 fields["channel"] = match.group(3).strip()
@@ -56,14 +68,14 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
 
     reservations = []
     for item in res_items:
-        resid = item.get("resid")
-        status = item.get("status", "0")
-        data_title = item.get("data-title", "")
+        resid = _attr(item, "resid")
+        status = _attr(item, "status") or "0"
+        data_title = _attr(item, "data-title")
         fields = parse_tooltip(data_title) if data_title else {}
 
         reservations.append({
             "resid": int(resid) if resid else 0,
-            "reservation_id": fields.get("reservation_id", 0),
+            "reservation_id": int(fields.get("reservation_id", "0") or "0"),
             "status": int(status) if status else 0,
             "reservation_type": fields.get("reservation_type", ""),
             "channel": fields.get("channel", ""),

@@ -122,7 +122,7 @@ exclude = ["^migrations/", "^\\.venv/", "^build/", "^dist/"]
 
 [[tool.mypy.overrides]]
 # Libs sin stubs: celery, diskcache y jose (python-jose) no publican py.typed
-module = ["celery.*", "diskcache.*", "jose.*"]
+module = ["celery.*", "diskcache.*", "jose.*", "stem", "stem.control"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

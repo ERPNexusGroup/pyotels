@@ -5,8 +5,9 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import REGISTRY, Counter, Histogram, generate_latest
@@ -34,7 +35,7 @@ logger = get_logger(__name__)
 
 
 # Prometheus metrics
-def create_metrics():
+def create_metrics() -> tuple[Counter | None, Histogram | None]:
     """Create Prometheus metrics, handling duplicate registration."""
 
     # Check if metrics already exist
@@ -43,7 +44,7 @@ def create_metrics():
         for name in REGISTRY._collector_to_names[collector]:
             existing_names.add(name)
 
-    metrics = {}
+    metrics: dict[str, Any] = {}
 
     if "otelms_http_requests_total" not in existing_names:
         metrics["request_count"] = Counter(
@@ -73,7 +74,14 @@ def create_metrics():
     return metrics.get("request_count"), metrics.get("request_latency")
 
 
-REQUEST_COUNT, REQUEST_LATENCY = create_metrics()
+_count_raw, _latency_raw = create_metrics()
+# create_metrics siempre rellena ambas claves (nuevo registro o recuperación);
+# los asserts convierten el None teórico en un fallo rápido en lugar de un
+# AttributeError en la primera request.
+assert _count_raw is not None
+assert _latency_raw is not None
+REQUEST_COUNT: Counter = _count_raw
+REQUEST_LATENCY: Histogram = _latency_raw
 
 
 @asynccontextmanager
@@ -152,7 +160,7 @@ def create_app() -> FastAPI:
 
     # Middleware for metrics
     @app.middleware("http")
-    async def metrics_middleware(request, call_next):
+    async def metrics_middleware(request: Request, call_next: Any) -> Any:
         start = time.time()
 
         response = await call_next(request)
@@ -172,12 +180,12 @@ def create_app() -> FastAPI:
 
     # Prometheus metrics endpoint
     @app.get("/metrics", include_in_schema=False)
-    async def metrics():
+    async def metrics() -> Response:
         return Response(generate_latest(), media_type="text/plain")
 
     # Global exception handler
     @app.exception_handler(Exception)
-    async def global_exception_handler(request, exc):
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.error(
             "Unhandled exception",
             path=request.url.path,

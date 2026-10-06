@@ -4,7 +4,9 @@ Maneja pool de navegadores, contextos y páginas con lifecycle management.
 """
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import Browser, BrowserContext, Page
@@ -63,7 +65,8 @@ class BrowserPool:
         # AsyncCamoufox is an async context manager, use it directly
         self._camoufox_context = AsyncCamoufox(headless=self.headless)
         assert self._camoufox_context is not None
-        self._browser = await self._camoufox_context.__aenter__()
+        # __aenter__ tipa Browser | BrowserContext; el valor real es Browser
+        self._browser = cast(Browser, await self._camoufox_context.__aenter__())
 
         # Crear instancias iniciales
         for _ in range(self.pool_size):
@@ -78,8 +81,11 @@ class BrowserPool:
             raise BrowserError("Browser not initialized")
 
         proxy_config = resolve_proxy()
-        # Crear nuevo contexto en el mismo navegador
-        context_kwargs = {
+        # Crear nuevo contexto en el mismo navegador. context_kwargs es un
+        # dict heterogéneo (str, dict, int) y playwright tipa cada parámetro
+        # con un tipo distinto; Any evita que mypy infiera Collection[str]
+        # como valor común y rechaze cada clave por separado.
+        context_kwargs: dict[str, Any] = {
             "user_agent": settings.browser_user_agent,
             "viewport": {
                 "width": settings.browser_viewport_width,
@@ -111,7 +117,7 @@ class BrowserPool:
         return instance
 
     @contextlib.asynccontextmanager
-    async def acquire(self) -> Page:
+    async def acquire(self) -> AsyncIterator[Page]:
         """
         Adquiere una página del pool (context manager).
         Uso:

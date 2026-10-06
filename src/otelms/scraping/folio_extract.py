@@ -15,8 +15,9 @@ import html
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 # Índices de tabla dentro del folio. Confirmados contra el portal: el folio
 # trae 11 tablas y los cargos van en la 1, los pagos en la 2 y el precio por
@@ -26,7 +27,7 @@ _PAYMENTS_TABLE = 2
 _ROOM_CHARGES_TABLE = 7
 
 
-def _column_indexes(table) -> dict[str, int]:
+def _column_indexes(table: Tag) -> dict[str, int]:
     """Mapea el texto de cada cabecera de columna a su índice de celda.
 
     Se resuelve una sola vez por tabla y luego cada campo se lee por su
@@ -41,6 +42,18 @@ def _column_indexes(table) -> dict[str, int]:
         if label and label not in indexes:
             indexes[label] = idx
     return indexes
+
+
+def _attr(node: Tag, name: str) -> str:
+    """Lee un atributo como str, aplastando listas de valores si el HTML las trae.
+
+    bs4 tipa `Tag.get()` como `str | AttributeValueList`; sin esta
+    helper cada `item.get("resid")` obliga a un cast a mano en cada uso.
+    """
+    value = node.get(name)
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else " ".join(value)
 
 
 def _cell(cells: list[str], indexes: dict[str, int], *labels: str) -> str:
@@ -72,7 +85,7 @@ def parse_folio(html_content: str, reservation_id: str | int) -> dict:
     """
     soup = BeautifulSoup(html_content, "html.parser")
     tables = soup.find_all("table")
-    result: dict = {
+    result: dict[str, Any] = {
         "reservation_id": str(reservation_id),
         "services": [],
         "payments": [],
@@ -171,11 +184,11 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
 
     reservations = []
     for item in res_items:
-        resid = item.get("resid")
-        status = item.get("status", "0")
-        data_title = item.get("data-title", "")
+        resid = _attr(item, "resid")
+        status = _attr(item, "status") or "0"
+        data_title = _attr(item, "data-title")
 
-        fields = {}
+        fields: dict[str, str] = {}
         if data_title:
             decoded = html.unescape(data_title)
             tooltip_soup = BeautifulSoup(decoded, "html.parser")
@@ -185,7 +198,7 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
                 first = divs[0].get_text(strip=True)
                 match = re.match(r"Reserva\s*№(\d+)\s*\(([^)]+)\)(?:,\s*(.+))?", first)
                 if match:
-                    fields["reservation_id"] = int(match.group(1))
+                    fields["reservation_id"] = match.group(1)
                     fields["reservation_type"] = match.group(2)
                     if match.group(3):
                         fields["channel"] = match.group(3).strip()
@@ -197,7 +210,7 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
 
         reservations.append({
             "resid": int(resid) if resid else 0,
-            "reservation_id": fields.get("reservation_id", 0),
+            "reservation_id": int(fields.get("reservation_id", "0") or "0"),
             "status": int(status) if status else 0,
             "reservation_type": fields.get("reservation_type", ""),
             "channel": fields.get("channel", ""),

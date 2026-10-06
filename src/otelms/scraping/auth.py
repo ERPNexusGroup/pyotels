@@ -6,6 +6,7 @@ import asyncio
 import re
 import time
 from dataclasses import dataclass
+from typing import Any, cast
 
 import httpx
 import pyotp
@@ -184,13 +185,15 @@ class OtelMSAuth:
     async def _perform_login(self, context: BrowserContext) -> bool:
         """Ejecuta el login real."""
         await self.initialize_http_client()
+        client = self._http_client
+        assert client is not None
 
         try:
             # 1. GET login page para obtener cookies iniciales y CSRF si existe
             login_url = self.login_url
             if settings.scraper_api_key and resolve_proxy().backend == "scrape_do":
                 login_url = login_url + ("&" if "?" in login_url else "?") + f"api_key={settings.scraper_api_key}"
-            await self._http_client.get(login_url)
+            await client.get(login_url)
 
             # 2. POST login
             payload = {
@@ -210,7 +213,7 @@ class OtelMSAuth:
             if settings.scraper_api_key and resolve_proxy().backend == "scrape_do":
                 do_login_url = do_login_url + ("&" if "?" in do_login_url else "?") + f"api_key={settings.scraper_api_key}"
 
-            response = await self._http_client.post(
+            response = await client.post(
                 do_login_url,
                 data=payload,
                 headers=headers,
@@ -310,7 +313,9 @@ class OtelMSAuth:
                 "Content-Type": "application/x-www-form-urlencoded",
             }
 
-            response = await self._http_client.post(
+            client = self._http_client
+            assert client is not None
+            response = await client.post(
                 self.urls.do_login_url,
                 data=payload,
                 headers=headers,
@@ -344,7 +349,11 @@ class OtelMSAuth:
             })
 
         if cookies:
-            await context.add_cookies(cookies)
+            # add_cookies tipa Sequence[SetCookieParam] (TypedDict interno
+            # que playwright no exporta); los dicts runtime son idénticos.
+            # Sequence es invariante, así que Sequence[Any] no vale; cast a
+            # Any (compatible con todo) sin cambiar comportamiento.
+            await context.add_cookies(cast(Any, cookies))
             logger.debug("Cookies synced to Playwright", count=len(cookies))
 
     async def _restore_session(self, context: BrowserContext) -> None:
@@ -428,7 +437,7 @@ class SessionManager:
     Permite compartir sesiones entre workers.
     """
 
-    def __init__(self, cache):
+    def __init__(self, cache: Any):
         self.cache = cache
 
     def _session_key(self, hotel_id: str, username: str) -> str:
@@ -448,7 +457,7 @@ class SessionManager:
             "created_at": auth._session_data.created_at,
             "expires_at": auth._session_data.expires_at,
         }
-        return await self.cache.set(key, data, ttl=3600)
+        return cast(bool, await self.cache.set(key, data, ttl=3600))
 
     async def load_session(self, hotel_id: str, username: str) -> SessionData | None:
         """Carga sesión desde cache."""
@@ -461,7 +470,7 @@ class SessionManager:
     async def delete_session(self, hotel_id: str, username: str) -> bool:
         """Elimina sesión del cache."""
         key = self._session_key(hotel_id, username)
-        return await self.cache.delete(key)
+        return cast(bool, await self.cache.delete(key))
 
 
 _META_REFRESH = re.compile(

@@ -28,9 +28,10 @@ class ExtractionError(ScrapingError):
 
 class RateLimitError(ScrapingError):
     """Rate limit excedido."""
-    def __init__(self, message: str, retry_after: int | None = None, **kwargs):
+    def __init__(self, message: str, retry_after: int | None = None,
+                 hotel_id: str | None = None, url: str | None = None):
         self.retry_after = retry_after
-        super().__init__(message, **kwargs)
+        super().__init__(message, hotel_id=hotel_id, url=url)
 
 
 class BrowserError(ScrapingError):
@@ -45,16 +46,18 @@ class SessionExpiredError(AuthenticationError):
 
 class ElementNotFoundError(ExtractionError):
     """Elemento esperado no encontrado en la página."""
-    def __init__(self, selector: str, **kwargs):
+    def __init__(self, selector: str, hotel_id: str | None = None,
+                 url: str | None = None):
         self.selector = selector
         msg = f"Element not found: {selector}"
-        super().__init__(msg, **kwargs)
+        super().__init__(msg, hotel_id=hotel_id, url=url)
 
 
 class ParsingError(ExtractionError):
     """Error parseando datos extraídos."""
-    def __init__(self, field: str, raw_value: str, **kwargs):
+    def __init__(self, field: str, raw_value: str, hotel_id: str | None = None,
+                 url: str | None = None):
         self.field = field
         self.raw_value = raw_value
         msg = f"Failed to parse {field}: {raw_value}"
-        super().__init__(msg, **kwargs)
+        super().__init__(msg, hotel_id=hotel_id, url=url)

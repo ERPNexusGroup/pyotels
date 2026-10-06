@@ -7,6 +7,7 @@ circuito. Cada `rotate_circuit()` reinicia el circuito obteniendo una IP fresca.
 import asyncio
 import hashlib
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import httpx
 from stem import Signal
@@ -48,11 +49,12 @@ class TorProxyManager:
             Controller.from_port,
             port=self.CONTROL_PORT,
         )
+        assert self._controller is not None
         self._controller.authenticate(password=self._password)
         logger.info("Tor controller authenticated")
         return self
 
-    async def __aexit__(self, *args) -> None:
+    async def __aexit__(self, *args: Any) -> None:
         if self._controller:
             self._controller.close()
             self._controller = None
@@ -72,6 +74,7 @@ class TorProxyManager:
             await self.__aenter__()
 
         # NUEVO CIRCUITO (limpia IP vieja)
+        assert self._controller is not None
         self._controller.signal(Signal.NEWNYM)
         self._last_rotation = datetime.now(UTC).timestamp()
         logger.info("Tor circuit rotated — new IP")
@@ -82,7 +85,7 @@ class TorProxyManager:
         async with httpx.AsyncClient(proxy=self.PROXY_URL, timeout=httpx.Timeout(10)) as client:
             resp = await client.get("https://httpbin.org/ip")
             if resp.status_code == 200:
-                ip = resp.json()["origin"]
+                ip = cast(str, resp.json()["origin"])
                 logger.debug("Tor proxy IP", ip=ip)
                 return ip
             return None

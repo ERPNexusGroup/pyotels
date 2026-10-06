@@ -3,7 +3,7 @@ Configuración de logging estructurado con structlog.
 """
 import logging
 import sys
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from structlog.types import EventDict, WrappedLogger
@@ -86,4 +86,6 @@ def setup_logging() -> None:
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Obtiene un logger configurado."""
-    return structlog.get_logger(name)
+    # structlog tipa get_logger como BoundLogger genérico; el wrapper_class
+    # configurado arriba es stdlib.BoundLogger, así que el cast es seguro.
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))

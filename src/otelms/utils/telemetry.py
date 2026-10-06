@@ -1,7 +1,9 @@
 """
 OpenTelemetry instrumentation for distributed tracing.
 """
+from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
@@ -141,13 +143,13 @@ def init_telemetry() -> None:
     logger.info("OpenTelemetry initialized", service=settings.otel_service_name)
 
 
-def get_tracer(name: str = "otelms"):
+def get_tracer(name: str = "otelms") -> trace.Tracer:
     """Get a tracer instance."""
     return trace.get_tracer(name)
 
 
 @contextmanager
-def trace_operation(operation_name: str, **attributes):
+def trace_operation(operation_name: str, **attributes: Any) -> Iterator[Any]:
     """Context manager for tracing an operation."""
     tracer = get_tracer()
     with tracer.start_as_current_span(operation_name) as span:
@@ -161,7 +163,10 @@ def trace_operation(operation_name: str, **attributes):
             raise
 
 
-def record_scraping_metric(operation: str, hotel_id: str, status: str, duration: float, records_created: int = 0, records_updated: int = 0):
+def record_scraping_metric(
+    operation: str, hotel_id: str, status: str, duration: float,
+    records_created: int = 0, records_updated: int = 0,
+) -> None:
     """Record scraping operation metrics."""
     scraping_operations_total.labels(operation=operation, hotel_id=hotel_id, status=status).inc()
     scraping_duration_seconds.labels(operation=operation, hotel_id=hotel_id).observe(duration)
@@ -171,18 +176,18 @@ def record_scraping_metric(operation: str, hotel_id: str, status: str, duration:
         sync_records_processed.labels(operation=operation, hotel_id=hotel_id, type="updated").inc(records_updated)
 
 
-def record_celery_metric(task_name: str, status: str, duration: float):
+def record_celery_metric(task_name: str, status: str, duration: float) -> None:
     """Record Celery task metrics."""
     celery_tasks_total.labels(task_name=task_name, status=status).inc()
     celery_task_duration_seconds.labels(task_name=task_name).observe(duration)
 
 
-def record_cache_metric(operation: str, backend: str, status: str):
+def record_cache_metric(operation: str, backend: str, status: str) -> None:
     """Record cache operation metrics."""
     cache_operations_total.labels(operation=operation, backend=backend, status=status).inc()
 
 
-def record_sync_error(operation: str, hotel_id: str, error_type: str):
+def record_sync_error(operation: str, hotel_id: str, error_type: str) -> None:
     """Record sync error metrics."""
     sync_errors_total.labels(operation=operation, hotel_id=hotel_id, error_type=error_type).inc()
 

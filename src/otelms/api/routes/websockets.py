@@ -16,24 +16,24 @@ logger = get_logger(__name__)
 class ConnectionManager:
     """Manage WebSocket connections for sync progress."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, hotel_id: str):
+    async def connect(self, websocket: WebSocket, hotel_id: str) -> None:
         await websocket.accept()
         if hotel_id not in self.active_connections:
             self.active_connections[hotel_id] = set()
         self.active_connections[hotel_id].add(websocket)
         logger.info("WebSocket connected", hotel_id=hotel_id, total=len(self.active_connections[hotel_id]))
 
-    def disconnect(self, websocket: WebSocket, hotel_id: str):
+    def disconnect(self, websocket: WebSocket, hotel_id: str) -> None:
         if hotel_id in self.active_connections:
             self.active_connections[hotel_id].discard(websocket)
             if not self.active_connections[hotel_id]:
                 del self.active_connections[hotel_id]
         logger.info("WebSocket disconnected", hotel_id=hotel_id)
 
-    async def send_progress(self, hotel_id: str, message: dict):
+    async def send_progress(self, hotel_id: str, message: dict) -> None:
         """Send progress message to all connections for a hotel."""
         if hotel_id in self.active_connections:
             disconnected = set()
@@ -57,7 +57,7 @@ async def websocket_sync_progress(
     websocket: WebSocket,
     hotel_id: str,
     api_key: str = Depends(verify_api_key),
-):
+) -> None:
     """WebSocket endpoint for real-time sync progress updates.
 
     Query params:
@@ -103,7 +103,10 @@ async def websocket_sync_progress(
 
 
 # Function to be called from SyncService to broadcast progress
-async def broadcast_sync_progress(hotel_id: str, sync_type: str, progress: float, message: str, status: str = "progress"):
+async def broadcast_sync_progress(
+    hotel_id: str, sync_type: str, progress: float, message: str,
+    status: str = "progress",
+) -> None:
     """Broadcast sync progress to WebSocket clients."""
     await manager.send_progress(hotel_id, {
         "type": status,  # progress, complete, error
