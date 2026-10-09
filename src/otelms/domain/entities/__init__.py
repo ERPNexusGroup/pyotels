@@ -1,7 +1,7 @@
 """
 Modelos de base de datos (SQLAlchemy 2.x) - Persistencia.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -21,6 +21,11 @@ from sqlalchemy import (
     Enum as SQLEnum,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def utcnow() -> datetime:
+    """Current UTC datetime for default values."""
+    return datetime.now(timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -105,7 +110,7 @@ class CategoryAvailability(Base):
     category_id: Mapped[str] = mapped_column(String(64), ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     available: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
         Index("ix_category_availability_hotel_date", "hotel_id", "date"),

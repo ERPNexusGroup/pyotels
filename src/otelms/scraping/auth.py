@@ -502,10 +502,14 @@ def _login_failed(resp: httpx.Response) -> bool:
 
 
 async def get_authenticated_http_session(hotel_id: str) -> httpx.AsyncClient:
-    """Crea una sesión HTTP autenticada (sin proxy) para requests directos."""
+    """Crea una sesión HTTP autenticada (sin proxy) para requests directos.
+
+    NOTA: verify_ssl se controla via setting `scraper_verify_ssl` (default True).
+    En entornos con SSL interception corporativo, se puede desactivar via .env.
+    """
     client = httpx.AsyncClient(
         base_url="https://desktop.otelms.com",
-        verify=False,
+        verify=settings.scraper_verify_ssl,
         timeout=httpx.Timeout(30.0),
         follow_redirects=True,
         headers={

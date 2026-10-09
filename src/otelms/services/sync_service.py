@@ -224,7 +224,15 @@ class SyncService:
             password_hash=pwd_hash,
             is_active=True,
         )
-        return await hotel_repo.create(**hotel.__dict__)
+        # Use explicit fields to avoid SQLAlchemy internal attributes
+        return await hotel_repo.create(
+            id=hotel.id,
+            name=hotel.name,
+            domain=hotel.domain,
+            username=hotel.username,
+            password_hash=hotel.password_hash,
+            is_active=hotel.is_active,
+        )
 
     async def close(self) -> None:
         """Cierra recursos."""

@@ -1975,21 +1975,6 @@ scraping = [
     { name = "playwright" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "faker" },
-    { name = "httpx" },
-    { name = "locust" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-    { name = "ruff" },
-    { name = "testcontainers" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
@@ -2038,21 +2023,6 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 provides-extras = ["scraping", "dev", "docs"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "faker", specifier = ">=25.0.0" },
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "locust", specifier = ">=2.30.0" },
-    { name = "mypy", specifier = ">=1.10.0" },
-    { name = "pre-commit", specifier = ">=4.0.0" },
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-mock", specifier = ">=3.12.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
-    { name = "testcontainers", specifier = ">=4.10.0" },
-]
 
 [[package]]
 name = "packaging"

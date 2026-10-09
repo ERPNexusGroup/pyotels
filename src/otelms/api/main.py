@@ -19,6 +19,7 @@ from otelms.api.routes import (
     guests,
     health,
     hotels,
+    housekeeping,
     reservations,
     restrictions,
     rooms,
@@ -30,6 +31,7 @@ from otelms.scraping.browser import browser_pool
 from otelms.utils.cache import cache
 from otelms.utils.logging import get_logger, setup_logging
 from otelms.utils.telemetry import init_telemetry, shutdown_telemetry
+from otelms.scraping.rate_limiter import rate_limiter
 
 logger = get_logger(__name__)
 
@@ -158,6 +160,30 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Rate limiting middleware
+    @app.middleware("http")
+    async def rate_limit_middleware(request: Request, call_next: Any) -> Any:
+        """Apply rate limiting based on API key or IP."""
+        # Determine rate limit key: API key if present, otherwise IP
+        api_key = request.headers.get(settings.api_key_header)
+        if api_key:
+            key = f"apikey:{api_key}"
+        else:
+            client_ip = request.client.host if request.client else "unknown"
+            key = f"ip:{client_ip}"
+
+        try:
+            # Use global rate limiter with key
+            bucket = rate_limiter.get_bucket(key)
+            await bucket.take(1)
+        except Exception as e:
+            # If rate limiter fails (e.g., Redis down), log and allow request
+            # to avoid blocking all traffic on rate limiter issues
+            logger.warning("Rate limiter error, allowing request", key=key, error=str(e))
+
+        response = await call_next(request)
+        return response
+
     # Middleware for metrics
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next: Any) -> Any:
@@ -206,6 +232,7 @@ def create_app() -> FastAPI:
     app.include_router(categories.router)
     app.include_router(rooms.router)
     app.include_router(restrictions.router)
+    app.include_router(housekeeping.router)
     app.include_router(websockets.router)
 
     # Admin dashboard (solo en debug - el router mismo valida)

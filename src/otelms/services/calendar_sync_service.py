@@ -66,15 +66,18 @@ class CalendarSyncService:
 
     @staticmethod
     def _login(settings: Settings, hotel_id: str) -> requests.Session:
-        """Login HTTP sync."""
+        """Login HTTP sync.
+
+        verify_ssl se controla via setting `scraper_verify_ssl` (default True).
+        En entornos con SSL interception corporativo, se puede desactivar via .env.
+        """
         session = requests.Session()
         session.headers.update({
             "User-Agent": settings.browser_user_agent,
             "Content-Type": "application/x-www-form-urlencoded",
         })
-        session.verify = False
+        session.verify = settings.scraper_verify_ssl
 
-        base = f"https://{settings.otelms_base_domain if not settings.otelms_base_domain.startswith('http') else settings.otelms_base_domain.replace('https://', '')}"
         base = "https://desktop.otelms.com"
 
         session.get(f"{base}/login_c2/single_login?hmsid={hotel_id}", timeout=15)

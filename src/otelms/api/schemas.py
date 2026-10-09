@@ -358,6 +358,42 @@ class InHouseResponse(BaseModel):
     items: list[InHouseItem] = []
 
 
+# ============================================================
+# HOUSEKEEPING (limpieza de habitaciones)
+# ============================================================
+class HousekeepingItem(BaseModel):
+    """Una habitación que necesita limpieza en la fecha consultada.
+
+    `cleaning_type` indica el tipo de limpieza requerida:
+    - "full" (limpieza completa): habitación con check-out hoy (huésped se fue)
+    - "stay_over" (limpieza continua): habitación ocupada que continúa la reserva
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    room_id: str
+    room_name: str
+    category_id: str | None = None
+    category_name: str | None = None
+    reservation_id: str
+    guest_name: str | None = None
+    check_in: datetime
+    check_out: datetime
+    adults: int = 1
+    children: int = 0
+    nights_remaining: int = Field(..., description="Noches restantes desde la fecha consultada")
+    cleaning_type: str = Field(..., description="full=limpieza completa (checkout), stay_over=limpieza continua (pernocta)")
+    status: int | None = Field(None, description="Estado en OtelMS: 1 Reservación, 2 Check in, 3 Check out")
+
+
+class HousekeepingResponse(BaseModel):
+    hotel_id: str
+    date: date
+    full_cleaning_count: int = Field(..., description="Habitaciones con checkout hoy (limpieza completa)")
+    stay_over_cleaning_count: int = Field(..., description="Habitaciones que pernoctan (limpieza continua)")
+    total_rooms_to_clean: int
+    items: list[HousekeepingItem] = []
+
+
 # Forward references
 CategoryResponse.model_rebuild()
 RoomResponse.model_rebuild()

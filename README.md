@@ -114,6 +114,10 @@ All endpoints require API Key in header:
 curl -H "X-API-Key: your-api-key" http://localhost:8000/hotels
 ```
 
+**Local testing without API Key:** Set `API_KEY_REQUIRED=false` in your `.env` to
+bypass API key verification (Swagger UI will work without headers). This is only
+for local development — leave `true` (default) in staging and production.
+
 ### Core Endpoints
 
 | Endpoint | Method | Description |
@@ -206,6 +210,78 @@ days; asking for more returns fewer cells, not an error.
 The write side (closing and opening dates) is `src/otelms/scraping/restrictions.py`
 and is not exposed over HTTP yet. Closing a day is three chained calls, not one
 PUT — see `docs/otelms_endpoints.md` §4.4.
+
+### Housekeeping (Limpieza)
+
+**Dos tipos de limpieza, criterio basado en la fecha consultada:**
+
+| Tipo | Criterio | Cuándo aplicar |
+|------|----------|----------------|
+| **Limpieza completa (full)** | `check_out == target_date` | El huésped se fue esta mañana → habitación libre, limpieza profunda |
+| **Limpieza continua (stay_over)** | `check_in <= target_date < check_out` | El huésped pernocta → habitación ocupada, limpieza ligera de mantenimiento |
+
+> **Importante:** El día de salida **no** cuenta como noche de pernocta. El huésped se va por la mañana, así que `check_out == target_date` va a "limpieza completa", no a "stay_over".
+
+**Endpoints:**
+
+```bash
+# Plan completo de limpieza para una fecha
+GET /housekeeping?hotel_id=18330&target_date=2026-10-07
+
+# Solo limpieza completa (check-outs de hoy)
+GET /housekeeping/full-cleaning?hotel_id=18330&target_date=2026-10-07
+
+# Solo limpieza continua (ocupadas que pernoctan)
+GET /housekeeping/stay-over?hotel_id=18330&target_date=2026-10-07
+```
+
+**Respuesta (`/housekeeping`):**
+```json
+{
+  "hotel_id": "18330",
+  "date": "2026-10-07",
+  "full_cleaning_count": 5,
+  "stay_over_cleaning_count": 12,
+  "total_rooms_to_clean": 17,
+  "items": [
+    {
+      "room_id": "107",
+      "room_name": "107",
+      "category_id": "13",
+      "category_name": "Matrimonial",
+      "reservation_id": "23356",
+      "guest_name": "Bejot Louis",
+      "check_in": "2026-09-20T05:00:00Z",
+      "check_out": "2026-10-07T05:00:00Z",
+      "adults": 2,
+      "children": 0,
+      "nights_remaining": 0,
+      "cleaning_type": "full",
+      "status": 4
+    },
+    {
+      "room_id": "101",
+      "room_name": "101",
+      "category_id": "13",
+      "category_name": "Matrimonial",
+      "reservation_id": "23357",
+      "guest_name": "Garcia Maria",
+      "check_in": "2026-10-05T14:00:00Z",
+      "check_out": "2026-10-10T11:00:00Z",
+      "adults": 2,
+      "children": 1,
+      "nights_remaining": 3,
+      "cleaning_type": "stay_over",
+      "status": 2
+    }
+  ]
+}
+```
+
+**Casos de uso:**
+- `/housekeeping` → Plan maestro para el equipo de housekeeping (recepción imprime y reparte)
+- `/housekeeping/full-cleaning` → Equipo de limpieza profunda (habitaciones que quedan libres)
+- `/housekeeping/stay-over` → Equipo de mantenimiento (habitaciones con huésped dentro)
 
 ### Check-in, check-out and moving a reservation
 
@@ -308,6 +384,7 @@ OTELMS_DEFAULT_PASSWORD=your_password
 SCRAPER_HEADLESS=true
 SCRAPER_RATE_LIMIT_REQUESTS_PER_MINUTE=30
 SCRAPER_RATE_LIMIT_BURST=5
+SCRAPER_VERIFY_SSL=true
 BROWSER_POOL_SIZE=2
 
 # Security
@@ -316,6 +393,108 @@ JWT_SECRET_KEY=your-jwt-secret-min-32-chars
 ```
 
 See `.env.example` for all 80+ options.
+
+### Check-in / Check-out Configuration
+
+**Horarios por defecto (configurables en OtelMS, no en la API):**
+
+| Evento | Hora por defecto | Dónde cambiar |
+|--------|------------------|---------------|
+| Check-in | 14:00 (2 PM) | OtelMS → Configuración → Hotel → Horarios |
+| Check-out | 11:00 (11 AM) | OtelMS → Configuración → Hotel → Horarios |
+
+**Impacto en la API:**
+- La API lee `check_in` y `check_out` como timestamps UTC desde la BD (poblados por el scraper).
+- El criterio de "noches" y "pernocta" usa **solo la parte de fecha** (`date()`).
+- El día del check-out **no** cuenta como noche: `check_in <= target_date < check_out`.
+- Para cambiar los horarios: edita en el portal OtelMS y espera al próximo sync (o dispara `/reservations/sync/full`).
+
+### Browser Mode: Local vs Docker
+
+| Entorno | Variable | Valor | Comportamiento |
+|---------|----------|-------|----------------|
+| **Local (desarrollo)** | `SCRAPER_HEADLESS` | `false` | Navegador visible (headful) para debugging |
+| **Local (desarrollo)** | `BROWSER_HEADLESS` | `false` | Idem, alias de compatibilidad |
+| **Docker (producción/CI)** | `SCRAPER_HEADLESS` | `true` | Headless obligatorio (sin display) |
+| **Docker (producción/CI)** | `BROWSER_HEADLESS` | `true` | Idem |
+
+> **Nota:** Los scripts `run-local.sh` / `run-local.ps1` crean `.env.local` con `SCRAPER_HEADLESS=false`. El `docker-compose.yml` tiene `SCRAPER_HEADLESS=true` y `BROWSER_HEADLESS=true` hardcodeados en los servicios `worker` y `beat`.
+
+### Local Development Scripts
+
+**Linux/macOS (`scripts/run-local.sh`):**
+```bash
+chmod +x scripts/run-local.sh
+./scripts/run-local.sh
+```
+
+**Windows PowerShell (`scripts/run-local.ps1`):**
+```powershell
+.\scripts\run-local.ps1
+```
+
+**Qué hacen ambos scripts:**
+1. Levantan infraestructura en Docker (PostgreSQL en 5433, Redis en 6380)
+2. Ejecutan migraciones Alembic
+3. Crean `.env.local` con overrides para desarrollo (puerto API 8001, headless=false, DB/Redis en puertos Docker)
+4. Inician API (8001), Celery Worker y Celery Beat en background
+5. Guardan PIDs en `/tmp/otelms_*.pid` (Linux) o `$env:TEMP\otelms_*.pid` (Windows)
+6. Health check automático en `http://localhost:8001/health`
+
+**Parar todo:**
+```bash
+# Linux/macOS
+./scripts/run-local.sh stop
+
+# Windows
+.\scripts\run-local.ps1 -Stop
+```
+
+**Puertos en local:**
+| Servicio | Puerto | Nota |
+|----------|--------|------|
+| API | 8001 | Evita conflicto con Docker (8000) y otros servicios |
+| PostgreSQL | 5433 | Contenedor `otelms-postgres` |
+| Redis | 6380 | Contenedor `otelms-redis` |
+
+### Docker Deployment
+
+**Development (docker-compose.yml):**
+```bash
+# Construir y levantar
+docker compose -f docker/docker-compose.yml up -d --build
+
+# Ver logs
+docker compose -f docker/docker-compose.yml logs -f api
+docker compose -f docker/docker-compose.yml logs -f worker
+
+# Escalar workers
+docker compose -f docker/docker-compose.yml up -d --scale worker=3
+```
+
+**Production (con Nginx):**
+```bash
+docker compose -f docker/docker-compose.yml --profile production up -d
+```
+
+**Puertos en Docker:**
+| Servicio | Puerto (host) | Puerto (contenedor) |
+|----------|---------------|---------------------|
+| API | 8000 | 8000 |
+| PostgreSQL | 5432 | 5432 |
+| Redis | 6379 | 6379 |
+
+**Variables clave en `docker-compose.yml`:**
+- `worker` y `beat`: `SCRAPER_HEADLESS=true`, `BROWSER_HEADLESS=true`
+- `api`: `SCRAPER_HEADLESS=true` (no usa browser pero hereda config)
+- Volúmenes: `../src:/app/src:ro` (código montado read-only para hot-reload en API)
+
+**Podman en WSL2 (sin bridge nftables):**
+```bash
+DOCKER_HOST=npipe:////./pipe/podman-machine-default \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.podman.yml up -d
+```
+Usa `network_mode: host` con puertos: PostgreSQL 5434, Redis 6381, API 8011.
 
 ---
 
@@ -328,6 +507,7 @@ python scripts/run_tests.py
 # Or individually
 uv run pytest tests/unit -v              # Unit tests
 uv run pytest tests/integration -v       # Integration tests
+uv run pytest tests/e2e -v               # E2E API tests
 uv run pytest tests/unit --cov=src/otelms # With coverage
 
 # Linting
@@ -346,6 +526,11 @@ tests/
 ├── integration/             # DB/Redis required
 │   ├── test_sync_service.py # Sync service tests
 │   └── test_api_contracts.py # API contract tests
+├── e2e/                     # End-to-end API tests (ASGI transport)
+│   ├── test_health.py       # Health check endpoints
+│   ├── test_api_auth.py     # Authentication & rate limiting
+│   ├── test_hotels.py       # Hotel management endpoints
+│   └── test_reservations.py # Reservation endpoints
 └── conftest.py              # Pytest fixtures
 ```
 
@@ -490,6 +675,26 @@ docker compose -f docker/docker-compose.yml --profile production up -d
 # Scale workers
 docker compose up -d --scale worker=3
 ```
+
+### Unified Dockerfile
+
+The project uses a single multi-stage `docker/Dockerfile` with targets:
+- `api` — FastAPI + Uvicorn (no browser)
+- `worker` — Celery worker + Camoufox/Playwright
+- `beat` — Celery Beat scheduler
+
+All targets share base/deps/camoufox layers for efficient builds.
+
+### Podman on WSL2
+
+For WSL2 environments with kernel nftables issues, use the Podman override:
+
+```bash
+DOCKER_HOST=npipe:////./pipe/podman-machine-default \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.podman.yml up -d
+```
+
+This uses `network_mode: host` with custom ports (5434 PostgreSQL, 6381 Redis, 8011 API).
 
 ### Kubernetes (Helm values example)
 

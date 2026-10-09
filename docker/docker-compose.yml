@@ -49,19 +49,14 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # API Server (FastAPI + Uvicorn)
+  # API Server (FastAPI + Uvicorn) — unified Dockerfile target
   # ============================================================
   api:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.api
+      dockerfile: docker/Dockerfile
+      target: api
     container_name: otelms-api
-    # Sin esto el contenedor NO ve el .env de la raíz: compose solo interpola
-    # ${VAR} desde el directorio del proyecto (docker/), así que
-    # OTELMS_DEFAULT_USERNAME/PASSWORD caían en sus defaults de ejemplo y
-    # todo sync contra OtelMS fallaba con "Sesión no válida tras login".
-    # env_file tiene prioridad sobre los `environment:` de abajo solo para las
-    # claves que no estén listadas explícitamente.
     env_file:
       - ../.env
     environment:
@@ -73,11 +68,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - API_KEY=${API_KEY:-changeme-secure-api-key-here}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme-jwt-secret-key-min-32-chars}
-      # OTELMS_DEFAULT_HOTEL_ID/USERNAME/PASSWORD NO se listan aquí a propósito:
-    # van en env_file. Una línea `- OTELMS_DEFAULT_PASSWORD=${...:-changeme}`
-    # gana sobre env_file, y podman-compose no interpola ${} desde el .env de
-    # la raíz del repo, así que el contenedor acababa con "changeme" y todo
-    # sync moría en "Sesión no válida tras login".
+      # OTELMS_DEFAULT_HOTEL_ID/USERNAME/PASSWORD come from env_file (see note below)
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
       - METRICS_ENABLED=true
@@ -85,7 +76,7 @@ services:
       - "8002:8000"
       - "9091:9090"  # Prometheus metrics
     volumes:
-      - ../src:/app/src:ro  # Hot reload: cambios en src/ se reflejan al instante
+      - ../src:/app/src:ro  # Hot reload: changes in src/ reflect instantly
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,15 +95,14 @@ services:
           cpus: "0.5"
 
   # ============================================================
-  # Celery Worker (Scraping Tasks)
+  # Celery Worker (Scraping Tasks) — unified Dockerfile target
   # ============================================================
   worker:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.worker
+      dockerfile: docker/Dockerfile
+      target: worker
     container_name: otelms-worker
-    # Ver la nota de `api`: sin env_file el worker sync con credenciales de
-    # ejemplo y el scraping real nunca ocurre.
     env_file:
       - ../.env
     environment:
@@ -122,8 +112,6 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      # OTELMS_DEFAULT_HOTEL_ID/USERNAME/PASSWORD llegan por env_file; ver la
-      # nota del servicio `api` sobre por qué no deben repetirse aquí.
       - SCRAPER_HEADLESS=true
       - BROWSER_HEADLESS=true
       - BROWSER_POOL_SIZE=2
@@ -147,16 +135,15 @@ services:
           cpus: "1.0"
 
   # ============================================================
-  # Celery Beat (Scheduler)
+  # Celery Beat (Scheduler) — same image as worker, different CMD
   # ============================================================
   beat:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.worker
+      dockerfile: docker/Dockerfile
+      target: beat
     container_name: otelms-beat
     command: celery -A otelms.tasks.celery_app beat --loglevel=info --scheduler redbeat.RedBeatScheduler
-    # Ver la nota de `api`: sin env_file el beat programa con el hotel y las
-    # credenciales por defecto de Settings.
     env_file:
       - ../.env
     environment:
