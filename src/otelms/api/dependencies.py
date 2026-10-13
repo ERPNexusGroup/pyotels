@@ -12,12 +12,17 @@ from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey
 from otelms.domain.repositories import (
     ApiKeyRepository,
+    ApiKeyRoleRepository,
     CategoryAvailabilityRepository,
     CategoryRepository,
+    ChannelRateRepository,
     GuestRepository,
+    HousekeepingStatusRepository,
     HotelRepository,
     PaymentRepository,
     ReservationRepository,
+    RoleRepository,
+    RoomAvailabilityRepository,
     RoomRepository,
     ServiceRepository,
     SyncLogRepository,
@@ -58,6 +63,12 @@ async def get_availability_repo(
     return CategoryAvailabilityRepository(session)
 
 
+async def get_category_availability_repo(
+    session: AsyncSession = Depends(get_db),
+) -> CategoryAvailabilityRepository:
+    return CategoryAvailabilityRepository(session)
+
+
 async def get_room_repo(session: AsyncSession = Depends(get_db)) -> RoomRepository:
     return RoomRepository(session)
 
@@ -84,6 +95,32 @@ async def get_sync_log_repo(session: AsyncSession = Depends(get_db)) -> SyncLogR
 
 async def get_api_key_repo(session: AsyncSession = Depends(get_db)) -> ApiKeyRepository:
     return ApiKeyRepository(session)
+
+
+async def get_role_repo(session: AsyncSession = Depends(get_db)) -> RoleRepository:
+    return RoleRepository(session)
+
+
+async def get_api_key_role_repo(session: AsyncSession = Depends(get_db)) -> ApiKeyRoleRepository:
+    return ApiKeyRoleRepository(session)
+
+
+async def get_housekeeping_status_repo(
+    session: AsyncSession = Depends(get_db),
+) -> HousekeepingStatusRepository:
+    return HousekeepingStatusRepository(session)
+
+
+async def get_channel_rate_repo(
+    session: AsyncSession = Depends(get_db),
+) -> ChannelRateRepository:
+    return ChannelRateRepository(session)
+
+
+async def get_room_availability_repo(
+    session: AsyncSession = Depends(get_db),
+) -> RoomAvailabilityRepository:
+    return RoomAvailabilityRepository(session)
 
 
 # ============================================================
@@ -180,6 +217,38 @@ async def verify_api_key(
     await api_key_repo.update_last_used(key_obj.id)
 
     return key_obj
+
+
+def require_permission(permission: str):
+    """Dependency factory que verifica que el API Key autenticado tenga el permiso.
+
+    Usa el sistema de roles: cada API Key puede tener múltiples roles, y cada rol
+    tiene un conjunto de permisos (JSON array). Si la key no tiene el permiso
+    solicitado, devuelve 403 Forbidden.
+
+    En modo de desarrollo (API_KEY_REQUIRED=false) se omite la verificación.
+    """
+
+    async def _check_permission(
+        api_key: ApiKey = Depends(verify_api_key),
+        api_key_role_repo: ApiKeyRoleRepository = Depends(get_api_key_role_repo),
+        role_repo: RoleRepository = Depends(get_role_repo),
+    ) -> ApiKey:
+        if not settings.api_key_required:
+            return api_key
+
+        roles = await api_key_role_repo.get_roles_for_key(api_key.id)
+        for role in roles:
+            perms = await role_repo.get_permissions(role.id)
+            if permission in perms:
+                return api_key
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission '{permission}' required",
+        )
+
+    return _check_permission
 
 
 async def optional_api_key(

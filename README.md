@@ -147,6 +147,14 @@ for local development — leave `true` (default) in staging and production.
 | `/categories/{id}/rooms` | GET | Rooms of a category |
 | `/categories/availability` | GET | Availability per category and day, as OtelMS publishes it |
 | `/restrictions` | GET | Closed dates per category and rate, read live from the portal |
+| `/categories/availability-with-rates` | GET | Availability per category/day with channel rates |
+| `/housekeeping` | GET | Housekeeping plan (full, continuous, blocked, income) |
+| `/housekeeping/full-cleaning` | GET | Only full cleaning (checkouts today) |
+| `/housekeeping/stay-over` | GET | Only continuous cleaning (stay-overs) |
+| `/housekeeping/{room_id}` | PATCH | Update housekeeping status for a room/date |
+| `/housekeeping/reset` | POST | Reset all housekeeping statuses for a date |
+| `/rooms/available/enhanced` | GET | Available rooms with rates & housekeeping per date |
+| `/rooms/available-for-sale` | GET | Rooms available for sale with OTELMS rates |
 
 ### Category availability
 
@@ -166,6 +174,95 @@ the value is scraped from the calendar's summary row (`div.calendar_sum`) and
 stored in `category_availability`. It is filled by the calendar sync, not by the
 categories sync — the numbers arrive with the grid. Details in
 `docs/otelms_endpoints.md` §2.1.
+
+
+
+### Enhanced Room Availability (Tarifas y Housekeeping por habitación/fecha)
+
+`GET /rooms/available/enhanced?hotel_id=18330&check_in=2026-10-07&check_out=2026-10-12` returns available rooms with channel rates and housekeeping status per date:
+
+```json
+{
+  "hotel_id": "18330",
+  "check_in": "2026-10-07",
+  "check_out": "2026-10-12",
+  "total_rooms": 45,
+  "available_count": 18,
+  "occupied_count": 27,
+  "occupancy_rate": 60.0,
+  "by_category": [
+    {"category_id": "13", "category_name": "Matrimonial", "total": 20, "available": 8, "occupied": 12}
+  ],
+  "items": [
+    {
+      "id": "101",
+      "name": "101",
+      "category_id": "13",
+      "category_name": "Matrimonial",
+      "floor": 1,
+      "max_occupancy": 2,
+      "is_active": true,
+      "rates_per_date": [
+        {"date": "2026-10-07", "rates": [{"channel": "direct", "rate_id": "1", "price": 120.00, "currency": "USD", "min_stay": 1}]},
+        {"date": "2026-10-08", "rates": [{"channel": "direct", "rate_id": "1", "price": 120.00, "currency": "USD", "min_stay": 1}]}
+      ],
+      "housekeeping_per_date": [
+        {"date": "2026-10-07", "status": 0, "status_label": "pending"},
+        {"date": "2026-10-08", "status": 2, "status_label": "cleaned"}
+      ]
+    }
+  ],
+  "date_range": ["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11"]
+}
+```
+
+### Rooms Available for Sale (Habitaciones a la venta con tarifa OTELMS)
+
+`GET /rooms/available-for-sale?hotel_id=18330&date_from=2026-10-07&date_to=2026-10-14&channel=direct` returns rooms available for sale based on **OtelMS calendar availability** (not computed from reservations), with rates and housekeeping:
+
+```json
+{
+  "hotel_id": "18330",
+  "date_from": "2026-10-07",
+  "date_to": "2026-10-14",
+  "channel": "direct",
+  "only_cleaned": false,
+  "items": [
+    {
+      "date": "2026-10-07",
+      "category_id": "13",
+      "category_name": "Matrimonial",
+      "otelms_available": 8,
+      "rooms": [
+        {
+          "room_id": "101",
+          "room_name": "101",
+          "category_id": "13",
+          "category_name": "Matrimonial",
+          "rate": {
+            "category_id": "13",
+            "rate_id": "1",
+            "channel": "direct",
+            "date": "2026-10-07",
+            "price": 120.00,
+            "currency": "USD",
+            "min_stay": 1,
+            "id": "rate-uuid",
+            "hotel_id": "18330",
+            "created_at": "2026-10-01T00:00:00Z"
+          },
+          "status": "pending",
+          "blocked_reason": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Query params:**
+- `channel` — canal de venta (default: "direct")
+- `only_cleaned` — solo habitaciones con housekeeping status=cleaned (default: false)
 
 ### In-house
 
@@ -211,16 +308,62 @@ The write side (closing and opening dates) is `src/otelms/scraping/restrictions.
 and is not exposed over HTTP yet. Closing a day is three chained calls, not one
 PUT — see `docs/otelms_endpoints.md` §4.4.
 
+
+
+### Channel Rates (Tarifas por canal)
+
+`GET /categories/availability-with-rates?hotel_id=18330&date_from=2026-10-07&date_to=2026-10-14` returns availability per category/day with channel rates:
+
+```json
+{
+  "hotel_id": "18330",
+  "date_from": "2026-10-07",
+  "date_to": "2026-10-14",
+  "count": 14,
+  "items": [
+    {
+      "category_id": "13",
+      "category_name": "Matrimonial",
+      "date": "2026-10-07",
+      "available": 8,
+      "total_rooms": 12,
+      "rates": [
+        {
+          "channel": "direct",
+          "rate_id": "1",
+          "price": 120.00,
+          "currency": "USD",
+          "min_stay": 1
+        },
+        {
+          "channel": "booking",
+          "rate_id": "1",
+          "price": 135.00,
+          "currency": "USD",
+          "min_stay": 2
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Filters:** `category_id` (single category), `channel` (filter rates by channel).
+
+> **Note:** `channel_rates` table is populated manually or from an external channel manager — it is not scraped from OtelMS.
+
 ### Housekeeping (Limpieza)
 
-**Dos tipos de limpieza, criterio basado en la fecha consultada:**
+**Cuatro tipos de limpieza, criterio basado en la fecha consultada:**
 
 | Tipo | Criterio | Cuándo aplicar |
 |------|----------|----------------|
 | **Limpieza completa (full)** | `check_out == target_date` | El huésped se fue esta mañana → habitación libre, limpieza profunda |
-| **Limpieza continua (stay_over)** | `check_in <= target_date < check_out` | El huésped pernocta → habitación ocupada, limpieza ligera de mantenimiento |
+| **Limpieza continua (continuous)** | `check_in < target_date < check_out` | El huésped pernocta → habitación ocupada, limpieza ligera |
+| **Bloqueadas (blocked)** | Sin reserva activa para la fecha | Habitación libre pero bloqueada (mantenimiento, etc.) |
+| **Ingresos (income_generating)** | `check_in == target_date` | Llegada nueva hoy → habitación ocupada que generará ingresos |
 
-> **Importante:** El día de salida **no** cuenta como noche de pernocta. El huésped se va por la mañana, así que `check_out == target_date` va a "limpieza completa", no a "stay_over".
+> **Importante:** El día de salida **no** cuenta como noche de pernocta. El huésped se va por la mañana, así que `check_out == target_date` va a "limpieza completa", no a "continuous". Las habitaciones ya marcadas como limpias (status=2) **no aparecen** en el listado.
 
 **Endpoints:**
 
@@ -233,6 +376,14 @@ GET /housekeeping/full-cleaning?hotel_id=18330&target_date=2026-10-07
 
 # Solo limpieza continua (ocupadas que pernoctan)
 GET /housekeeping/stay-over?hotel_id=18330&target_date=2026-10-07
+
+# Cambiar estado de limpieza de una habitación (requiere permiso housekeeping:write)
+PATCH /housekeeping/{room_id}?hotel_id=18330&target_date=2026-10-07
+Content-Type: application/json
+{"status": 2, "updated_by": "maria.limpieza"}
+
+# Reiniciar todos los estados de limpieza de una fecha a pending (requiere housekeeping:write)
+POST /housekeeping/reset?hotel_id=18330&target_date=2026-10-07
 ```
 
 **Respuesta (`/housekeeping`):**
@@ -240,10 +391,7 @@ GET /housekeeping/stay-over?hotel_id=18330&target_date=2026-10-07
 {
   "hotel_id": "18330",
   "date": "2026-10-07",
-  "full_cleaning_count": 5,
-  "stay_over_cleaning_count": 12,
-  "total_rooms_to_clean": 17,
-  "items": [
+  "full_cleaning": [
     {
       "room_id": "107",
       "room_name": "107",
@@ -258,7 +406,9 @@ GET /housekeeping/stay-over?hotel_id=18330&target_date=2026-10-07
       "nights_remaining": 0,
       "cleaning_type": "full",
       "status": 4
-    },
+    }
+  ],
+  "continuous_cleaning": [
     {
       "room_id": "101",
       "room_name": "101",
@@ -271,10 +421,45 @@ GET /housekeeping/stay-over?hotel_id=18330&target_date=2026-10-07
       "adults": 2,
       "children": 1,
       "nights_remaining": 3,
-      "cleaning_type": "stay_over",
+      "cleaning_type": "continuous",
       "status": 2
     }
-  ]
+  ],
+  "blocked_rooms": [
+    {
+      "room_id": "205",
+      "room_name": "205",
+      "category_id": "15",
+      "category_name": "Suite",
+      "reservation_id": null,
+      "guest_name": null,
+      "check_in": null,
+      "check_out": null,
+      "adults": 0,
+      "children": 0,
+      "nights_remaining": 0,
+      "cleaning_type": "blocked",
+      "status": null
+    }
+  ],
+  "income_generating_rooms": [
+    {
+      "room_id": "102",
+      "room_name": "102",
+      "category_id": "13",
+      "category_name": "Matrimonial",
+      "reservation_id": "23358",
+      "guest_name": "New Guest",
+      "check_in": "2026-10-07T14:00:00Z",
+      "check_out": "2026-10-12T11:00:00Z",
+      "adults": 2,
+      "children": 0,
+      "nights_remaining": 5,
+      "cleaning_type": "income_generating",
+      "status": 1
+    }
+  ],
+  "total_rooms_to_clean": 17
 }
 ```
 
@@ -282,6 +467,8 @@ GET /housekeeping/stay-over?hotel_id=18330&target_date=2026-10-07
 - `/housekeeping` → Plan maestro para el equipo de housekeeping (recepción imprime y reparte)
 - `/housekeeping/full-cleaning` → Equipo de limpieza profunda (habitaciones que quedan libres)
 - `/housekeeping/stay-over` → Equipo de mantenimiento (habitaciones con huésped dentro)
+- `PATCH /housekeeping/{room_id}` → App móvil/tablet de housekeeping para marcar habitaciones como limpias
+- `POST /housekeeping/reset` → Recepción: reiniciar plan si hubo error o cambio de turno
 
 ### Check-in, check-out and moving a reservation
 
@@ -393,6 +580,40 @@ JWT_SECRET_KEY=your-jwt-secret-min-32-chars
 ```
 
 See `.env.example` for all 80+ options.
+
+
+
+### Roles & Permissions (RBAC)
+
+The API uses a role-based access control system. Each API Key can be assigned one or more roles, and each role has a set of permissions.
+
+**Default Permissions:**
+| Permission | Description |
+|------------|-------------|
+| `housekeeping:read` | Read housekeeping plans |
+| `housekeeping:write` | Update housekeeping status (PATCH/POST) |
+| `reservations:read` | Read reservations |
+| `reservations:write` | Create/update reservations |
+| `reports:read` | Read reports |
+| `reports:write` | Generate reports |
+| `admin:read` | Admin read access |
+| `admin:write` | Admin write access |
+| `scraping:manage` | Manage scraping jobs |
+| `settings:read` | Read settings |
+| `settings:write` | Modify settings |
+
+**Assigning roles to an API Key:**
+```sql
+-- Insert role
+INSERT INTO roles (id, name, description, permissions, is_active)
+VALUES ('role-1', 'housekeeper', 'Housekeeping staff', '["housekeeping:read", "housekeeping:write"]', true);
+
+-- Link API key to role
+INSERT INTO api_key_roles (id, api_key_id, role_id)
+VALUES ('akr-1', 'your-api-key-id', 'role-1');
+```
+
+Endpoints requiring specific permissions will return `403 Forbidden` if the API key lacks the required permission. In development mode (`API_KEY_REQUIRED=false`), permission checks are bypassed.
 
 ### Check-in / Check-out Configuration
 
@@ -542,8 +763,7 @@ tests/
 scraping_otelms_api/
 ├── .github/workflows/       # CI/CD
 ├── docker/                  # Docker files
-│   ├── Dockerfile.api       # API image
-│   ├── Dockerfile.worker    # Worker image (with Camoufox)
+│   ├── Dockerfile           # Unified multi-stage (targets: api, worker, beat)
 │   └── docker-compose.yml   # Full stack
 ├── migrations/              # Alembic migrations
 ├── scripts/                 # Utility scripts

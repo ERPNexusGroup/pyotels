@@ -8,11 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from otelms.api.dependencies import (
     get_availability_repo,
     get_category_repo,
+    get_channel_rate_repo,
     get_room_repo,
     verify_api_key,
 )
 from otelms.api.mappers import category_response, room_response
 from otelms.api.schemas import (
+    AvailabilityWithRatesItem,
+    AvailabilityWithRatesResponse,
     CategoryAvailabilityResponse,
     CategoryAvailabilityRow,
     CategoryResponse,
@@ -20,6 +23,7 @@ from otelms.api.schemas import (
 )
 from otelms.domain.repositories import (
     CategoryAvailabilityRepository,
+    ChannelRateRepository,
     CategoryRepository,
     RoomRepository,
 )
@@ -99,6 +103,79 @@ async def list_category_availability(
     ]
 
     return CategoryAvailabilityResponse(
+        hotel_id=hotel_id,
+        date_from=date_from,
+        date_to=end,
+        count=len(items),
+        items=items,
+    )
+
+
+@router.get("/availability-with-rates", response_model=AvailabilityWithRatesResponse)
+async def list_availability_with_rates(
+    hotel_id: str = Query(..., description="Hotel ID"),
+    date_from: date = Query(
+        default_factory=date.today, description="Primer día (YYYY-MM-DD)"
+    ),
+    date_to: date = Query(
+        None, description="Último día (default: date_from + 45, la ventana del calendario)"
+    ),
+    category_id: str | None = Query(
+        None, description="Filtra a una sola categoría"
+    ),
+    channel: str | None = Query(
+        None, description="Filtra tarifas por canal (direct, ota, booking...)"
+    ),
+    availability_repo: CategoryAvailabilityRepository = Depends(get_availability_repo),
+    cat_repo: CategoryRepository = Depends(get_category_repo),
+    rate_repo: ChannelRateRepository = Depends(get_channel_rate_repo),
+) -> AvailabilityWithRatesResponse:
+    """Disponibilidad por categoría y día con tarifas por canal (Issue 2).
+
+    Combina la disponibilidad de OtelMS (filas del calendario) con las tarifas
+    registradas en `channel_rates` para cada categoría y fecha.
+    """
+    end = date_to or (date_from + timedelta(days=DEFAULT_AVAILABILITY_DAYS))
+    if end < date_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date_to debe ser posterior o igual a date_from",
+        )
+
+    rows = await availability_repo.get_range(
+        hotel_id, date_from, end, category_id=category_id
+    )
+
+    categories = await cat_repo.get_with_rooms(hotel_id)
+    names = {c.id: c.name for c in categories}
+    totals = {c.id: len(c.rooms) for c in categories}
+
+    # Obtener tarifas de canal para todas las categorías consultadas
+    cat_ids = sorted({r.category_id for r in rows})
+    rates_by_cat: dict[str, dict[date, list[dict]]] = {}
+    for cid in cat_ids:
+        rate_rows = await rate_repo.get_for_availability(hotel_id, cid, date_from, end)
+        grouped: dict[date, list[dict]] = {}
+        for rr in rate_rows:
+            d = rr["date"]
+            if channel and rr["channel"] != channel:
+                continue
+            grouped.setdefault(d, []).append(rr)
+        rates_by_cat[cid] = grouped
+
+    items = [
+        AvailabilityWithRatesItem(
+            category_id=row.category_id,
+            category_name=names.get(row.category_id),
+            date=row.date,
+            available=row.available,
+            total_rooms=totals.get(row.category_id),
+            rates=rates_by_cat.get(row.category_id, {}).get(row.date, []),
+        )
+        for row in rows
+    ]
+
+    return AvailabilityWithRatesResponse(
         hotel_id=hotel_id,
         date_from=date_from,
         date_to=end,

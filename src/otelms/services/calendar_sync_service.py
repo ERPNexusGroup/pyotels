@@ -170,10 +170,17 @@ class CalendarSyncService:
         sync_hash = hashlib.sha256(json.dumps(res, sort_keys=True, default=str).encode()).hexdigest()[:64]
         existing = self.db.get(Reservation, str(res["resid"]))
 
-        # Resolve room_id from room_number if available
+        # Priority: calendar room_id (from td.calendar_td) > folio room_number
         room_id = "room_default"
+        cal_room_id = res.get("room_id")
         room_number = res.get("room_number")
-        if room_number:
+
+        if cal_room_id:
+            # Calendar room_id is the internal room ID from the td cell
+            room = self.db.get(Room, str(cal_room_id))
+            if room and room.hotel_id == self.hotel_id:
+                room_id = str(cal_room_id)
+        if room_id == "room_default" and room_number:
             room = self.db.execute(
                 select(Room).where(Room.name == room_number, Room.hotel_id == self.hotel_id)
             ).scalar_one_or_none()
@@ -191,6 +198,9 @@ class CalendarSyncService:
                 room_id=room_id,
             )
             self.db.add(existing)
+
+        # Actualizar room_id tanto para nuevas como para existentes reservas
+        existing.room_id = room_id
 
         # check_in/check_out ya vienen parseados como datetime de extract_reservations_from_calendar.
         # _as_datetime cubre el caso datetime; _parse_date el string. El plugin de
@@ -292,29 +302,37 @@ class CalendarSyncService:
         OtelMS usa room CATEGORIES (Matrimonial, Triple) no room numbers.
         El room_number (ej: '201') se extrae del folio tooltip.
         Se persiste en `rooms` con name=room_number.
+
+        Primero busca por name+hotel_id; si existe, actualiza ese mismo registro
+        en vez de crear uno nuevo con id `room_{number}` (que generaría duplicados).
         """
         if not room_number:
             return
 
-        room_id = f"room_{room_number}"
-        existing = self.db.get(Room, room_id)
+        existing = self.db.execute(
+            select(Room).where(
+                Room.name == room_number,
+                Room.hotel_id == self.hotel_id,
+            )
+        ).scalar_one_or_none()
 
         if existing:
-            if existing.name == room_number:
-                return
-            existing.name = room_number
             if room_type:
-                existing.category_id = room_type.lower().replace(" ", "_")
-        else:
-            room = Room(
-                id=room_id,
-                hotel_id=self.hotel_id,
-                category_id=room_type.lower().replace(" ", "_") if room_type else None,
-                name=room_number,
-                max_occupancy=2,
-                is_active=True,
-            )
-            self.db.add(room)
+                cat_id = room_type.lower().replace(" ", "_")
+                if existing.category_id != cat_id:
+                    existing.category_id = cat_id
+            return
+
+        room_id = room_number
+        room = Room(
+            id=room_id,
+            hotel_id=self.hotel_id,
+            category_id=room_type.lower().replace(" ", "_") if room_type else None,
+            name=room_number,
+            max_occupancy=2,
+            is_active=True,
+        )
+        self.db.add(room)
 
     @staticmethod
     def get_db_session(db_url: str) -> Session:

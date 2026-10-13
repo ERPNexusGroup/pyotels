@@ -90,23 +90,6 @@ async def update_hotel(
     return HotelResponse.model_validate(hotel)
 
 
-@router.delete("/{hotel_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_hotel(
-    hotel_id: str,
-    hotel_repo: HotelRepository = Depends(get_hotel_repo),
-) -> None:
-    """Elimina un hotel (soft delete - marca inactivo)."""
-    hotel = await hotel_repo.get_by_id(hotel_id)
-    if not hotel:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Hotel {hotel_id} not found",
-        )
-
-    hotel.is_active = False
-    await hotel_repo.session.flush()
-
-
 @router.post("/{hotel_id}/rotate-password", response_model=dict)
 async def rotate_hotel_password(
     hotel_id: str,

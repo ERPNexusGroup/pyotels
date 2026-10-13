@@ -16,6 +16,8 @@ from otelms.api.mappers import reservation_response, room_response
 from otelms.api.schemas import (
     InHouseItem,
     InHouseResponse,
+    PendingChargesItem,
+    PendingChargesResponse,
     PaginationParams,
     ReservationFilterParams,
     ReservationListResponse,
@@ -120,6 +122,40 @@ async def get_in_house(
         date=target_date,
         in_house_count=len(items),
         occupied_rooms=len({r.room_id for r in reservations if r.room_id}),
+        items=items,
+    )
+
+
+@router.get("/pending-charges", response_model=PendingChargesResponse)
+async def get_pending_charges(
+    hotel_id: str = Query(..., description="Hotel ID"),
+    only_pending: bool = Query(True, description="Solo reservas con saldo != 0"),
+    limit: int = Query(100, ge=1, le=500, description="Máximo resultados"),
+    offset: int = Query(0, ge=0, description="Offset para paginación"),
+    res_repo: ReservationRepository = Depends(get_reservation_repo),
+) -> PendingChargesResponse:
+    """Saldo pendiente por reserva.
+
+    Calcula `sum(services.total) - sum(payments.amount)` para cada reserva
+    del hotel. Las reservas con saldo 0 (ya pagadas) se omiten salvo
+    `only_pending=false`.
+
+    Los servicios incluyen room_charges, room_price y cargos del folio,
+    que el sync persiste como Services con `total` != 0.
+    """
+    items = await res_repo.get_pending_charges(
+        hotel_id=hotel_id,
+        only_pending=only_pending,
+        limit=limit,
+        offset=offset,
+    )
+
+    total_pending = round(sum(item["pending"] for item in items), 2)
+
+    return PendingChargesResponse(
+        hotel_id=hotel_id,
+        count=len(items),
+        total_pending=total_pending,
         items=items,
     )
 

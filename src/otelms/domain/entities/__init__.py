@@ -3,6 +3,7 @@ Modelos de base de datos (SQLAlchemy 2.x) - Persistencia.
 """
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from enum import Enum
 from typing import Optional
 
 from sqlalchemy import (
@@ -143,6 +144,38 @@ class Room(Base):
         Index("ix_rooms_category_id", "category_id"),
         Index("ix_rooms_is_active", "is_active"),
         UniqueConstraint("hotel_id", "id", name="uq_room_hotel_id"),
+    )
+
+
+class ChannelRate(Base):
+    """Tarifa por canal (OTA / directo) para una categoría y fecha.
+
+    OtelMS publica tarifas distintas según el canal de venta: el folio
+    muestra el precio de la reserva, pero no hay una vista separada por
+    canal. Esta tabla permite registrar tarifas manuales o provenientes
+    de un channel manager externo, indexadas por (hotel, category, rate,
+    channel, date).
+    """
+
+    __tablename__ = "channel_rates"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    category_id: Mapped[str] = mapped_column(String(64), ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    rate_id: Mapped[str] = mapped_column(String(16), default="1", nullable=False)  # 1=Standard, 2=Feriados
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)  # direct, ota, booking, expedia...
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
+    min_stay: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_channel_rates_hotel_category", "hotel_id", "category_id"),
+        Index("ix_channel_rates_date", "date"),
+        Index("ix_channel_rates_channel", "channel"),
+        UniqueConstraint("hotel_id", "category_id", "rate_id", "channel", "date", name="uq_channel_rate"),
     )
 
 
@@ -382,4 +415,95 @@ class RoomAvailability(Base):
         Index("ix_room_availability_room_id", "room_id"),
         Index("ix_room_availability_dates", "start_date", "end_date"),
         Index("ix_room_availability_is_blocked", "is_blocked"),
+    )
+
+
+# ============================================================
+# Roles y permisos (para control de acceso a endpoints)
+# ============================================================
+
+class Permission(str, Enum):
+    """Permisos del sistema. Cada endpoint puede requerir uno o más."""
+    HOUSEKEEPING_READ = "housekeeping:read"
+    HOUSEKEEPING_WRITE = "housekeeping:write"
+    RESERVATIONS_READ = "reservations:read"
+    RESERVATIONS_WRITE = "reservations:write"
+    REPORTS_READ = "reports:read"
+    REPORTS_WRITE = "reports:write"
+    ADMIN_READ = "admin:read"
+    ADMIN_WRITE = "admin:write"
+    SCRAPING_MANAGE = "scraping:manage"
+    SETTINGS_READ = "settings:read"
+    SETTINGS_WRITE = "settings:write"
+
+
+class Role(Base):
+    """Rol de usuario con conjunto de permisos."""
+
+    __tablename__ = "roles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    permissions: Mapped[list[str]] = mapped_column(
+        Text, nullable=False, default="[]"
+    )  # JSON array de Permission values
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_roles_name", "name"),
+        Index("ix_roles_is_active", "is_active"),
+    )
+
+
+class ApiKeyRole(Base):
+    """Relación many-to-many entre API keys y roles."""
+
+    __tablename__ = "api_key_roles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    api_key_id: Mapped[str] = mapped_column(String(64), ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=False)
+    role_id: Mapped[str] = mapped_column(String(64), ForeignKey("roles.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("api_key_id", "role_id", name="uq_api_key_role"),
+        Index("ix_api_key_roles_api_key_id", "api_key_id"),
+        Index("ix_api_key_roles_role_id", "role_id"),
+    )
+
+
+# ============================================================
+# Housekeeping status (seguimiento de limpieza por habitación/fecha)
+# ============================================================
+
+class HousekeepingStatus(Base):
+    """Estado de limpieza de una habitación para una fecha concreta.
+
+    Estados:
+    - 0 = pending (pendiente)
+    - 1 = in_progress (en proceso)
+    - 2 = cleaned (limpia)
+
+    Una vez marcada como limpia (status=2), la habitación no vuelve a aparecer
+    en el listado de pendientes del endpoint GET /housekeeping para esa fecha.
+    """
+
+    __tablename__ = "housekeeping_status"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    room_id: Mapped[str] = mapped_column(String(64), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0=pending, 1=in_progress, 2=cleaned
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)  # quién cambió el estado
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("hotel_id", "room_id", "date", name="uq_housekeeping_status_room_date"),
+        Index("ix_housekeeping_status_hotel_date", "hotel_id", "date"),
+        Index("ix_housekeeping_status_room_id", "room_id"),
+        Index("ix_housekeeping_status_status", "status"),
     )

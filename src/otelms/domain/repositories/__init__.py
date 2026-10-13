@@ -3,6 +3,7 @@ Repositorio de Hotel.
 """
 import hashlib
 import json
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -13,12 +14,18 @@ from sqlalchemy.orm import selectinload
 
 from otelms.domain.entities import (
     ApiKey,
+    ApiKeyRole,
     Category,
+    ChannelRate,
     Guest,
     Hotel,
+    HousekeepingStatus,
     Payment,
+    Permission,
     Reservation,
+    Role,
     Room,
+    RoomAvailability,
     Service,
     SyncLog,
 )
@@ -29,12 +36,18 @@ from otelms.domain.repositories.category_availability import (
 
 __all__ = [
     "ApiKeyRepository",
+    "ApiKeyRoleRepository",
     "CategoryAvailabilityRepository",
     "CategoryRepository",
+    "ChannelRateRepository",
     "GuestRepository",
+    "HousekeepingStatusRepository",
     "HotelRepository",
     "PaymentRepository",
+    "Permission",
     "ReservationRepository",
+    "RoleRepository",
+    "RoomAvailabilityRepository",
     "RoomRepository",
     "ServiceRepository",
     "SyncLogRepository",
@@ -548,6 +561,98 @@ class ReservationRepository(BaseRepository):
         """Obtiene check-outs de hoy (atajo de get_checkouts_for_date)."""
         return await self.get_checkouts_for_date(hotel_id)
 
+    async def get_pending_charges(
+        self,
+        hotel_id: str,
+        *,
+        only_pending: bool = True,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Calcula saldos pendientes por reserva.
+
+        Fórmula: sum(services.total) - sum(payments.amount).
+        Retorna una lista de dicts con reservation_id, total_charges,
+        total_paid, pending, guest_name, room_id, check_in, check_out, nights.
+
+        Si `only_pending=True`, filtra reservas con pending != 0.
+        """
+        from sqlalchemy import func as _func
+
+        stmt = (
+            select(
+                Reservation.id.label("reservation_id"),
+                Guest.first_name.label("first_name"),
+                Guest.last_name.label("last_name"),
+                Room.id.label("room_id"),
+                Room.name.label("room_name"),
+                Reservation.check_in,
+                Reservation.check_out,
+                Reservation.status,
+                _func.coalesce(_func.sum(Service.total), 0).label("total_charges"),
+                _func.coalesce(_func.sum(Payment.amount), 0).label("total_paid"),
+            )
+            .outerjoin(Service, Service.reservation_id == Reservation.id)
+            .outerjoin(Payment, Payment.reservation_id == Reservation.id)
+            .outerjoin(Guest, Guest.id == Reservation.guest_id)
+            .outerjoin(Room, Room.id == Reservation.room_id)
+            .where(Reservation.hotel_id == hotel_id)
+            .group_by(
+                Reservation.id,
+                Guest.first_name,
+                Guest.last_name,
+                Room.id,
+                Room.name,
+                Reservation.check_in,
+                Reservation.check_out,
+                Reservation.status,
+            )
+        )
+
+        if only_pending:
+            stmt = stmt.having(
+                _func.coalesce(_func.sum(Service.total), 0)
+                != _func.coalesce(_func.sum(Payment.amount), 0)
+            )
+
+        stmt = stmt.order_by(_func.abs(
+            _func.coalesce(_func.sum(Service.total), 0)
+            - _func.coalesce(_func.sum(Payment.amount), 0)
+        ).desc()).limit(limit).offset(offset)
+
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        items = []
+        for row in rows:
+            check_in = row.check_in
+            check_out = row.check_out
+            nights = max((check_out.date() - check_in.date()).days, 0) if check_in and check_out else 0
+            total_charges = float(row.total_charges or 0)
+            total_paid = float(row.total_paid or 0)
+            pending = round(total_charges - total_paid, 2)
+
+            first = (row.first_name or "").strip()
+            last = (row.last_name or "").strip()
+            guest_name = " ".join(p for p in (first, last) if p) or None
+
+            items.append({
+                "reservation_id": row.reservation_id,
+                "guest_name": guest_name,
+                "room_id": row.room_id,
+                "room_name": row.room_name,
+                "check_in": check_in,
+                "check_out": check_out,
+                "nights": nights,
+                "total_charges": total_charges,
+                "total_paid": total_paid,
+                "pending": pending,
+                "currency": "USD",
+                "status": row.status,
+            })
+
+        return items
+
     async def upsert_from_scraper(self, hotel_id: str, data: dict) -> tuple:
         """
         Upsert desde datos del scraper.
@@ -759,3 +864,12 @@ class ApiKeyRepository(BaseRepository):
             .values(last_used_at=datetime.now(UTC))
         )
         await self.session.execute(stmt)
+
+
+from otelms.domain.repositories.rh_repos import (
+    ApiKeyRoleRepository,
+    HousekeepingStatusRepository,
+    RoleRepository,
+    RoomAvailabilityRepository,
+)
+from otelms.domain.repositories.channel_rate_repos import ChannelRateRepository

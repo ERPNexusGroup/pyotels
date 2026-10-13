@@ -239,6 +239,57 @@ class OccupiedRoomItem(BaseModel):
     nights_remaining: int = Field(0, description="Noches restantes desde la fecha consultada")
 
 
+# ============================================================
+# ROOM AVAILABILITY ENHANCED (con tarifas y housekeeping)
+# ============================================================
+class ChannelRatePerDate(BaseModel):
+    """Tarifa de un canal para una fecha específica."""
+    channel: str = Field(..., description="Canal de venta: direct, ota, booking, expedia...")
+    rate_id: str = Field(..., description="1 = Standard, 2 = Feriados")
+    price: Decimal
+    currency: str = "USD"
+    min_stay: int | None = None
+
+
+class RoomRatePerDate(BaseModel):
+    """Tarifas de una habitación (por categoría) para una fecha."""
+    date: date
+    rates: list[ChannelRatePerDate] = []
+
+
+class RoomHousekeepingPerDate(BaseModel):
+    """Estado de housekeeping de una habitación para una fecha."""
+    date: date
+    status: int = Field(..., description="0=pending, 1=in_progress, 2=cleaned")
+    status_label: str = Field(..., description="Etiqueta del estado")
+
+
+class AvailableRoomEnhanced(RoomResponse):
+    """Habitación disponible con tarifas y housekeeping por fecha."""
+    rates_per_date: list[RoomRatePerDate] = Field(
+        default_factory=list,
+        description="Tarifas por canal para cada fecha del rango"
+    )
+    housekeeping_per_date: list[RoomHousekeepingPerDate] = Field(
+        default_factory=list,
+        description="Estado de limpieza para cada fecha del rango"
+    )
+
+
+class AvailableRoomsEnhancedResponse(BaseModel):
+    """Respuesta extendida con tarifas y housekeeping por habitación/fecha."""
+    hotel_id: str
+    check_in: date
+    check_out: date
+    total_rooms: int
+    available_count: int
+    occupied_count: int
+    occupancy_rate: float
+    by_category: list[CategoryAvailability] = []
+    items: list[AvailableRoomEnhanced] = []
+    date_range: list[date] = Field(default_factory=list, description="Fechas en el rango (check_in a check_out - 1)")
+
+
 class OccupiedRoomsResponse(BaseModel):
     hotel_id: str
     date: date
@@ -323,6 +374,85 @@ class RestrictionResponse(BaseModel):
 
 
 # ============================================================
+# CHANNEL RATES (Issue 2)
+# ============================================================
+class ChannelRateBase(BaseModel):
+    category_id: str
+    rate_id: str = Field("1", description="1 = Standard, 2 = Feriados")
+    channel: str = Field(..., description="Canal de venta: direct, ota, booking, expedia...")
+    date: date
+    price: Decimal
+    currency: str = "USD"
+    min_stay: int | None = None
+
+
+class ChannelRateResponse(ChannelRateBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    hotel_id: str
+    created_at: datetime
+
+
+class ChannelRateListResponse(BaseModel):
+    hotel_id: str
+    count: int
+    items: list[ChannelRateResponse] = []
+
+
+class AvailabilityWithRatesItem(BaseModel):
+    """Disponibilidad de una categoría con sus tarifas por canal."""
+    category_id: str
+    category_name: str | None = None
+    date: date
+    available: int = Field(..., description="Habitaciones disponibles según OtelMS")
+    total_rooms: int | None = None
+    rates: list[ChannelRateResponse] = []
+
+
+class AvailabilityWithRatesResponse(BaseModel):
+    """Disponibilidad con tarifas por canal (Issue 2)."""
+    hotel_id: str
+    date_from: date
+    date_to: date
+    count: int
+    items: list[AvailabilityWithRatesItem] = []
+
+
+# ============================================================
+# ROOMS AVAILABLE FOR SALE (habitaciones a la venta con tarifa OTELMS)
+# ============================================================
+class RoomForSaleItem(BaseModel):
+    """Habitación disponible para vender con su tarifa programada."""
+    room_id: str
+    room_name: str
+    category_id: str
+    category_name: str
+    rate: ChannelRateResponse | None = None
+    status: str = Field(..., description="Estado housekeeping: cleaned, dirty, pending")
+    blocked_reason: str | None = None
+
+
+class AvailableForSaleByDate(BaseModel):
+    """Disponibilidad por fecha para una categoría."""
+    date: date
+    category_id: str
+    category_name: str
+    otelms_available: int = Field(..., description="Habitaciones disponibles según OtelMS (calendar_sum)")
+    rooms: list[RoomForSaleItem] = []
+
+
+class RoomsAvailableForSaleResponse(BaseModel):
+    """Habitaciones disponibles para vender con tarifa (basado en disponibilidad OTELMS)."""
+    hotel_id: str
+    date_from: date
+    date_to: date
+    channel: str
+    only_cleaned: bool
+    items: list[AvailableForSaleByDate] = []
+
+
+# ============================================================
 # IN-HOUSE (huéspedes dentro del hotel)
 # ============================================================
 class InHouseItem(BaseModel):
@@ -367,6 +497,8 @@ class HousekeepingItem(BaseModel):
     `cleaning_type` indica el tipo de limpieza requerida:
     - "full" (limpieza completa): habitación con check-out hoy (huésped se fue)
     - "stay_over" (limpieza continua): habitación ocupada que continúa la reserva
+    - "blocked" (bloqueada): habitación sin reserva activa para la fecha
+    - "income_generating" (ingresos): habitación con reserva futura que generará ingresos
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -381,17 +513,81 @@ class HousekeepingItem(BaseModel):
     adults: int = 1
     children: int = 0
     nights_remaining: int = Field(..., description="Noches restantes desde la fecha consultada")
-    cleaning_type: str = Field(..., description="full=limpieza completa (checkout), stay_over=limpieza continua (pernocta)")
-    status: int | None = Field(None, description="Estado en OtelMS: 1 Reservación, 2 Check in, 3 Check out")
+    cleaning_type: str = Field(..., description="full=limpieza completa (checkout), stay_over=limpieza continua (pernocta), blocked=bloqueada, income=ingresos")
+    status: int = Field(..., description="Estado en OtelMS: 1 Reservación, 2 Check in, 3 Check out")
 
 
 class HousekeepingResponse(BaseModel):
     hotel_id: str
     date: date
-    full_cleaning_count: int = Field(..., description="Habitaciones con checkout hoy (limpieza completa)")
-    stay_over_cleaning_count: int = Field(..., description="Habitaciones que pernoctan (limpieza continua)")
-    total_rooms_to_clean: int
-    items: list[HousekeepingItem] = []
+    full_cleaning: list[HousekeepingItem] = Field(..., description="Habitaciones con checkout hoy (limpieza completa)")
+    continuous_cleaning: list[HousekeepingItem] = Field(..., description="Habitaciones que pernoctan (limpieza continua)")
+    blocked_rooms: list[HousekeepingItem] = Field(..., description="Habitaciones bloqueadas (sin reserva activa)")
+    income_generating_rooms: list[HousekeepingItem] = Field(..., description="Habitaciones con reserva futura (generarán ingresos)")
+    total_rooms_to_clean: int = Field(..., description="Suma de full_cleaning + continuous_cleaning")
+
+
+# ============================================================
+# HOUSEKEEPING STATUS UPDATE (Issue 3)
+# ============================================================
+
+class HousekeepingStatusUpdate(BaseModel):
+    """Solicitud para actualizar el estado de limpieza de una habitación."""
+    status: int = Field(..., description="0=pending, 1=in_progress, 2=cleaned")
+    updated_by: str | None = Field(None, max_length=255, description="Quién realiza el cambio")
+
+
+class HousekeepingStatusResponse(BaseModel):
+    """Respuesta al cambiar el estado de limpieza."""
+    model_config = ConfigDict(from_attributes=True)
+
+    room_id: str
+    room_name: str | None = None
+    date: date
+    status: int
+    status_label: str
+    updated_by: str | None = None
+    updated_at: datetime
+
+
+class HousekeepingResetResponse(BaseModel):
+    """Respuesta al reiniciar estados de limpieza de una fecha."""
+    date: date
+    reset_count: int
+    message: str
+
+
+# ============================================================
+# PENDING CHARGES (Issue 1)
+# ============================================================
+class PendingChargesItem(BaseModel):
+    """Una reserva con saldos pendientes.
+
+    `pending` = total de servicios (room_charges + room_price + folio)
+    menos total pagado. Puede ser negativo si el huésped pagó de más.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    reservation_id: str
+    guest_name: str | None = None
+    room_id: str | None = None
+    room_name: str | None = None
+    check_in: datetime
+    check_out: datetime
+    nights: int = Field(..., description="Noches de la estancia")
+    total_charges: Decimal = Field(..., description="Suma de todos los servicios (room + cargos)")
+    total_paid: Decimal = Field(..., description="Suma de todos los pagos")
+    pending: Decimal = Field(..., description="Saldo pendiente = total_charges - total_paid")
+    currency: str = "USD"
+    status: int | None = None
+
+
+class PendingChargesResponse(BaseModel):
+    """Lista de reservas con saldos pendientes."""
+    hotel_id: str
+    count: int = Field(..., description="Reservas con pending != 0")
+    total_pending: Decimal = Field(..., description="Suma de todos los pendientes")
+    items: list[PendingChargesItem] = []
 
 
 # Forward references

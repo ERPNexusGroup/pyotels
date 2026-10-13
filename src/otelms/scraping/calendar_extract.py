@@ -62,6 +62,9 @@ def _parse_date(date_str: str) -> datetime | None:
 def extract_reservations_from_calendar(html_content: str) -> list[dict]:
     """Extrae todos los elementos con atributo `resid` (calendar_item)
     y parsea el `data-title` (tooltip con detalles de la reserva).
+
+    Incluye room_id del td calendario contenedor para asignar la reserva
+    a la habitación correcta (el folio a veces da un número distinto).
     """
     soup = BeautifulSoup(html_content, "html.parser")
     res_items = soup.find_all(attrs={"resid": True})
@@ -72,6 +75,12 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
         status = _attr(item, "status") or "0"
         data_title = _attr(item, "data-title")
         fields = parse_tooltip(data_title) if data_title else {}
+
+        # Buscar room_id en el td calendario contenedor (ancestros)
+        room_id = ""
+        parent_td = item.find_parent("td", class_="calendar_td")
+        if parent_td:
+            room_id = _attr(parent_td, "room_id")
 
         reservations.append({
             "resid": int(resid) if resid else 0,
@@ -91,6 +100,7 @@ def extract_reservations_from_calendar(html_content: str) -> list[dict]:
             "email": fields.get("email", ""),
             "user": fields.get("usuario", ""),
             "comments": fields.get("comentarios", ""),
+            "room_id": room_id,
         })
 
     return reservations

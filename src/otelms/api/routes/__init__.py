@@ -1,4 +1,5 @@
 """API Routes package."""
 from otelms.api.routes import admin, categories, guests, health, hotels, reservations, rooms, websockets
+from otelms.api.routes import housekeeping
 
-__all__ = ["admin", "health", "hotels", "reservations", "guests", "categories", "rooms", "websockets"]
+__all__ = ["admin", "health", "hotels", "reservations", "guests", "categories", "rooms", "websockets", "housekeeping"]

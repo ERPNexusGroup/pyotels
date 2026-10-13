@@ -1,5 +1,6 @@
 # Docker Compose para desarrollo y producción
 # Uso: docker compose -f docker/docker-compose.yml up -d
+name: otelms-api-scrapper
 
 services:
   # ============================================================
@@ -16,7 +17,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db:/docker-entrypoint-initdb.d:ro
     ports:
-      - "${OTELMS_PG_PORT:-5433}:5432"
+      - "${OTELMS_PG_PORT:-5434}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U otelms -d otelms"]
       interval: 10s
@@ -73,10 +74,8 @@ services:
       - LOG_FORMAT=json
       - METRICS_ENABLED=true
     ports:
-      - "8002:8000"
+      - "8003:8000"
       - "9091:9090"  # Prometheus metrics
-    volumes:
-      - ../src:/app/src:ro  # Hot reload: changes in src/ reflect instantly
     depends_on:
       postgres:
         condition: service_healthy

@@ -137,18 +137,48 @@ def _category_name_map(soup: BeautifulSoup) -> dict[str, str]:
     return mapping
 
 
+def _sidebar_room_map(soup: BeautifulSoup) -> dict[str, list[str]]:
+    """Mapea category_id -> [room_number, ...] usando el sidebar.
+
+    El sidebar del calendario tiene los números reales de habitación
+    (ej: '102', '201', '402') en divs `calendar_num_room` con clase
+    `btn_close_box{cat_id}`, en orden dentro de cada bloque de categoría.
+    Estos números reales se mapean 1:1 por posición con los room_id
+    internos de la tabla (ej: '103', '104', '105').
+    """
+    room_map: dict[str, list[str]] = {}
+    current_cat: str | None = None
+    for div in soup.find_all("div", class_=lambda c: c and "calendar_num_room" in c if c else False):
+        classes = div.get("class", [])
+        cat_id = None
+        for c in classes:
+            if c.startswith(ROW_BOX_PREFIX):
+                cat_id = c[len(ROW_BOX_PREFIX):]
+                break
+        if cat_id:
+            current_cat = cat_id
+            if current_cat not in room_map:
+                room_map[current_cat] = []
+        if current_cat:
+            text = div.get_text(strip=True)
+            if text:
+                room_map[current_cat].append(text)
+    return room_map
+
+
 def parse_categories_v2(html: str) -> list[dict[str, Any]]:
     """Categorías + habitaciones del markup actual.
 
     Retorna [{id, name, rooms: [{id, name, category_id}]}] compatible con
     CategoryRepository.upsert_with_rooms / RoomRepository.upsert.
-    Room id/name = número de habitación (room_id del markup).
+    Room id/name = número de habitación real del sidebar (ej: '102', '201').
     """
     soup = BeautifulSoup(html, "lxml")
     table = soup.find("table", class_=TABLE_CLASS)
     if not table:
         return []
     names = _category_name_map(soup)
+    sidebar_rooms = _sidebar_room_map(soup)
 
     categories: list[dict[str, Any]] = []
     by_cat: dict[str, dict[str, Any]] = {}
@@ -172,10 +202,14 @@ def parse_categories_v2(html: str) -> list[dict[str, Any]]:
             if not room_id or room_id == "0" or not cat_id:
                 continue
             entry = by_cat.setdefault(cat_id, {"id": cat_id, "name": "", "rooms": []})
-            if str(room_id) not in {r["id"] for r in entry["rooms"]}:
-                entry["rooms"].append({
+            if str(room_id) not in {r["id"] for r in entry["rooms"]}:  # type: ignore[union-attr]
+                # Usar el número real del sidebar si está disponible
+                sidebar_list = sidebar_rooms.get(cat_id, [])
+                idx = len(entry["rooms"])  # type: ignore[union-attr]
+                real_name = sidebar_list[idx] if idx < len(sidebar_list) else str(room_id)
+                entry["rooms"].append({  # type: ignore[union-attr]
                     "id": str(room_id),
-                    "name": str(room_id),
+                    "name": real_name,
                     "category_id": cat_id,
                 })
     for cat_id, entry in by_cat.items():
@@ -202,6 +236,14 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
         for cat in categories
         for room in cat["rooms"]
     }
+    # Mapeo room_id -> número real de habitación (del sidebar)
+    sidebar_rooms = _sidebar_room_map(soup)
+    room_name_map: dict[str, str] = {}
+    for cat_id, room_list in sidebar_rooms.items():
+        cat_rooms = [r for rooms in [c["rooms"] for c in categories if c["id"] == cat_id] for r in rooms]
+        for i, room in enumerate(cat_rooms):
+            if i < len(room_list):
+                room_name_map[room["id"]] = room_list[i]
 
     table = soup.find("table", class_=TABLE_CLASS)
     cells: list[dict[str, Any]] = []
@@ -243,9 +285,10 @@ def parse_grid_v2(html: str) -> dict[str, Any]:
                 status = 1
             check_in = fields.get("llegada", iso_date)
             check_out = fields.get("salida", iso_date)
+            real_room_name = room_name_map.get(str(raw_room), str(raw_room))
             cells.append({
                 "room_id": str(raw_room),
-                "room_name": str(raw_room),
+                "room_name": real_room_name,
                 "category_id": cat_info["id"],
                 "category_name": cat_info["name"],
                 "date": check_in,
