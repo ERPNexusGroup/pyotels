@@ -47,17 +47,15 @@ class TestHealthEndpoints:
         # database check should be present (may be false in test env)
         assert "database" in data["checks"]
 
-    def test_readiness_check(self):
-        """Test GET /health/ready."""
-        response = client.get("/health/ready")
+    def test_health_ready_and_alive(self):
+        """Test GET /health includes ready and alive checks."""
+        response = client.get("/health")
         assert response.status_code == 200
-        assert response.json()["ready"] is True
-
-    def test_liveness_check(self):
-        """Test GET /health/live."""
-        response = client.get("/health/live")
-        assert response.status_code == 200
-        assert response.json()["alive"] is True
+        data = response.json()
+        checks = data["checks"]
+        assert "alive" in checks
+        assert checks["alive"] is True
+        assert "ready" in checks
 
 
 class TestHotelEndpoints:

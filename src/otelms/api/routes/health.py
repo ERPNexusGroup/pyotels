@@ -17,10 +17,14 @@ logger = get_logger(__name__)
 
 @router.get("", response_model=HealthResponse)
 async def health_check(session: AsyncSession = Depends(get_db)) -> HealthResponse:
-    """Health check endpoint - verifica BD y servicios."""
+    """Health check endpoint - verifica BD, caché, readiness y liveness."""
+
     checks = {}
 
-    # Check database
+    # Liveness - si llegamos hasta aquí el servicio está vivo
+    checks["alive"] = True
+
+    # Readiness - base de datos
     try:
         await session.execute(text("SELECT 1"))
         checks["database"] = True
@@ -28,7 +32,7 @@ async def health_check(session: AsyncSession = Depends(get_db)) -> HealthRespons
         logger.error("Database health check failed", error=str(e))
         checks["database"] = False
 
-    # Check Redis (if enabled) - don't fail if Redis unavailable
+    # Readiness - caché Redis (si habilitado)
     if settings.cache_enabled:
         try:
             if cache._backend:
@@ -42,23 +46,14 @@ async def health_check(session: AsyncSession = Depends(get_db)) -> HealthRespons
     else:
         checks["cache"] = True  # Cache disabled = not a problem
 
-    # Overall status - degraded if any check fails, but still return 200
-    all_healthy = all(checks.values())
-    status = "healthy" if all_healthy else "degraded"
+    # Readiness general (servicio listo para atender tráfico)
+    all_ready = all(checks.values())
+    checks["ready"] = all_ready
+
+    # Estado global: healthy si todo OK, degraded si algo falló (sigue 200)
+    status = "healthy" if all_ready else "degraded"
 
     return HealthResponse(
         status=status,
         checks=checks,
     )
-
-
-@router.get("/ready")
-async def readiness_check() -> dict:
-    """Readiness check para Kubernetes."""
-    return {"ready": True, "service": "otelms-api"}
-
-
-@router.get("/live")
-async def liveness_check() -> dict:
-    """Liveness check para Kubernetes."""
-    return {"alive": True, "service": "otelms-api"}

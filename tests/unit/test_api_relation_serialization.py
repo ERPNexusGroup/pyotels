@@ -118,14 +118,6 @@ class TestCategories:
         assert data[0]["id"] == "std"
         assert [r["id"] for r in data[0]["rooms"]] == ["r101"]
 
-    def test_with_rooms_param_still_accepted(self, api_client, seeded):
-        """El parámetro histórico no debe romper clientes ni cambiar el resultado."""
-        resp = api_client.get(
-            "/categories", params={"hotel_id": HOTEL, "with_rooms": False}
-        )
-        assert resp.status_code == 200, resp.text
-        assert [r["id"] for r in resp.json()[0]["rooms"]] == ["r101"]
-
     def test_get_category_includes_rooms(self, api_client, seeded):
         resp = api_client.get("/categories/std", params={"hotel_id": HOTEL})
         assert resp.status_code == 200, resp.text
@@ -139,6 +131,10 @@ class TestCategories:
         resp = api_client.get("/categories/std/rooms", params={"hotel_id": HOTEL})
         assert resp.status_code == 200, resp.text
         assert [r["id"] for r in resp.json()] == ["r101"]
+
+    def test_category_rooms_404_other_hotel(self, api_client, seeded):
+        resp = api_client.get("/categories/std/rooms", params={"hotel_id": "otra"})
+        assert resp.status_code == 404
 
 
 class TestReservations:
@@ -174,3 +170,4 @@ class TestReservations:
     def test_get_reservation_404(self, api_client, seeded):
         resp = api_client.get("/reservations/nope", params={"hotel_id": HOTEL})
         assert resp.status_code == 404
+

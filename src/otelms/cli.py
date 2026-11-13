@@ -18,7 +18,10 @@ from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey, Category, Guest, Hotel, Reservation, Room
 from otelms.domain.repositories import HotelRepository
 from otelms.domain.repositories.database import db, get_db_session, init_db
+from otelms.scraping.folio_deep_extract import FolioDeepExtractor
 from otelms.scraping.orchestrator import ScrapingOrchestrator
+from otelms.scraping.setup_extract import SetupExtractor
+from otelms.services.setup_sync_service import SetupSyncService
 from otelms.services.sync_service import SyncService
 from otelms.utils.crypto import credential_encryption
 from otelms.utils.logging import get_logger, setup_logging
@@ -129,7 +132,7 @@ def run_scraper(
                         console.print(f"[red]Strategy desconocida: {strategy}[/red]")
                         raise typer.Exit(1)
 
-                    console.print(f"[green]✓ Hotel {hotel.id} completado: {result.operation}[/green]")
+                    console.print(f"[green][OK] Hotel {hotel.id} completado: {result.operation}[/green]")
                 finally:
                     await svc.close()
         else:
@@ -160,12 +163,12 @@ def run_scraper(
 
                 # ScrapingResult tiene .data (lista) y .success
                 data = result.data if result.success else []
-                console.print(f"[green]✓ Scraping completado: {len(data)} items[/green]")
+                console.print(f"[green][OK] Scraping completado: {len(data)} items[/green]")
 
                 if output:
                     with Path(output).open("w", encoding="utf-8") as f:
                         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-                    console.print(f"[green]✓ Guardado en {output}[/green]")
+                    console.print(f"[green][OK] Guardado en {output}[/green]")
                 else:
                     console.print_json(data=data[:5] if isinstance(data, list) else data)
 
@@ -253,6 +256,136 @@ def run_sync(
 
 
 # ============================================================
+# COMANDO: Sync Setup (Datos Maestros)
+# ============================================================
+@app.command(name="sync-setup")
+def run_sync_setup(
+    hotel_id: str = typer.Option(
+        settings.otelms_default_hotel_id, "--hotel-id", help="Hotel ID"
+    ),
+) -> None:
+    """Sincroniza datos maestros desde OtelMS (empresa, categorías, habitaciones, métodos de pago, canales)."""
+    setup_app()
+
+    async def _run() -> None:
+        console.print(f"[blue]Sincronizando configuración maestra para hotel {hotel_id}...[/blue]")
+        sync_svc = SetupSyncService(hotel_id)
+        res = await sync_svc.sync_all()
+
+        table = Table(title=f"Configuración Sincronizada - Hotel {hotel_id}")
+        table.add_column("Componente", style="cyan")
+        table.add_column("Registros", style="green")
+        for k, v in res.items():
+            table.add_row(k.replace("_", " ").title(), str(v))
+        console.print(table)
+
+    asyncio.run(_run())
+
+
+# ============================================================
+# COMANDO: Front Desk Status
+# ============================================================
+@app.command(name="status")
+def run_frontdesk_status(
+    hotel_id: str = typer.Option(
+        settings.otelms_default_hotel_id, "--hotel-id", help="Hotel ID"
+    ),
+) -> None:
+    """Consulta estado en vivo de Front Desk desde OtelMS (/reservation_c2/status)."""
+    setup_app()
+
+    async def _run() -> None:
+        async with SetupExtractor(hotel_id=hotel_id) as extractor:
+            data = await extractor.fetch_status()
+
+        table = Table(title=f"Front Desk Status - Hotel {hotel_id}")
+        table.add_column("Métrica", style="cyan")
+        table.add_column("Valor", style="magenta")
+        table.add_row("Fecha", str(data.get("status_date")))
+        table.add_row("Llegadas Hoy", str(data.get("arrivals_today")))
+        table.add_row("Salidas Hoy", str(data.get("departures_today")))
+        table.add_row("Alojados (In-House)", str(data.get("inhouse_today")))
+        console.print(table)
+
+    asyncio.run(_run())
+
+
+# ============================================================
+# COMANDO: Price Calendar
+# ============================================================
+@app.command(name="price-calendar")
+def run_price_calendar(
+    hotel_id: str = typer.Option(
+        settings.otelms_default_hotel_id, "--hotel-id", help="Hotel ID"
+    ),
+    dealer_id: str | None = typer.Option(None, "--dealer-id", help="Filtrar por canal/dealer"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Guardar a archivo JSON"),
+) -> None:
+    """Consulta matriz de precios por canal de venta (/reservation_c2/price_calendar)."""
+    setup_app()
+
+    async def _run() -> None:
+        async with SetupExtractor(hotel_id=hotel_id) as extractor:
+            cells = await extractor.fetch_price_calendar()
+
+        if dealer_id:
+            cells = [c for c in cells if c.get("dealer_id") == str(dealer_id)]
+
+        console.print(f"[green][OK] {len(cells)} celdas de precios obtenidas[/green]")
+        if output:
+            with Path(output).open("w", encoding="utf-8") as f:
+                json.dump(cells, f, ensure_ascii=False, indent=2)
+            console.print(f"[green][OK] Guardado en {output}[/green]")
+        else:
+            sample = cells[:10]
+            table = Table(title=f"Muestra de Precios por Canal (10 de {len(cells)})")
+            table.add_column("Fecha", style="cyan")
+            table.add_column("Habitación", style="yellow")
+            table.add_column("Canal (Dealer ID)", style="magenta")
+            table.add_column("Precio", style="green")
+            for c in sample:
+                table.add_row(str(c.get("date")), str(c.get("room_id")), str(c.get("dealer_id")), str(c.get("price")))
+            console.print(table)
+
+    asyncio.run(_run())
+
+
+# ============================================================
+# COMANDO: Sync Folio Profundo
+# ============================================================
+@app.command(name="sync-folio")
+def run_sync_folio(
+    reservation_id: str = typer.Argument(..., help="ID de la reserva en OtelMS"),
+    hotel_id: str = typer.Option(
+        settings.otelms_default_hotel_id, "--hotel-id", help="Hotel ID"
+    ),
+) -> None:
+    """Extrae folio completo de una reserva (vehículo, notas, tarifas día a día, auditoría)."""
+    setup_app()
+
+    async def _run() -> None:
+        console.print(f"[blue]Sincronizando folio profundo de la reserva {reservation_id}...[/blue]")
+        sync_svc = SyncService(hotel_id=hotel_id, username=settings.otelms_default_username, password=settings.otelms_default_password)
+        await sync_svc.initialize()
+        try:
+            res = await sync_svc.sync_reservation_details(reservation_ids=[reservation_id])
+            table = Table(title=f"Folio Reserva {reservation_id}")
+            table.add_column("Métrica", style="cyan")
+            table.add_column("Valor", style="green")
+            table.add_row("Éxito", str(res.success))
+            table.add_row("Procesados", str(res.records_processed))
+            table.add_row("Servicios Guardados", str(res.services_persisted))
+            table.add_row("Pagos Guardados", str(res.payments_persisted))
+            if res.errors:
+                table.add_row("Errores", "; ".join(res.errors))
+            console.print(table)
+        finally:
+            await sync_svc.close()
+
+    asyncio.run(_run())
+
+
+# ============================================================
 # COMANDO: Database
 # ============================================================
 db_app = typer.Typer(name="db", help="Database management commands")
@@ -266,7 +399,7 @@ def db_init() -> None:
     setup_app()
     console.print("[blue]Inicializando base de datos...[/blue]")
     asyncio.run(init_db())
-    console.print("[green]✓ Base de datos inicializada[/green]")
+    console.print("[green][OK] Base de datos inicializada[/green]")
 
 
 @db_app.command(name="drop")
@@ -280,7 +413,7 @@ def db_drop(confirm: bool = typer.Option(False, "--yes", "-y", help="Confirm dro
     setup_app()
     console.print("[yellow]Eliminando todas las tablas...[/yellow]")
     asyncio.run(db.drop_all())
-    console.print("[green]✓ Tablas eliminadas[/green]")
+    console.print("[green][OK] Tablas eliminadas[/green]")
 
 
 @db_app.command(name="migrate")
@@ -296,7 +429,7 @@ def db_migrate(message: str = typer.Option("", "--message", "-m", help="Migratio
 
     console.print("[blue]Ejecutando migración...[/blue]")
     subprocess.run(["alembic", "upgrade", "head"], check=True)
-    console.print("[green]✓ Migración completada[/green]")
+    console.print("[green][OK] Migración completada[/green]")
 
 
 @db_app.command(name="seed")
@@ -325,7 +458,7 @@ def db_seed(
                     is_active=True,
                 )
                 session.add(hotel)
-                console.print(f"[green]✓ Hotel creado: {hotel_id}[/green]")
+                console.print(f"[green][OK] Hotel creado: {hotel_id}[/green]")
             else:
                 console.print(f"[yellow]Hotel ya existe: {hotel_id} (no se tocan credenciales)[/yellow]")
 
@@ -342,14 +475,14 @@ def db_seed(
                     rate_limit=60,
                 )
                 session.add(api_key)
-                console.print("[green]✓ API Key creada[/green]")
+                console.print("[green][OK] API Key creada[/green]")
             else:
                 console.print("[yellow]API Key ya existe[/yellow]")
 
             await session.commit()
 
     asyncio.run(_run())
-    console.print("[green]✓ Seed completado[/green]")
+    console.print("[green][OK] Seed completado[/green]")
 
 
 # ============================================================

@@ -176,6 +176,24 @@ async def get_reservation(
     return reservation_response(reservation)
 
 
+@router.post("/{reservation_id}/sync-deep", response_model=ReservationResponse)
+async def sync_reservation_deep(
+    reservation_id: str,
+    hotel_id: str = Query(..., description="Hotel ID"),
+    res_repo: ReservationRepository = Depends(get_reservation_repo),
+    sync_service: SyncService = Depends(get_sync_service),
+) -> ReservationResponse:
+    """Fuerza la descarga profunda del folio y actualiza tarifas, vehículo, historial y notas."""
+    await sync_service.sync_reservation_details(reservation_ids=[reservation_id])
+    reservation = await res_repo.get_with_details(hotel_id, reservation_id)
+    if not reservation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reservation {reservation_id} not found",
+        )
+    return reservation_response(reservation)
+
+
 @router.get("/today/checkins", response_model=list[ReservationResponse])
 async def get_today_checkins(
     hotel_id: str = Query(..., description="Hotel ID"),

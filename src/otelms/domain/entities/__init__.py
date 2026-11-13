@@ -66,6 +66,26 @@ class Hotel(Base):
     guests: Mapped[list["Guest"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
     sync_logs: Mapped[list["SyncLog"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
     room_availability: Mapped[list["RoomAvailability"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
+    dealers: Mapped[list["Dealer"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
+    payment_methods: Mapped[list["PaymentMethod"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
+    property_services: Mapped[list["PropertyService"]] = relationship(back_populates="hotel", cascade="all, delete-orphan")
+
+    # Datos maestros de la propiedad (/setup_property_c2/property_information)
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    property_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    web_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    street: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    post_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    gps_coordinates: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    star_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    check_in_time: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    check_out_time: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     __table_args__ = (
         Index("ix_hotels_is_active", "is_active"),
@@ -179,6 +199,67 @@ class ChannelRate(Base):
     )
 
 
+class Dealer(Base):
+    """Canal de venta / distribuidor (OTAs, Venta directa, etc.) (/setup_dealers_c2/dealers_list/1)."""
+    __tablename__ = "dealers"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    hotel: Mapped["Hotel"] = relationship(back_populates="dealers")
+
+    __table_args__ = (
+        Index("ix_dealers_hotel_id", "hotel_id"),
+        UniqueConstraint("hotel_id", "id", name="uq_dealer_hotel_id"),
+    )
+
+
+class PaymentMethod(Base):
+    """Método de pago configurado en el hotel (/setup_payment_types_c2/type_list/1)."""
+    __tablename__ = "payment_methods"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    hotel: Mapped["Hotel"] = relationship(back_populates="payment_methods")
+
+    __table_args__ = (
+        Index("ix_payment_methods_hotel_id", "hotel_id"),
+        UniqueConstraint("hotel_id", "id", name="uq_payment_method_hotel_id"),
+    )
+
+
+class PropertyService(Base):
+    """Servicio / amenidad del catálogo del hotel (/setup_property_c2/property_description)."""
+    __tablename__ = "property_services"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hotel_id: Mapped[str] = mapped_column(String(64), ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    hotel: Mapped["Hotel"] = relationship(back_populates="property_services")
+
+    __table_args__ = (
+        Index("ix_property_services_hotel_id", "hotel_id"),
+        UniqueConstraint("hotel_id", "id", name="uq_property_service_hotel_id"),
+    )
+
+
 class Guest(Base):
     """Huésped."""
     __tablename__ = "guests"
@@ -259,6 +340,15 @@ class Reservation(Base):
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Datos adicionales de folio profundo
+    vehicle_brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vehicle_color: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    vehicle_plate: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    nights: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    channel_reservation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    room_reservation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     # Metadatos de sync
     otelms_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     otelms_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -274,6 +364,8 @@ class Reservation(Base):
     guest: Mapped[Optional["Guest"]] = relationship(back_populates="reservations")
     services: Mapped[list["Service"]] = relationship(back_populates="reservation", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="reservation", cascade="all, delete-orphan")
+    night_rates: Mapped[list["ReservationNightRate"]] = relationship(back_populates="reservation", cascade="all, delete-orphan")
+    change_history: Mapped[list["ReservationChangeHistory"]] = relationship(back_populates="reservation", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_reservations_hotel_id", "hotel_id"),
@@ -337,6 +429,47 @@ class Payment(Base):
         Index("ix_payments_reservation_id", "reservation_id"),
         Index("ix_payments_date", "date"),
         UniqueConstraint("reservation_id", "id", name="uq_payment_reservation_id"),
+    )
+
+
+class ReservationNightRate(Base):
+    """Tarifa diaria asignada por cada noche de la reserva (/folio/{id}/1 tabla 7)."""
+    __tablename__ = "reservation_night_rates"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    reservation_id: Mapped[str] = mapped_column(String(64), ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    rate_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("0"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    reservation: Mapped["Reservation"] = relationship(back_populates="night_rates")
+
+    __table_args__ = (
+        Index("ix_reservation_night_rates_res_date", "reservation_id", "date"),
+        UniqueConstraint("reservation_id", "date", name="uq_res_night_rate_date"),
+    )
+
+
+class ReservationChangeHistory(Base):
+    """Log de auditoría e historial de cambios de la reserva (/folio/{id}/1 tabla 9)."""
+    __tablename__ = "reservation_change_history"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    reservation_id: Mapped[str] = mapped_column(String(64), ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    user: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    event_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    action: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    reservation: Mapped["Reservation"] = relationship(back_populates="change_history")
+
+    __table_args__ = (
+        Index("ix_reservation_history_res_id", "reservation_id"),
+        Index("ix_reservation_history_date", "date"),
     )
 
 

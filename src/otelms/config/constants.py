@@ -113,6 +113,40 @@ class OtelMSUrls:
     def guest_detail_url(self, guest_id: str) -> str:
         return f"{self.base_url}/reservation_c2/guestfolio/{guest_id}"
 
+    # URLs maestras de configuración (setup)
+    @property
+    def property_information_url(self) -> str:
+        return f"{self.base_url}/setup_property_c2/property_information"
+
+    @property
+    def property_description_url(self) -> str:
+        return f"{self.base_url}/setup_property_c2/property_description"
+
+    @property
+    def payment_types_url(self) -> str:
+        return f"{self.base_url}/setup_payment_types_c2/type_list/1"
+
+    @property
+    def dealers_url(self) -> str:
+        return f"{self.base_url}/setup_dealers_c2/dealers_list/1"
+
+    @property
+    def categories_setup_url(self) -> str:
+        return f"{self.base_url}/setup_categories_c2/categories_list"
+
+    @property
+    def rooms_setup_url(self) -> str:
+        return f"{self.base_url}/setup_rooms_c2/room_list/1"
+
+    # URLs operativas de Front Desk y Tarifas
+    @property
+    def status_url(self) -> str:
+        return f"{self.base_url}/reservation_c2/status"
+
+    @property
+    def price_calendar_url(self) -> str:
+        return f"{self.base_url}/reservation_c2/price_calendar"
+
 
 @dataclass(frozen=True)
 class ReservationStatus:

@@ -1,9 +1,10 @@
 """
 Tests de la disponibilidad por categoría (Tarea 1.1).
 
-Cubre las tres capas: el parser de la fila resumen del calendario
-(`div.calendar_sum`), el repositorio que la persiste, y el endpoint
-`GET /categories/availability`.
+Cubre las dos capas que el sync sigue usando: el parser de la fila resumen
+del calendario (`div.calendar_sum`) y el repositorio que la persiste en
+`category_availability`. El endpoint `GET /categories/availability` fue
+retirado; esa información ahora se expone vía /rooms/available-for-sale.
 
 El dato clave del módulo: `available` es el número que publica OtelMS, NO
 `total - ocupadas`. Contrastado contra el portal, difieren 163 de 414 celdas
@@ -14,10 +15,7 @@ from datetime import date
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
 
-from otelms.api import dependencies as deps
-from otelms.api.main import app
 from otelms.domain.repositories import (
     CategoryAvailabilityRepository,
     CategoryRepository,
@@ -39,11 +37,7 @@ def session(test_session):
 
 @pytest_asyncio.fixture
 async def seeded(test_session):
-    """Hotel con 2 categorías (2 y 1 habitaciones) y disponibilidad de 2 días.
-
-    Usa `test_session` (la sesión que inyecta el TestClient), no una propia:
-    si se siembran con otra sesión las filas no existen para el endpoint.
-    """
+    """Hotel con 2 categorías (2 y 1 habitaciones) y disponibilidad de 2 días."""
     hotels = HotelRepository(test_session)
     categories = CategoryRepository(test_session)
     rooms = RoomRepository(test_session)
@@ -66,21 +60,6 @@ async def seeded(test_session):
         {"category_id": "c14", "date": "2026-10-06", "available": 1},
     ])
     return "h1"
-
-
-@pytest.fixture
-def api_client(test_session):
-    old = dict(app.dependency_overrides)
-    app.dependency_overrides[deps.verify_api_key] = lambda: None
-    app.dependency_overrides[deps.get_category_repo] = (
-        lambda: CategoryRepository(test_session)
-    )
-    app.dependency_overrides[deps.get_availability_repo] = (
-        lambda: CategoryAvailabilityRepository(test_session)
-    )
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-    app.dependency_overrides.update(old)
 
 
 # ============================================================
@@ -234,107 +213,3 @@ class TestAvailabilityRepository:
         repo = CategoryAvailabilityRepository(session)
         rows = await repo.get_range("h9", date(2026, 10, 1), date(2026, 10, 31))
         assert list(rows) == []
-
-
-# ============================================================
-# Endpoint
-# ============================================================
-class TestAvailabilityEndpoint:
-    def test_devuelve_el_rango_pedido(self, api_client, seeded):
-        resp = api_client.get(
-            "/categories/availability",
-            params={
-                "hotel_id": "h1",
-                "date_from": "2026-10-05",
-                "date_to": "2026-10-06",
-            },
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["count"] == 4
-        assert {i["category_id"] for i in body["items"]} == {"c13", "c14"}
-
-    def test_devuelve_el_numero_del_portal(self, api_client, seeded):
-        """No recalcula: 8 con 2 habitaciones es lo que dice OtelMS."""
-        resp = api_client.get(
-            "/categories/availability",
-            params={"hotel_id": "h1", "date_from": "2026-10-05", "date_to": "2026-10-05"},
-        )
-        rows = {(i["category_id"]): i for i in resp.json()["items"]}
-        assert rows["c13"]["available"] == 8
-        assert rows["c13"]["total_rooms"] == 2
-        assert rows["c13"]["category_name"] == "Matrimonial"
-
-    def test_ordena_por_fecha_y_categoria(self, api_client, seeded):
-        resp = api_client.get(
-            "/categories/availability",
-            params={"hotel_id": "h1", "date_from": "2026-10-05", "date_to": "2026-10-06"},
-        )
-        keys = [(i["date"], i["category_id"]) for i in resp.json()["items"]]
-        assert keys == sorted(keys)
-
-    def test_filtro_por_categoria(self, api_client, seeded):
-        resp = api_client.get(
-            "/categories/availability",
-            params={
-                "hotel_id": "h1", "date_from": "2026-10-01",
-                "date_to": "2026-10-31", "category_id": "c14",
-            },
-        )
-        assert {i["category_id"] for i in resp.json()["items"]} == {"c14"}
-
-    def test_rango_por_defecto_de_45_dias(self, api_client, seeded):
-        resp = api_client.get(
-            "/categories/availability", params={"hotel_id": "h1"}
-        )
-        assert resp.status_code == 200
-        assert resp.json()["date_to"] > resp.json()["date_from"]
-
-    def test_rango_invertido_da_400(self, api_client, seeded):
-        resp = api_client.get(
-            "/categories/availability",
-            params={"hotel_id": "h1", "date_from": "2026-10-06", "date_to": "2026-10-05"},
-        )
-        assert resp.status_code == 400
-
-    def test_hotel_sin_datos_devuelve_lista_vacia(self, api_client, seeded):
-        resp = api_client.get(
-            "/categories/availability", params={"hotel_id": "no-existe"}
-        )
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "hotel_id": "no-existe",
-            "date_from": resp.json()["date_from"],
-            "date_to": resp.json()["date_to"],
-            "count": 0,
-            "items": [],
-        }
-
-    def test_requiere_hotel_id(self, api_client):
-        assert api_client.get("/categories/availability").status_code == 422
-
-    def test_no_serve_sin_api_key(self, test_session):
-        old = dict(app.dependency_overrides)
-        app.dependency_overrides.pop(deps.verify_api_key, None)
-        app.dependency_overrides[deps.get_availability_repo] = (
-            lambda: CategoryAvailabilityRepository(test_session)
-        )
-        app.dependency_overrides[deps.get_category_repo] = (
-            lambda: CategoryRepository(test_session)
-        )
-        try:
-            resp = TestClient(app).get("/categories/availability")
-        finally:
-            app.dependency_overrides.clear()
-            app.dependency_overrides.update(old)
-        assert resp.status_code in (401, 422)
-
-    def test_no_rompe_las_rutas_vecinas(self, api_client, seeded):
-        """/categories/{id} y /categories/{id}/rooms siguen contestando."""
-        assert api_client.get("/categories", params={"hotel_id": "h1"}).status_code == 200
-        assert api_client.get(
-            "/categories/c13", params={"hotel_id": "h1"}
-        ).status_code == 200
-        assert api_client.get(
-            "/categories/c13/rooms", params={"hotel_id": "h1"}
-        ).status_code == 200

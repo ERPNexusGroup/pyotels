@@ -13,6 +13,20 @@ from pydantic import BaseModel, ConfigDict, Field
 class HotelBase(BaseModel):
     id: str = Field(..., description="Hotel ID in OtelMS")
     name: str | None = None
+    legal_name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    web_address: str | None = None
+    street: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    post_code: str | None = None
+    gps_coordinates: str | None = None
+    star_rating: int | None = None
+    check_in_time: str | None = None
+    check_out_time: str | None = None
+    timezone: str | None = None
     domain: str = "otelms.com"
     is_active: bool = True
 
@@ -28,6 +42,95 @@ class HotelResponse(HotelBase):
     created_at: datetime
     updated_at: datetime
     last_sync_at: datetime | None = None
+
+
+class DealerBase(BaseModel):
+    id: str
+    hotel_id: str
+    name: str
+    phone: str | None = None
+    address: str | None = None
+    is_active: bool = True
+
+
+class DealerResponse(DealerBase):
+    model_config = ConfigDict(from_attributes=True)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PaymentMethodBase(BaseModel):
+    id: str
+    hotel_id: str
+    name: str
+    type: str | None = None
+    is_active: bool = True
+
+
+class PaymentMethodResponse(PaymentMethodBase):
+    model_config = ConfigDict(from_attributes=True)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PropertyServiceBase(BaseModel):
+    id: str
+    hotel_id: str
+    name: str
+    label: str | None = None
+    is_active: bool = True
+
+
+class PropertyServiceResponse(PropertyServiceBase):
+    model_config = ConfigDict(from_attributes=True)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class FrontDeskStatusResponse(BaseModel):
+    hotel_id: str
+    status_date: str
+    departures_today: int = 0
+    arrivals_today: int = 0
+    inhouse_today: int = 0
+    synced_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PriceCalendarCellResponse(BaseModel):
+    date: str
+    room_id: str
+    dealer_id: str
+    category_id: str
+    price: float | None = None
+
+
+class ReservationNightRateBase(BaseModel):
+    id: str | None = None
+    reservation_id: str
+    date: date
+    rate_name: str | None = None
+    price: Decimal
+
+
+class ReservationNightRateResponse(ReservationNightRateBase):
+    model_config = ConfigDict(from_attributes=True)
+    created_at: datetime | None = None
+
+
+class ReservationChangeHistoryBase(BaseModel):
+    id: str | None = None
+    reservation_id: str
+    date: datetime | str | None = None
+    user: str | None = None
+    event_type: str | None = None
+    action: str | None = None
+    amount: Decimal | str | None = None
+    description: str | None = None
+
+
+class ReservationChangeHistoryResponse(ReservationChangeHistoryBase):
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CategoryBase(BaseModel):
@@ -129,6 +232,13 @@ class ReservationBase(BaseModel):
     currency: str = "USD"
     source: str | None = None
     notes: str | None = None
+    vehicle_brand: str | None = None
+    vehicle_color: str | None = None
+    vehicle_plate: str | None = None
+    nights: int | None = None
+    rate_name: str | None = None
+    channel_reservation_id: str | None = None
+    room_reservation_id: str | None = None
 
 
 class ReservationResponse(ReservationBase):
@@ -138,6 +248,8 @@ class ReservationResponse(ReservationBase):
     room: RoomResponse | None = None
     services: list[ServiceResponse] = []
     payments: list[PaymentResponse] = []
+    night_rates: list[ReservationNightRateResponse] = []
+    history: list[ReservationChangeHistoryResponse] = []
     created_at: datetime
     updated_at: datetime
     last_synced_at: datetime
@@ -316,34 +428,6 @@ class CheckoutsResponse(BaseModel):
 
 
 # ============================================================
-# DISPONIBILIDAD POR CATEGORÍA (lo que publica OtelMS)
-# ============================================================
-class CategoryAvailabilityRow(BaseModel):
-    """Una celda del calendario: disponibilidad de una categoría en un día.
-
-    `available` es el número que da OtelMS, no `total - ocupadas`: el hotel
-    retiene habitaciones por encima de las ocupadas y marca 0 en días
-    bloqueados, así que recalcularlo da cifras equivocadas.
-    """
-
-    category_id: str
-    category_name: str | None = None
-    date: date
-    total_rooms: int | None = Field(
-        None, description="Habitaciones de la categoría, según el último sync"
-    )
-    available: int
-
-
-class CategoryAvailabilityResponse(BaseModel):
-    hotel_id: str
-    date_from: date
-    date_to: date
-    count: int
-    items: list[CategoryAvailabilityRow] = []
-
-
-# ============================================================
 # RESTRICCIONES (celdas cerradas)
 # ============================================================
 class RestrictionRow(BaseModel):
@@ -392,31 +476,6 @@ class ChannelRateResponse(ChannelRateBase):
     id: str
     hotel_id: str
     created_at: datetime
-
-
-class ChannelRateListResponse(BaseModel):
-    hotel_id: str
-    count: int
-    items: list[ChannelRateResponse] = []
-
-
-class AvailabilityWithRatesItem(BaseModel):
-    """Disponibilidad de una categoría con sus tarifas por canal."""
-    category_id: str
-    category_name: str | None = None
-    date: date
-    available: int = Field(..., description="Habitaciones disponibles según OtelMS")
-    total_rooms: int | None = None
-    rates: list[ChannelRateResponse] = []
-
-
-class AvailabilityWithRatesResponse(BaseModel):
-    """Disponibilidad con tarifas por canal (Issue 2)."""
-    hotel_id: str
-    date_from: date
-    date_to: date
-    count: int
-    items: list[AvailabilityWithRatesItem] = []
 
 
 # ============================================================

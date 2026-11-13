@@ -16,6 +16,8 @@ from otelms.domain.repositories import (
     GuestRepository,
     HotelRepository,
     PaymentRepository,
+    ReservationChangeHistoryRepository,
+    ReservationNightRateRepository,
     ReservationRepository,
     RoomRepository,
     ServiceRepository,
@@ -23,6 +25,7 @@ from otelms.domain.repositories import (
 )
 from otelms.domain.repositories.database import get_db_session
 from otelms.scraping.exceptions import AuthenticationError
+from otelms.scraping.folio_deep_extract import parse_folio_complete
 from otelms.scraping.folio_extract import parse_folio
 from otelms.scraping.http_calendar import fetch_calendar_html
 from otelms.scraping.http_folio import FolioClient
@@ -858,6 +861,8 @@ class SyncService:
         guest_repo = GuestRepository(session)
         svc_repo = ServiceRepository(session)
         pmt_repo = PaymentRepository(session)
+        rate_repo = ReservationNightRateRepository(session)
+        history_repo = ReservationChangeHistoryRepository(session)
 
         for detail in details:
             res_id = _reservation_id(detail)
@@ -920,11 +925,62 @@ class SyncService:
 
             try:
                 folio = parse_folio(folio_html, str(res_id))
+                folio_deep = parse_folio_complete(folio_html, str(res_id))
             except Exception as exc:
                 logger.warning(
                     "Folio parse failed", reservation_id=res_id, error=str(exc)
                 )
                 continue
+
+            # Actualizar campos enriquecidos de la reserva desde el folio
+            veh = folio_deep.get("vehicle") or {}
+            if veh.get("brand") or veh.get("plate"):
+                res.vehicle_brand = veh.get("brand") or res.vehicle_brand
+                res.vehicle_color = veh.get("color") or res.vehicle_color
+                res.vehicle_plate = veh.get("plate") or res.vehicle_plate
+
+            stay_data = folio_deep.get("stay") or {}
+            if stay_data.get("nights"):
+                res.nights = stay_data.get("nights")
+            if stay_data.get("rate"):
+                res.rate_name = stay_data.get("rate")
+
+            chn_data = folio_deep.get("channel") or {}
+            if chn_data.get("channel_reservation_id"):
+                res.channel_reservation_id = chn_data.get("channel_reservation_id")
+            if chn_data.get("room_reservation_id"):
+                res.room_reservation_id = chn_data.get("room_reservation_id")
+
+            deep_notes = folio_deep.get("notes") or []
+            if deep_notes and not res.notes:
+                res.notes = "; ".join(f"{n.get('author','')}: {n.get('text','')}".strip(": ") for n in deep_notes)
+
+            # Tarifas por noche (desglose día a día)
+            night_rates_data = folio_deep.get("night_rates") or []
+            if night_rates_data:
+                await rate_repo.bulk_upsert(str(res_id), [
+                    {
+                        "date": nr["date"],
+                        "rate_name": nr.get("rate_name"),
+                        "price": nr.get("amount") or nr.get("price") or Decimal("0"),
+                    }
+                    for nr in night_rates_data if nr.get("date")
+                ])
+
+            # Historial de cambios y auditoría
+            history_data = folio_deep.get("change_history") or []
+            if history_data:
+                await history_repo.bulk_upsert(str(res_id), [
+                    {
+                        "date": h.get("datetime") or h.get("date") or h.get("changed_at"),
+                        "user": h.get("user") or h.get("user_name"),
+                        "event_type": h.get("type") or "change",
+                        "action": h.get("action"),
+                        "amount": h.get("amount"),
+                        "description": h.get("description") or h.get("details"),
+                    }
+                    for h in history_data if (h.get("datetime") or h.get("date") or h.get("changed_at"))
+                ])
 
             services = self._service_rows(folio, str(res_id))
             if services:

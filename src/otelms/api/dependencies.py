@@ -16,10 +16,15 @@ from otelms.domain.repositories import (
     CategoryAvailabilityRepository,
     CategoryRepository,
     ChannelRateRepository,
+    DealerRepository,
     GuestRepository,
     HousekeepingStatusRepository,
     HotelRepository,
+    PaymentMethodRepository,
     PaymentRepository,
+    PropertyServiceRepository,
+    ReservationChangeHistoryRepository,
+    ReservationNightRateRepository,
     ReservationRepository,
     RoleRepository,
     RoomAvailabilityRepository,
@@ -55,12 +60,6 @@ async def get_hotel_repo(session: AsyncSession = Depends(get_db)) -> HotelReposi
 
 async def get_category_repo(session: AsyncSession = Depends(get_db)) -> CategoryRepository:
     return CategoryRepository(session)
-
-
-async def get_availability_repo(
-    session: AsyncSession = Depends(get_db),
-) -> CategoryAvailabilityRepository:
-    return CategoryAvailabilityRepository(session)
 
 
 async def get_category_availability_repo(
@@ -121,6 +120,26 @@ async def get_room_availability_repo(
     session: AsyncSession = Depends(get_db),
 ) -> RoomAvailabilityRepository:
     return RoomAvailabilityRepository(session)
+
+
+async def get_dealer_repo(session: AsyncSession = Depends(get_db)) -> DealerRepository:
+    return DealerRepository(session)
+
+
+async def get_payment_method_repo(session: AsyncSession = Depends(get_db)) -> PaymentMethodRepository:
+    return PaymentMethodRepository(session)
+
+
+async def get_property_service_repo(session: AsyncSession = Depends(get_db)) -> PropertyServiceRepository:
+    return PropertyServiceRepository(session)
+
+
+async def get_night_rate_repo(session: AsyncSession = Depends(get_db)) -> ReservationNightRateRepository:
+    return ReservationNightRateRepository(session)
+
+
+async def get_history_repo(session: AsyncSession = Depends(get_db)) -> ReservationChangeHistoryRepository:
+    return ReservationChangeHistoryRepository(session)
 
 
 # ============================================================

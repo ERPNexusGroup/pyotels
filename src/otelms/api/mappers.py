@@ -22,17 +22,27 @@ from typing import Any
 
 from otelms.api.schemas import (
     CategoryResponse,
+    DealerResponse,
     GuestResponse,
+    PaymentMethodResponse,
     PaymentResponse,
+    PropertyServiceResponse,
+    ReservationChangeHistoryResponse,
+    ReservationNightRateResponse,
     ReservationResponse,
     RoomResponse,
     ServiceResponse,
 )
 from otelms.domain.entities import (
     Category,
+    Dealer,
     Guest,
     Payment,
+    PaymentMethod,
+    PropertyService,
     Reservation,
+    ReservationChangeHistory,
+    ReservationNightRate,
     Room,
     Service,
 )
@@ -129,15 +139,73 @@ def payment_response(payment: Payment) -> PaymentResponse:
     )
 
 
-def reservation_response(reservation: Reservation) -> ReservationResponse:
-    """ReservationResponse con las relaciones que ya vinieron precargadas.
+def dealer_response(dealer: Dealer) -> DealerResponse:
+    return DealerResponse(
+        id=dealer.id,
+        hotel_id=dealer.hotel_id,
+        name=dealer.name,
+        phone=dealer.phone,
+        address=dealer.address,
+        is_active=dealer.is_active,
+        created_at=dealer.created_at,
+        updated_at=dealer.updated_at,
+    )
 
-    Si `guest` / `room` / `services` / `payments` no están precargadas se
-    devuelven vacías en vez de disparar SQL. Para que lleguen cargadas, la
-    consulta debe usar ReservationRepository.get_by_hotel o get_with_details.
-    """
+
+def payment_method_response(pm: PaymentMethod) -> PaymentMethodResponse:
+    return PaymentMethodResponse(
+        id=pm.id,
+        hotel_id=pm.hotel_id,
+        name=pm.name,
+        type=pm.type,
+        is_active=pm.is_active,
+        created_at=pm.created_at,
+        updated_at=pm.updated_at,
+    )
+
+
+def property_service_response(svc: PropertyService) -> PropertyServiceResponse:
+    return PropertyServiceResponse(
+        id=svc.id,
+        hotel_id=svc.hotel_id,
+        name=svc.name,
+        label=svc.label,
+        is_active=svc.is_active,
+        created_at=svc.created_at,
+        updated_at=svc.updated_at,
+    )
+
+
+def night_rate_response(rate: ReservationNightRate) -> ReservationNightRateResponse:
+    return ReservationNightRateResponse(
+        id=rate.id,
+        reservation_id=rate.reservation_id,
+        date=rate.date,
+        rate_name=rate.rate_name,
+        price=rate.price,
+        created_at=rate.created_at,
+    )
+
+
+def change_history_response(item: ReservationChangeHistory) -> ReservationChangeHistoryResponse:
+    return ReservationChangeHistoryResponse(
+        id=item.id,
+        reservation_id=item.reservation_id,
+        date=item.date,
+        user=item.user,
+        event_type=item.event_type,
+        action=item.action,
+        amount=item.amount,
+        description=item.description,
+    )
+
+
+def reservation_response(reservation: Reservation) -> ReservationResponse:
+    """ReservationResponse con las relaciones que ya vinieron precargadas."""
     guest = _loaded(reservation, "guest")
     room = _loaded(reservation, "room")
+    night_rates = _loaded(reservation, "night_rates") or []
+    history = _loaded(reservation, "change_history") or []
 
     return ReservationResponse(
         id=reservation.id,
@@ -154,10 +222,19 @@ def reservation_response(reservation: Reservation) -> ReservationResponse:
         currency=reservation.currency,
         source=reservation.source,
         notes=reservation.notes,
+        vehicle_brand=reservation.vehicle_brand,
+        vehicle_color=reservation.vehicle_color,
+        vehicle_plate=reservation.vehicle_plate,
+        nights=reservation.nights,
+        rate_name=reservation.rate_name,
+        channel_reservation_id=reservation.channel_reservation_id,
+        room_reservation_id=reservation.room_reservation_id,
         guest=guest_response(guest) if guest is not None else None,
         room=room_response(room) if room is not None else None,
         services=[service_response(s) for s in (_loaded(reservation, "services") or [])],
         payments=[payment_response(p) for p in (_loaded(reservation, "payments") or [])],
+        night_rates=[night_rate_response(r) for r in night_rates],
+        history=[change_history_response(h) for h in history],
         created_at=reservation.created_at,
         updated_at=reservation.updated_at,
         last_synced_at=reservation.last_synced_at,

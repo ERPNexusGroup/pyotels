@@ -17,12 +17,17 @@ from otelms.domain.entities import (
     ApiKeyRole,
     Category,
     ChannelRate,
+    Dealer,
     Guest,
     Hotel,
     HousekeepingStatus,
     Payment,
+    PaymentMethod,
     Permission,
+    PropertyService,
     Reservation,
+    ReservationChangeHistory,
+    ReservationNightRate,
     Role,
     Room,
     RoomAvailability,
@@ -40,11 +45,16 @@ __all__ = [
     "CategoryAvailabilityRepository",
     "CategoryRepository",
     "ChannelRateRepository",
+    "DealerRepository",
     "GuestRepository",
     "HousekeepingStatusRepository",
     "HotelRepository",
+    "PaymentMethodRepository",
     "PaymentRepository",
     "Permission",
+    "PropertyServiceRepository",
+    "ReservationChangeHistoryRepository",
+    "ReservationNightRateRepository",
     "ReservationRepository",
     "RoleRepository",
     "RoomAvailabilityRepository",
@@ -62,6 +72,8 @@ RESERVATION_DETAIL_OPTIONS = (
     selectinload(Reservation.room).selectinload(Room.category),
     selectinload(Reservation.services),
     selectinload(Reservation.payments),
+    selectinload(Reservation.night_rates),
+    selectinload(Reservation.change_history),
 )
 
 
@@ -158,6 +170,16 @@ class CategoryRepository(BaseRepository):
         )
         result = await self.session.execute(stmt)
         return result.unique().scalars().all()
+
+    async def get_by_id_with_rooms(self, hotel_id: str, category_id: str) -> Category | None:
+        """Obtiene una categoría por ID (dentro del hotel) con sus habitaciones."""
+        stmt = (
+            select(Category)
+            .options(selectinload(Category.rooms))
+            .where(Category.hotel_id == hotel_id, Category.id == category_id)
+        )
+        result = await self.session.execute(stmt)
+        return result.unique().scalar_one_or_none()
 
     async def upsert_with_rooms(self, hotel_id: str, cat_data: dict) -> tuple:
         """Upsert categoría con sus habitaciones."""
@@ -864,6 +886,118 @@ class ApiKeyRepository(BaseRepository):
             .values(last_used_at=datetime.now(UTC))
         )
         await self.session.execute(stmt)
+
+
+class DealerRepository(BaseRepository[Dealer]):
+    """Repositorio para canales de venta / dealers."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, Dealer)
+
+    async def get_by_hotel(self, hotel_id: str, active_only: bool = True) -> Sequence[Dealer]:
+        stmt = select(Dealer).where(Dealer.hotel_id == hotel_id)
+        if active_only:
+            stmt = stmt.where(Dealer.is_active)
+        stmt = stmt.order_by(Dealer.name)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+
+class PaymentMethodRepository(BaseRepository[PaymentMethod]):
+    """Repositorio para métodos de pago."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, PaymentMethod)
+
+    async def get_by_hotel(self, hotel_id: str, active_only: bool = True) -> Sequence[PaymentMethod]:
+        stmt = select(PaymentMethod).where(PaymentMethod.hotel_id == hotel_id)
+        if active_only:
+            stmt = stmt.where(PaymentMethod.is_active)
+        stmt = stmt.order_by(PaymentMethod.name)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+
+class PropertyServiceRepository(BaseRepository[PropertyService]):
+    """Repositorio para servicios de la propiedad/hotel."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, PropertyService)
+
+    async def get_by_hotel(self, hotel_id: str, active_only: bool = True) -> Sequence[PropertyService]:
+        stmt = select(PropertyService).where(PropertyService.hotel_id == hotel_id)
+        if active_only:
+            stmt = stmt.where(PropertyService.is_active)
+        stmt = stmt.order_by(PropertyService.name)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+
+class ReservationNightRateRepository(BaseRepository[ReservationNightRate]):
+    """Repositorio para tarifas por noche de una reserva."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, ReservationNightRate)
+
+    async def get_by_reservation(self, reservation_id: str) -> Sequence[ReservationNightRate]:
+        stmt = (
+            select(ReservationNightRate)
+            .where(ReservationNightRate.reservation_id == reservation_id)
+            .order_by(ReservationNightRate.date)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def bulk_upsert(self, reservation_id: str, rates: list[dict]) -> int:
+        if not rates:
+            return 0
+        await self.session.execute(
+            delete(ReservationNightRate).where(ReservationNightRate.reservation_id == reservation_id)
+        )
+        for idx, r in enumerate(rates):
+            r["reservation_id"] = reservation_id
+            if not r.get("id"):
+                r["id"] = f"{reservation_id}-rate-{r.get('date')}-{idx}"
+            if isinstance(r.get("date"), str):
+                r["date"] = date.fromisoformat(r["date"])
+            self.session.add(ReservationNightRate(**r))
+        await self.session.flush()
+        return len(rates)
+
+
+class ReservationChangeHistoryRepository(BaseRepository[ReservationChangeHistory]):
+    """Repositorio para el historial de cambios y auditoría de una reserva."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, ReservationChangeHistory)
+
+    async def get_by_reservation(self, reservation_id: str) -> Sequence[ReservationChangeHistory]:
+        stmt = (
+            select(ReservationChangeHistory)
+            .where(ReservationChangeHistory.reservation_id == reservation_id)
+            .order_by(ReservationChangeHistory.date.desc())
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def bulk_upsert(self, reservation_id: str, history_items: list[dict]) -> int:
+        if not history_items:
+            return 0
+        await self.session.execute(
+            delete(ReservationChangeHistory).where(ReservationChangeHistory.reservation_id == reservation_id)
+        )
+        for idx, h in enumerate(history_items):
+            h["reservation_id"] = reservation_id
+            if not h.get("id"):
+                h["id"] = f"{reservation_id}-hist-{idx}"
+            if isinstance(h.get("date"), str):
+                try:
+                    h["date"] = datetime.fromisoformat(h["date"])
+                except Exception:
+                    h["date"] = None
+            self.session.add(ReservationChangeHistory(**h))
+        await self.session.flush()
+        return len(history_items)
 
 
 from otelms.domain.repositories.rh_repos import (

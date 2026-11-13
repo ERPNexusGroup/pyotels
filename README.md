@@ -145,9 +145,7 @@ for local development — leave `true` (default) in staging and production.
 | `/categories` | GET | List categories with rooms |
 | `/categories/{id}` | GET | Get category with rooms |
 | `/categories/{id}/rooms` | GET | Rooms of a category |
-| `/categories/availability` | GET | Availability per category and day, as OtelMS publishes it |
 | `/restrictions` | GET | Closed dates per category and rate, read live from the portal |
-| `/categories/availability-with-rates` | GET | Availability per category/day with channel rates |
 | `/housekeeping` | GET | Housekeeping plan (full, continuous, blocked, income) |
 | `/housekeeping/full-cleaning` | GET | Only full cleaning (checkouts today) |
 | `/housekeeping/stay-over` | GET | Only continuous cleaning (stay-overs) |
@@ -155,27 +153,6 @@ for local development — leave `true` (default) in staging and production.
 | `/housekeeping/reset` | POST | Reset all housekeeping statuses for a date |
 | `/rooms/available/enhanced` | GET | Available rooms with rates & housekeeping per date |
 | `/rooms/available-for-sale` | GET | Rooms available for sale with OTELMS rates |
-
-### Category availability
-
-`GET /categories/availability?hotel_id=18330&date_from=2026-10-05&date_to=2026-11-19`
-returns one row per category and day, the same number the OtelMS calendar shows:
-
-```json
-{"category_id": "13", "category_name": "Matrimonial", "date": "2026-10-05",
- "total_rooms": 12, "available": 8}
-```
-
-`available` is **OtelMS's own figure**, not `total - occupied`. The two disagree
-on 163 of the 414 cells of a current sync: the hotel holds rooms back above the
-occupied ones (a 12-room category never goes above 10) and closes whole days
-without any reservation behind them. Recomputing it produces wrong numbers, so
-the value is scraped from the calendar's summary row (`div.calendar_sum`) and
-stored in `category_availability`. It is filled by the calendar sync, not by the
-categories sync — the numbers arrive with the grid. Details in
-`docs/otelms_endpoints.md` §2.1.
-
-
 
 ### Enhanced Room Availability (Tarifas y Housekeeping por habitación/fecha)
 
@@ -308,49 +285,6 @@ The write side (closing and opening dates) is `src/otelms/scraping/restrictions.
 and is not exposed over HTTP yet. Closing a day is three chained calls, not one
 PUT — see `docs/otelms_endpoints.md` §4.4.
 
-
-
-### Channel Rates (Tarifas por canal)
-
-`GET /categories/availability-with-rates?hotel_id=18330&date_from=2026-10-07&date_to=2026-10-14` returns availability per category/day with channel rates:
-
-```json
-{
-  "hotel_id": "18330",
-  "date_from": "2026-10-07",
-  "date_to": "2026-10-14",
-  "count": 14,
-  "items": [
-    {
-      "category_id": "13",
-      "category_name": "Matrimonial",
-      "date": "2026-10-07",
-      "available": 8,
-      "total_rooms": 12,
-      "rates": [
-        {
-          "channel": "direct",
-          "rate_id": "1",
-          "price": 120.00,
-          "currency": "USD",
-          "min_stay": 1
-        },
-        {
-          "channel": "booking",
-          "rate_id": "1",
-          "price": 135.00,
-          "currency": "USD",
-          "min_stay": 2
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Filters:** `category_id` (single category), `channel` (filter rates by channel).
-
-> **Note:** `channel_rates` table is populated manually or from an external channel manager — it is not scraped from OtelMS.
 
 ### Housekeeping (Limpieza)
 
