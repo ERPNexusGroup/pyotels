@@ -79,26 +79,3 @@ def extract_room_prices(html_content: str) -> list[dict]:
                     pass
     return prices
 
-
-def extract_all_rooms_from_calendar(html_content: str) -> list[dict]:
-    """Extrae todas las room categories + capacidad del calendar sidebar.
-
-    Patrón: <div class="calendar_rooms_dott">Matrimonial 102</div>
-    """
-    rooms = []
-    room_divs = re.findall(
-        r'<div class="calendar_rooms_dott">\s*([^<]+?)\s*</div>', html_content
-    )
-    for raw_name in room_divs:
-        name = raw_name.strip()
-        if not name or len(name) < 2:
-            continue
-        capacity_match = re.search(r'(\d+)\s*$', name)
-        capacity = int(capacity_match.group(1)) if capacity_match else 2
-        clean_name = re.sub(r'\s*\d+\s*$', '', name)
-        rooms.append({
-            "room_type": clean_name,
-            "category_id": clean_name.lower().replace(" ", "_"),
-            "capacity": capacity,
-        })
-    return rooms

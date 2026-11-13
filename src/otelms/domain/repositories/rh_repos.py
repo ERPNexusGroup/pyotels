@@ -4,9 +4,8 @@ Repositories for Role, ApiKeyRole, HousekeepingStatus, and RoomAvailability enti
 import json
 import uuid
 from datetime import UTC, date, datetime
-from typing import Optional
 
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.domain.entities import ApiKeyRole, HousekeepingStatus, Role, RoomAvailability
@@ -41,9 +40,8 @@ class ApiKeyRoleRepository(BaseRepository):
 
     async def get_roles_for_key(self, api_key_id: str) -> list[Role]:
         """Obtiene los roles asignados a una API Key."""
-        from sqlalchemy import select as _q
         stmt = (
-            _q(Role)
+            select(Role)
             .join(ApiKeyRole, Role.id == ApiKeyRole.role_id)
             .where(ApiKeyRole.api_key_id == api_key_id, Role.is_active)
             .order_by(Role.name)

@@ -1,4 +1,13 @@
-# --- Python ---
+# ==============================================================================
+# .gitignore - OtelMS API (scraping_otelms_api)
+# ==============================================================================
+# Guía rápida:
+# - Mantener el orden por secciones para facilitar mantenimiento.
+# - `uv.lock` y `.env.example` SE VERSIONAN (builds reproducibles y plantilla).
+# - `src/otelms/config/settings.py` NO se ignora (protegido con negación explícita).
+# ==============================================================================
+
+# --- 1. Python, Compilación y Empaquetado ---
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,64 +31,58 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# --- Entornos Virtuales ---
+# Gestores de paquetes (Nota: uv.lock SÍ se versiona para builds reproducibles)
+poetry.lock
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- 2. Entornos Virtuales ---
 .venv/
 venv/
 ENV/
 env/
 
-# --- Variables de Entorno y Secretos ---
+# --- 3. Variables de Entorno y Secretos ---
+# Nunca versionar credenciales ni archivos .env locales; usar .env.example como plantilla.
 .env
 .env.local
 .env.*
 !.env.example
+# Evitar archivos settings.py sueltos en la raíz, pero conservar la config del paquete
+/settings.py
+!src/otelms/config/settings.py
 
-# --- IDEs y Editores ---
-# JetBrains (PyCharm, IntelliJ)
-.idea/
-*.iml
-# VS Code
-.vscode/
-*.code-workspace
-
-# --- Logs y Debug ---
-*.log
-scrapy_debug.log
-logs/
-
-# --- Base de Datos ---
+# --- 4. Bases de Datos Locales (SQLite) ---
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
 *.sqlite3
 reservations.db
 
-# --- Caches de Herramientas ---
+# --- 5. Runtime, Logs, Caché y Celery ---
+*.log
+scrapy_debug.log
+logs/
+src/logs/
+http_cache/
+test_cache/
+celerybeat-schedule*
+celerybeat.pid
+
+# --- 6. Calidad de Código, Linters y Tests ---
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
 
-# --- Runtime del Proyecto ---
-http_cache/
-test_cache/
-
-# --- Gestores de Paquetes ---
-# Poetry
-poetry.lock
-# Pip
-pip-log.txt
-pip-delete-this-directory.txt
-
-# --- Sistema Operativo ---
-.DS_Store
-Thumbs.db
-ia_tools/
-
-# --- Pruebas ---
-settings.py
-
-# --- Artefactos de sesiones de scraping manual (fase testing) ---
+# --- 7. Artefactos Temporales de Scraping y Pruebas Manuales ---
 *.png
+tests/manual/*.html
+tests/manual/*.json
 calendar_*.html
 calendar_*.json
 folio_*.html
@@ -89,9 +92,42 @@ uploadrates_*.html
 sync_rooms_results.json
 calendar_analysis.txt
 
-# --- Artefactos de herramientas ---
+# --- 8. Herramientas de IA, Grafo y Agentes (Reglas del Proyecto) ---
+# Según .agent/rules/rules.md, ia_tools/ y temp_ia/ no forman parte del código productivo.
+ia_tools/
+temp_ia/
+graphify-out/
 .mimosa/
+.kilo/
 repomix-output.xml
-# Git Bash en Windows crea un archivo real llamado NUL cuando un comando tipo
-# `ssh ... > NUL` se ejecuta fuera de cmd.exe.
+
+# --- 9. IDEs, Editores y Sistema Operativo ---
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+# Git Bash en Windows crea un archivo real llamado NUL cuando se redirige `> NUL` fuera de cmd.exe.
 NUL
+# --- 10. Graphity ---
+
+# Se excluye toda la salida generada por defecto y se versionan
+# solo artefactos portables/útiles para el equipo.
+graphify-out/*
+
+# Artefactos compartidos (permitidos explícitamente)
+!graphify-out/graph.json
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/graph.html
+
+# Estado local, cachés y metadatos de ejecución
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/.graphify_root
+graphify-out/.graphify_python
+graphify-out/.graphify_analysis.json
+graphify-out/needs_update
+
+# manifest.json se excluye hasta verificar portabilidad
+# con la versión instalada de Graphify.

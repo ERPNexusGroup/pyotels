@@ -6,7 +6,6 @@ estén sincronizados con la realidad de OtelMS antes de procesar reservas.
 from datetime import UTC, datetime
 from typing import Any
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.config.settings import settings
 from otelms.domain.entities import (

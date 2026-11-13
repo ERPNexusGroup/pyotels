@@ -15,7 +15,7 @@ Issue 3: Actualización de estado de limpieza por habitación.
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import select, func, bindparam, Date
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.api.dependencies import (
@@ -35,7 +35,7 @@ from otelms.api.schemas import (
     HousekeepingStatusResponse,
     HousekeepingStatusUpdate,
 )
-from otelms.domain.entities import Reservation, HousekeepingStatus
+from otelms.domain.entities import Reservation
 from otelms.domain.repositories import (
     HousekeepingStatusRepository,
     ReservationRepository,

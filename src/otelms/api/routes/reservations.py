@@ -16,7 +16,6 @@ from otelms.api.mappers import reservation_response, room_response
 from otelms.api.schemas import (
     InHouseItem,
     InHouseResponse,
-    PendingChargesItem,
     PendingChargesResponse,
     PaginationParams,
     ReservationFilterParams,

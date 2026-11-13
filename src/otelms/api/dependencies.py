@@ -3,7 +3,6 @@ FastAPI dependencies - Inyección de dependencias.
 """
 import hashlib
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession

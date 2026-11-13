@@ -3,7 +3,6 @@ Repositorio de Hotel.
 """
 import hashlib
 import json
-import uuid
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Optional

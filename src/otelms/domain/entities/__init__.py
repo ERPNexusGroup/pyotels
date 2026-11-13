@@ -18,9 +18,6 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy import (
-    Enum as SQLEnum,
-)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -307,15 +304,6 @@ class Guest(Base):
         Index("ix_guests_document", "document_type", "document_number"),
         UniqueConstraint("hotel_id", "id", name="uq_guest_hotel_id"),
     )
-
-
-class ReservationStatusEnum(SQLEnum):
-    """Estados de reserva."""
-    RESERVATION = 1
-    CHECK_IN = 2
-    CHECK_OUT = 3
-    CANCELLED = 4
-    NO_SHOW = 5
 
 
 class Reservation(Base):

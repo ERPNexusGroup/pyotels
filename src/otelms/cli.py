@@ -18,7 +18,6 @@ from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey, Category, Guest, Hotel, Reservation, Room
 from otelms.domain.repositories import HotelRepository
 from otelms.domain.repositories.database import db, get_db_session, init_db
-from otelms.scraping.folio_deep_extract import FolioDeepExtractor
 from otelms.scraping.orchestrator import ScrapingOrchestrator
 from otelms.scraping.setup_extract import SetupExtractor
 from otelms.services.setup_sync_service import SetupSyncService
