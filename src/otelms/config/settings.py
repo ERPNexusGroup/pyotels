@@ -79,9 +79,18 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     redis_max_connections: int = Field(default=20, alias="REDIS_MAX_CONNECTIONS")
     redis_socket_timeout: int = Field(default=5, alias="REDIS_SOCKET_TIMEOUT")
-    redis_socket_connect_timeout: int = Field(
-        default=5, alias="REDIS_SOCKET_CONNECT_TIMEOUT"
+    redis_socket_connect_timeout: float = Field(
+        default=0.5, alias="REDIS_SOCKET_CONNECT_TIMEOUT"
     )
+
+    # ============================================================
+    # API GATEWAY / FEATURE FLAGS (Fase 1)
+    # ============================================================
+    api_enable_read_public: bool = Field(default=True, alias="API_ENABLE_READ_PUBLIC")
+    api_enable_internal_sync: bool = Field(default=True, alias="API_ENABLE_INTERNAL_SYNC")
+    api_enable_write_actions: bool = Field(default=False, alias="API_ENABLE_WRITE_ACTIONS")
+    api_enable_admin_routes: bool = Field(default=False, alias="API_ENABLE_ADMIN_ROUTES")
+    api_enable_legacy_routes: bool = Field(default=False, alias="API_ENABLE_LEGACY_ROUTES")
 
     # ============================================================
     # CELERY

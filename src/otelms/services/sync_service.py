@@ -3,22 +3,27 @@ Servicio de sincronización - Orquesta scraping + persistencia en BD.
 """
 import asyncio
 import hashlib
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.domain.entities import Hotel
+from otelms.domain.entities import Hotel, HousekeepingStatus, Room
 from otelms.domain.repositories import (
     CategoryAvailabilityRepository,
     CategoryRepository,
+    ChannelRateRepository,
     GuestRepository,
     HotelRepository,
     PaymentRepository,
     ReservationChangeHistoryRepository,
     ReservationNightRateRepository,
     ReservationRepository,
+    RoomAvailabilityRepository,
     RoomRepository,
     ServiceRepository,
     SyncLogRepository,
@@ -29,8 +34,9 @@ from otelms.scraping.folio_deep_extract import parse_folio_complete
 from otelms.scraping.folio_extract import parse_folio
 from otelms.scraping.http_calendar import fetch_calendar_html
 from otelms.scraping.http_folio import FolioClient
-from otelms.scraping.orchestrator import ScrapingOrchestrator
 from otelms.scraping.parsers import CalendarParser
+from otelms.scraping.setup_extract import SetupExtractor
+from otelms.services.setup_sync_service import SetupSyncService
 from otelms.utils.crypto import credential_encryption  # For password decryption
 from otelms.utils.logging import get_logger
 from otelms.utils.telemetry import record_celery_metric
@@ -38,28 +44,63 @@ from otelms.utils.telemetry import record_celery_metric
 logger = get_logger(__name__)
 
 
-def _pick(detail: dict, *keys: str) -> object:
-    """Primer valor no vacío entre varias claves y varios sitios.
+def _normalize_scalar(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        v = value.strip()
+        if v.lower() in {"", "0", "---", "–", "—", "n/a", "na", "none", "null"}:
+            return None
+        return v
+    return value
 
-    Los datos llegan en dos formas: la celda del calendario los trae en
-    plano ('guest_name', 'check_in'), el modal los anidaba en
-    'basic_info'/'accommodation', y la tabla de campos del calendario los
-    usa como etiquetas de su idioma ('Llegada', 'Huésped'). Los tres se
-    miran aquí para que el sync no dependa de cuál de los dos caminos
-    trajo la reserva.
-    """
-    sources = (
-        detail,
-        detail.get("basic_info") or {},
-        detail.get("accommodation") or {},
-        detail.get("fields") or {},
-    )
-    for key in keys:
-        for source in sources:
-            value = source.get(key)
-            if value not in (None, ""):
-                return value
-    return None
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    try:
+        text = str(value).strip().replace(",", ".")
+        if text == "" or text.lower() in {"0", "---", "na", "none", "null"}:
+            # 0 can be valid for amounts; treat textual placeholders as None only
+            if text.lower() in {"", "---", "na", "none", "null"}:
+                return None
+        cleaned = "".join(ch for ch in text if ch.isdigit() or ch in ".-")
+        if cleaned in {"", ".", "-", "-."}:
+            return None
+        return Decimal(cleaned)
+    except Exception:
+        return None
+
+
+def _compute_total_price(folio: dict[str, Any], night_rates_data: list[dict[str, Any]] | None = None) -> Decimal | None:
+    """Calcula precio total desde cargos reales del folio (o night rates) sin usar balance."""
+    total = Decimal("0")
+    has_any = False
+    night_rates_data = night_rates_data or []
+    # Preferir cargos reales del folio (services/charges)
+    for svc in folio.get("services", []) or []:
+        amt = svc.get("amount") or svc.get("total") or svc.get("price")
+        d = _decimal_or_none(amt)
+        if d is not None:
+            total += d
+            has_any = True
+    # Si no hubo cargos parseados, usar night rates como fallback
+    if not has_any and night_rates_data:
+        for nr in night_rates_data:
+            d = _decimal_or_none(nr.get("amount") or nr.get("price"))
+            if d is not None:
+                total += d
+                has_any = True
+    # Fallback adicional: room_charges del folio simple si existen
+    if not has_any:
+        for rc in folio.get("room_charges", []) or []:
+            d = _decimal_or_none(rc.get("amount"))
+            if d is not None:
+                total += d
+                has_any = True
+    return total if has_any else None
 
 
 def _reservation_id(detail: dict) -> str | None:
@@ -169,14 +210,23 @@ class SyncService:
         self.headless = headless
         self.base_domain = base_domain
 
-        self._orchestrator = ScrapingOrchestrator(
-            hotel_id=hotel_id,
-            username=username,
-            password=password,
-            headless=headless,
-            base_domain=base_domain,
-        )
+        self._orchestrator: Any = None
         self._initialized = False
+
+    async def _ensure_orchestrator(self) -> Any:
+        """Inicializa ScrapingOrchestrator solo si se requiere fallback browser real."""
+        if self._orchestrator is None:
+            from otelms.scraping.orchestrator import ScrapingOrchestrator
+
+            self._orchestrator = ScrapingOrchestrator(
+                hotel_id=self.hotel_id,
+                username=self.username,
+                password=self.password,
+                headless=self.headless,
+                base_domain=self.base_domain,
+            )
+            await self._orchestrator.initialize()
+        return self._orchestrator
 
     @classmethod
     async def from_hotel(cls, hotel: Hotel) -> "SyncService":
@@ -196,13 +246,10 @@ class SyncService:
         )
 
     async def initialize(self) -> None:
-        """Inicializa orquestador y verifica BD."""
+        """Inicialización ligera: verifica/crea hotel en BD (sin navegador)."""
         if self._initialized:
             return
 
-        await self._orchestrator.initialize()
-
-        # Verificar que el hotel existe en BD
         async with get_db_session() as session:
             hotel_repo = HotelRepository(session)
             hotel = await hotel_repo.get_by_id(self.hotel_id)
@@ -239,7 +286,9 @@ class SyncService:
 
     async def close(self) -> None:
         """Cierra recursos."""
-        await self._orchestrator.close()
+        if self._orchestrator is not None:
+            await self._orchestrator.close()
+            self._orchestrator = None
         self._initialized = False
 
     def _start_timer(self) -> float:
@@ -275,7 +324,7 @@ class SyncService:
         except Exception as e:
             logger.warning("HTTP calendar falló, probando browser", error=str(e))
 
-        scrape_result = await self._orchestrator.scrape_calendar(target_date)
+        scrape_result = await (await self._ensure_orchestrator()).scrape_calendar(target_date)
         if not scrape_result.success:
             raise RuntimeError(scrape_result.error or "Unknown error")
         data: dict = scrape_result.data
@@ -295,7 +344,7 @@ class SyncService:
         except Exception as e:
             logger.warning("HTTP categories falló, probando browser", error=str(e))
 
-        scrape_result = await self._orchestrator.scrape_categories(target_date)
+        scrape_result = await (await self._ensure_orchestrator()).scrape_categories(target_date)
         if not scrape_result.success:
             raise RuntimeError(scrape_result.error or "Unknown error")
         data: list[dict] = scrape_result.data
@@ -484,7 +533,7 @@ class SyncService:
         return result
 
     async def full_sync(self, target_date: str | None = None) -> SyncResult:
-        """Sincronización completa: calendario + categorías + detalles."""
+        """Sincronización completa Fase 1: setup + calendario + channel_rates + folios + estado operativo."""
         start = self._start_timer()
         result = SyncResult(
             operation="full_sync",
@@ -495,42 +544,113 @@ class SyncService:
 
         try:
             await self._ensure_ready()
+            if target_date is None:
+                target_date = date.today().isoformat()
 
             async with get_db_session() as session:
                 sync_log_repo = SyncLogRepository(session)
                 log = await sync_log_repo.create_log(self.hotel_id, "full")
 
-            # 1. Calendario
+            # 1. Setup / maestros (categorías, habitaciones, dealers, métodos, servicios, hotel)
+            try:
+                setup_sync = SetupSyncService(self.hotel_id)
+                await setup_sync.sync_all_setup()
+            except Exception as e:
+                result.errors.append(f"setup_sync: {e}")
+                logger.warning("Setup sync failed in full_sync", error=str(e), hotel_id=self.hotel_id)
+
+            # 2. Calendario + disponibilidad + locks (bg_padlock -> room_availability)
             calendar_result = await self.sync_calendar(target_date)
             result.records_processed += calendar_result.records_processed
             result.records_created += calendar_result.records_created
             result.records_updated += calendar_result.records_updated
+            result.availability_persisted += calendar_result.availability_persisted
             result.errors.extend(calendar_result.errors)
-
             if not calendar_result.success:
                 if log:
                     await self._complete_log(log.id, result)
                 record_celery_metric("full_sync", "error", self._elapsed_ms(start) / 1000)
                 return result
 
-            # 2. Categorías
+            # 3. Categorías oficiales (setup ya las cubre, pero mantenemos consistencia con flujo previo)
             cat_result = await self.sync_categories(target_date)
             result.records_processed += cat_result.records_processed
             result.records_created += cat_result.records_created
             result.records_updated += cat_result.records_updated
             result.errors.extend(cat_result.errors)
 
-            # 3. Detalles (reservas ocupadas del calendario)
-            if calendar_result.records_processed > 0:
-                # Obtener IDs de reservas del resultado del calendario
-                # (en una implementación real, pasar los IDs)
-                detail_result = await self.sync_reservation_details(
-                    target_date or date.today().isoformat()
-                )
-                result.records_processed += detail_result.records_processed
-                result.records_created += detail_result.records_created
-                result.records_updated += detail_result.records_updated
-                result.errors.extend(detail_result.errors)
+            # 4. channel_rates desde /reservation_c2/price_calendar
+            try:
+                async with SetupExtractor(self.hotel_id) as extractor:
+                    price_rates = await extractor.extract_price_calendar(target_date)
+                async with get_db_session() as session:
+                    rate_repo = ChannelRateRepository(session)
+                    for r in price_rates:
+                        try:
+                            r_date = date.fromisoformat(str(r.get("date")))
+                            channel = str(r.get("channel") or "Directa")
+                            category_id = str(r.get("category_id") or "")
+                            rate_id = str(r.get("rate_id") or "1")
+                            if not category_id:
+                                continue
+                            price = Decimal(str(r.get("price") or "0"))
+                            await rate_repo.upsert_rate(
+                                hotel_id=self.hotel_id,
+                                category_id=category_id,
+                                rate_id=rate_id,
+                                channel=channel,
+                                target_date=r_date,
+                                price=price,
+                                currency="USD",
+                            )
+                        except Exception:
+                            continue
+                    await session.commit()
+            except Exception as e:
+                result.errors.append(f"price_calendar: {e}")
+                logger.warning("Price calendar sync failed in full_sync", error=str(e), hotel_id=self.hotel_id)
+
+            # 5. Estado operativo (/reservation_c2/status) + inicialización housekeeping_status diaria
+            try:
+                async with SetupExtractor(self.hotel_id) as extractor:
+                    _status = await extractor.extract_status()
+                # Inicializar housekeeping_status para habitaciones ocupadas y checkouts de hoy (si no existen)
+                target_d = date.fromisoformat(target_date)
+                async with get_db_session() as session:
+                    room_rows = (await session.execute(select(Room.id).where(Room.hotel_id == self.hotel_id, Room.is_active == True))).scalars().all()  # noqa: E712
+                    # Cargar estado existente de la fecha para no sobrescribir progreso/limpieza
+                    existing_rows = (await session.execute(
+                        select(HousekeepingStatus.room_id).where(
+                            HousekeepingStatus.hotel_id == self.hotel_id,
+                            HousekeepingStatus.date == target_d,
+                        )
+                    )).scalars().all()
+                    existing = {str(r) for r in existing_rows}
+                    for room_id in room_rows:
+                        rid = str(room_id)
+                        if rid in existing:
+                            continue
+                        session.add(HousekeepingStatus(
+                            id=str(uuid.uuid4()),
+                            hotel_id=self.hotel_id,
+                            room_id=rid,
+                            date=target_d,
+                            status=0,
+                            updated_by="sync_full",
+                        ))
+                    await session.commit()
+            except Exception as e:
+                result.errors.append(f"status_housekeeping: {e}")
+                logger.warning("Status/housekeeping init failed in full_sync", error=str(e), hotel_id=self.hotel_id)
+
+            # 6. Folios profundos (reservas activas/próximas del calendario del día objetivo)
+            detail_result = await self.sync_reservation_details(target_date)
+            result.records_processed += detail_result.records_processed
+            result.records_created += detail_result.records_created
+            result.records_updated += detail_result.records_updated
+            result.services_persisted += detail_result.services_persisted
+            result.payments_persisted += detail_result.payments_persisted
+            result.errors.extend(detail_result.errors)
 
             result.success = len(result.errors) == 0
             result.duration_ms = self._elapsed_ms(start)
@@ -617,7 +737,7 @@ class SyncService:
                 )
                 guest_id = guest.id
 
-            # Datos de reserva
+            # Datos de reserva (calendario: no usar balance como total_price)
             res_data = {
                 "id": res_id,
                 "hotel_id": self.hotel_id,
@@ -629,10 +749,10 @@ class SyncService:
                 "adults": cell.get("guest_count") or 1,
                 "children": 0,
                 "babies": 0,
-                "total_price": cell.get("balance"),
+                "total_price": _decimal_or_none(_pick(cell, "total_price")),
                 "currency": "USD",
                 "source": cell.get("fields", {}).get("Fuente"),
-                "notes": cell.get("comments"),
+                "notes": _normalize_scalar(cell.get("comments")),
             }
 
             res, is_new, was_updated = await res_repo.upsert_from_scraper(
@@ -643,12 +763,30 @@ class SyncService:
             elif was_updated:
                 updated += 1
 
-        # 3. Disponibilidad por categoría y día. Va después de las categorías
-        # porque category_availability.category_id es FK a categories.id, y
-        # solo existen las categorías que trajo este mismo calendario.
+        # 3. Disponibilidad por categoría y día.
         availability = await CategoryAvailabilityRepository(session).replace(
             self.hotel_id, calendar_data.get("availability", [])
         )
+
+        # 4. Bloqueos bg_padlock -> room_availability (día específico por habitación)
+        room_avail_repo = RoomAvailabilityRepository(session)
+        for lock in calendar_data.get("locks", []) or []:
+            lock_date_raw = lock.get("date")
+            room_id = lock.get("room_id")
+            if not lock_date_raw or not room_id:
+                continue
+            try:
+                lock_date = date.fromisoformat(str(lock_date_raw))
+            except ValueError:
+                continue
+            await room_avail_repo.upsert(
+                hotel_id=self.hotel_id,
+                room_id=str(room_id),
+                start_date=lock_date,
+                end_date=lock_date,
+                is_blocked=True,
+                reason="calendar_lock_bg_padlock",
+            )
 
         await session.commit()
         return created, updated, availability
@@ -756,56 +894,22 @@ class SyncService:
 
     @staticmethod
     def _service_rows(folio: dict, reservation_id: str) -> list[dict]:
-        """Cargos + precio por noche, en las columnas del modelo Service.
+        """Cargos reales del folio en columnas del modelo Service.
 
-        El modelo pide `date` obligatoria y los cargos de tipo
-        'Alojamiento' la traen vacía (se imputan a las noches de la
-        reserva, que llegan en room_charges). Por eso se encadenan ambas
-        listas y se rellena la fecha con la primera noche disponible.
-
-        El id se compone con el de la reserva porque `Service.id` es clave
-        primaria **sola**: los números de línea del folio (49839, 49842...)
-        se repiten entre reservas distintas y sin el prefijo el INSERT
-        revienta con duplicate key. El id de la noche tenía el mismo
-        problema: dos reservas con una noche el mismo día lo compartían.
+        No se generan filas sintéticas por noche (`%-night-%`) porque el
+        desglose por noche ya se persiste en `reservation_night_rates`.
         """
-        first_night = next(
-            (c.get("date") for c in folio.get("room_charges", []) if c.get("date")),
-            None,
-        )
-
-        rows = []
-        # Se construyen dicts nuevos en vez de retocar los del folio: si
-        # se mutaran, la fecha heredada se colaría en el folio original y
-        # en la siguiente reserva que compartiese ese parseo.
-        for svc in folio.get("services", []):
-            rows.append((svc.get("date") or first_night, svc))
-        for charge in folio.get("room_charges", []):
-            rows.append((
-                charge.get("date"),
-                {
-                    "id": f"night-{charge.get('date')}",
-                    "name": charge.get("description") or "Alojamiento",
-                    "legal_entity": None,
-                    "description": "Precio por noche",
-                    "price": charge.get("amount"),
-                    "amount": charge.get("amount"),
-                },
-            ))
-
-        out = []
-        for raw_date, src in rows:
-            parsed_date = _parse_otelms_datetime(raw_date)
+        out: list[dict] = []
+        for src in folio.get("services", []):
+            parsed_date = _parse_otelms_datetime(src.get("date"))
             if parsed_date is None:
                 # Sin fecha no hay fila: Service.date es NOT NULL.
                 continue
             price = src.get("price") or src.get("amount") or Decimal("0")
-            total = src.get("amount") or src.get("price") or Decimal("0")
+            total = src.get("amount") or src.get("total") or src.get("price") or Decimal("0")
             out.append({
-                # Service llama title/total a lo que el parser llama
-                # name/amount; mandar ambas rompería el constructor.
                 "id": f"{reservation_id}-{src.get('id')}",
-                "title": src.get("name") or "Consumo",
+                "title": src.get("name") or src.get("title") or "Consumo",
                 "total": total,
                 "price": price,
                 "date": parsed_date,
@@ -887,25 +991,27 @@ class SyncService:
                 )
                 guest_id = guest.id
 
+            # Persistencia base desde calendario/detalle (sin balance como total_price)
+            notes_val = _normalize_scalar(_pick(detail, "comments", "comentarios"))
+            channel_res_id = _normalize_scalar(_pick(detail, "channel_reservation_id", "reservation_id_ota"))
+            room_res_id = _normalize_scalar(_pick(detail, "room_reservation_id"))
             res_data = {
                 "id": str(res_id),
                 "hotel_id": self.hotel_id,
                 "room_id": _pick(detail, "room", "room_id"),
                 "guest_id": guest_id,
-                "check_in": _parse_otelms_datetime(
-                    _pick(detail, "check_in", "llegada")
-                ),
-                "check_out": _parse_otelms_datetime(
-                    _pick(detail, "check_out", "salida")
-                ),
+                "check_in": _parse_otelms_datetime(_pick(detail, "check_in", "llegada")),
+                "check_out": _parse_otelms_datetime(_pick(detail, "check_out", "salida")),
                 "status": _pick(detail, "status") or 1,
                 "adults": _pick(detail, "guest_count", "cantidad de huéspedes") or 1,
                 "children": 0,
                 "babies": 0,
-                "total_price": _pick(detail, "total", "balance"),
+                "total_price": _decimal_or_none(_pick(detail, "total", "total_price")),
                 "currency": "USD",
-                "source": _pick(detail, "source", "Fuente", "channel"),
-                "notes": _pick(detail, "comments", "comentarios"),
+                "source": _normalize_scalar(_pick(detail, "source", "Fuente", "channel")),
+                "notes": notes_val,
+                "channel_reservation_id": channel_res_id,
+                "room_reservation_id": room_res_id,
             }
 
             res, is_new, was_updated = await res_repo.upsert_from_scraper(
@@ -932,6 +1038,42 @@ class SyncService:
                 )
                 continue
 
+            # Enriquecer huésped con datos del folio profundo (tel/email/género/nacimiento/nacionalidad)
+            if guest_id:
+                deep_client = folio_deep.get("client") or folio_deep.get("basic") or {}
+                deep_guests = folio_deep.get("guests") or []
+                primary = deep_guests[0] if deep_guests else {}
+                guest_patch: dict[str, Any] = {}
+                phone = _normalize_scalar(deep_client.get("phone") or primary.get("phone"))
+                email = _normalize_scalar(deep_client.get("email") or primary.get("email"))
+                gender = _normalize_scalar(primary.get("gender"))
+                nationality = _normalize_scalar(primary.get("nationality"))
+                birth = _normalize_scalar(primary.get("birth_date"))
+                if phone:
+                    guest_patch["phone"] = phone
+                if email:
+                    guest_patch["email"] = email
+                if gender:
+                    guest_patch["gender"] = gender
+                if nationality:
+                    guest_patch["nationality"] = nationality
+                if birth:
+                    try:
+                        guest_patch["birth_date"] = _parse_otelms_datetime(birth)
+                    except Exception:
+                        pass
+                # nombre completo si vino más detallado
+                full_name = _normalize_scalar(deep_client.get("client_name") or primary.get("name"))
+                if full_name and isinstance(full_name, str):
+                    parts = full_name.split(" ", 1)
+                    guest_patch.setdefault("first_name", parts[0])
+                    if len(parts) > 1:
+                        guest_patch.setdefault("last_name", parts[1])
+                if guest_patch:
+                    guest_patch["id"] = guest_id
+                    guest_patch["hotel_id"] = self.hotel_id
+                    await guest_repo.upsert_from_scraper(self.hotel_id, guest_patch)
+
             # Actualizar campos enriquecidos de la reserva desde el folio
             veh = folio_deep.get("vehicle") or {}
             if veh.get("brand") or veh.get("plate"):
@@ -946,14 +1088,22 @@ class SyncService:
                 res.rate_name = stay_data.get("rate")
 
             chn_data = folio_deep.get("channel") or {}
-            if chn_data.get("channel_reservation_id"):
-                res.channel_reservation_id = chn_data.get("channel_reservation_id")
-            if chn_data.get("room_reservation_id"):
-                res.room_reservation_id = chn_data.get("room_reservation_id")
+            ch_res = _normalize_scalar(chn_data.get("channel_reservation_id"))
+            ch_room_res = _normalize_scalar(chn_data.get("room_reservation_id"))
+            if ch_res:
+                res.channel_reservation_id = ch_res
+            if ch_room_res:
+                res.room_reservation_id = ch_room_res
 
             deep_notes = folio_deep.get("notes") or []
-            if deep_notes and not res.notes:
-                res.notes = "; ".join(f"{n.get('author','')}: {n.get('text','')}".strip(": ") for n in deep_notes)
+            if isinstance(deep_notes, list) and deep_notes and not _normalize_scalar(res.notes):
+                res.notes = "; ".join(
+                    f"{n.get('author','')}: {n.get('text','')}".strip(": ")
+                    for n in deep_notes
+                    if isinstance(n, dict) and n.get("text")
+                ) or res.notes
+            elif isinstance(deep_notes, str) and deep_notes and not _normalize_scalar(res.notes):
+                res.notes = deep_notes
 
             # Tarifas por noche (desglose día a día)
             night_rates_data = folio_deep.get("night_rates") or []
@@ -974,7 +1124,7 @@ class SyncService:
                     {
                         "date": h.get("datetime") or h.get("date") or h.get("changed_at"),
                         "user": h.get("user") or h.get("user_name"),
-                        "event_type": h.get("type") or "change",
+                        "event_type": h.get("event_type") or h.get("type") or "change",
                         "action": h.get("action"),
                         "amount": h.get("amount"),
                         "description": h.get("description") or h.get("details"),
@@ -989,6 +1139,11 @@ class SyncService:
             payments = self._payment_rows(folio, str(res_id))
             if payments:
                 payments_total += await pmt_repo.bulk_upsert(str(res_id), payments)
+
+            # total_price real (sin usar balance)
+            computed_total = _compute_total_price(folio, night_rates_data)
+            if computed_total is not None:
+                res.total_price = computed_total
 
         await session.commit()
         return created, updated, services_total, payments_total

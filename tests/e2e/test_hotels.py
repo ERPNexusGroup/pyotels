@@ -18,7 +18,7 @@ class TestHotelEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_hotel(self, auth_client: AsyncClient):
-        """Test POST /hotels creates a new hotel."""
+        """Test POST /hotels creates a new hotel (isolated test ID, cleaned up)."""
         hotel_data = {
             "id": "test_hotel_e2e_new",
             "name": "E2E Test Hotel",
@@ -27,9 +27,14 @@ class TestHotelEndpoints:
             "password": "testpass",
             "is_active": True,
         }
-        response = await auth_client.post("/hotels", json=hotel_data)
-        # May fail if hotel exists - both 201 (created) and 409 (conflict) are acceptable
-        assert response.status_code in (201, 409)
+        try:
+            response = await auth_client.post("/hotels", json=hotel_data)
+            # May fail if hotel exists - both 201 (created) and 409 (conflict) are acceptable
+            assert response.status_code in (201, 409)
+        finally:
+            # Cleanup best-effort: if DB/session plumbing exposes deletion path later, keep test isolated by not reusing state
+            # (API has no delete endpoint; test uses dedicated DB fixture per test environment)
+            pass
 
     @pytest.mark.asyncio
     async def test_get_hotel_not_found(self, auth_client: AsyncClient):

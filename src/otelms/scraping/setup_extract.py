@@ -9,8 +9,10 @@ Extractor HTTP para páginas maestras de configuración y estado de OtelMS:
 - Estado operativo (Check-in / Check-out / In-House): /reservation_c2/status
 - Tarifas generales por canal: /reservation_c2/price_calendar
 """
+import asyncio
 import re
 from typing import Any
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -54,13 +56,33 @@ class SetupExtractor:
             self._own_client = True
         return self._client
 
+    async def _get_with_retry(self, url: str, attempts: int = 3) -> httpx.Response:
+        """GET con reintentos y backoff ante desconexiones remotas/timeouts."""
+        client = await self._ensure_client()
+        last_exc: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                return resp
+            except (httpx.RemoteProtocolError, httpx.TimeoutException, httpx.TransportError) as exc:
+                last_exc = exc
+                if attempt < attempts - 1:
+                    delay = 0.5 * (2 ** attempt)
+                    logger.warning("Setup GET retry", url=url, attempt=attempt + 1, error=str(exc))
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Setup GET failed unexpectedly")
+
     # ============================================================
     # 1. DATOS DE LA EMPRESA / HOTEL
     # ============================================================
     async def extract_property_information(self) -> dict[str, Any]:
         """Extrae datos generales de la empresa / propiedad."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.property_information_url)
+        resp = await self._get_with_retry(self.urls.property_information_url)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         fields: dict[str, Any] = {}
@@ -102,20 +124,41 @@ class SetupExtractor:
     # ============================================================
     async def extract_property_description(self) -> dict[str, Any]:
         """Extrae la descripción y catálogo de servicios / amenidades del hotel."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.property_description_url)
+        resp = await self._get_with_retry(self.urls.property_description_url)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         active_amenities: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for cb in soup.find_all("input", type="checkbox"):
-            if cb.has_attr("checked"):
-                label = cb.find_parent("label") or soup.find("label", attrs={"for": cb.get("id")})
-                label_text = label.get_text(strip=True) if label else cb.get("name", "")
-                active_amenities.append({
-                    "name": cb.get("name"),
-                    "label": label_text,
-                    "is_active": True,
-                })
+            if not cb.has_attr("checked"):
+                continue
+            name = str(cb.get("name") or "")
+            if "{amenity_id}" in name or "amenity_types" in name:
+                continue
+            # Filtrar plantillas ocultas/clonadas
+            classes = " ".join(cb.get("class") or [])
+            parent_classes = " ".join((cb.parent.get("class") or []) if cb.parent else [])
+            container = cb.find_parent(class_=re.compile(r"template|hidden|clone|sample", re.I))
+            style = " ".join([str(cb.get("style") or ""), str((cb.parent.get("style") if cb.parent else "") or "")]).lower()
+            if container or "template" in classes.lower() or "template" in parent_classes.lower():
+                continue
+            if "display:none" in style or "visibility:hidden" in style:
+                continue
+
+            label = cb.find_parent("label") or soup.find("label", attrs={"for": cb.get("id")})
+            label_text = label.get_text(" ", strip=True) if label else ""
+            if not label_text or "{amenity_id}" in label_text or "amenity_types" in label_text:
+                # evitar labels de plantilla
+                continue
+            key = (name or label_text).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            active_amenities.append({
+                "name": name or label_text,
+                "label": label_text,
+                "is_active": True,
+            })
 
         desc_ta = soup.find("textarea", attrs={"name": re.compile(r"desc", re.I)})
         description_text = desc_ta.get_text(strip=True) if desc_ta else ""
@@ -130,8 +173,7 @@ class SetupExtractor:
     # ============================================================
     async def extract_payment_types(self) -> list[dict[str, Any]]:
         """Extrae el catálogo maestro de métodos de pago configurados."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.payment_types_url)
+        resp = await self._get_with_retry(self.urls.payment_types_url)
         soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table")
         if not table:
@@ -166,8 +208,7 @@ class SetupExtractor:
     # ============================================================
     async def extract_dealers(self) -> list[dict[str, Any]]:
         """Extrae el catálogo maestro de fuentes de venta y canales (OTAs)."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.dealers_url)
+        resp = await self._get_with_retry(self.urls.dealers_url)
         soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table")
         if not table:
@@ -204,8 +245,7 @@ class SetupExtractor:
     # ============================================================
     async def extract_categories(self) -> list[dict[str, Any]]:
         """Extrae el catálogo maestro de categorías de habitación."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.categories_setup_url)
+        resp = await self._get_with_retry(self.urls.categories_setup_url)
         soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table")
         if not table:
@@ -232,36 +272,54 @@ class SetupExtractor:
 
     async def extract_rooms(self) -> list[dict[str, Any]]:
         """Extrae el catálogo maestro de habitaciones físicas y su categoría asignada."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.rooms_setup_url)
+        resp = await self._get_with_retry(self.urls.rooms_setup_url)
         soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table")
         if not table:
             return []
 
+        # Detectar columnas por cabecera cuando sea posible
+        headers = [th.get_text(" ", strip=True).lower() for th in table.find_all("th")]
+        def idx_of(*names: str) -> int | None:
+            for i, h in enumerate(headers):
+                for n in names:
+                    if n in h:
+                        return i
+            return None
+        i_name = idx_of("habitación", "habitacion", "nombre", "número", "numero")
+        i_cat = idx_of("categoría", "categoria")
+        i_floor = idx_of("piso", "planta", "floor")
+        i_occ = idx_of("ocupación", "ocupacion", "capacidad", "max")
+
         rooms: list[dict[str, Any]] = []
         for tr in table.find_all("tr")[1:]:
             tds = tr.find_all("td")
-            if len(tds) >= 6:
-                room_name = tds[1].get_text(strip=True)
-                category_name = tds[2].get_text(strip=True)
-                floor = tds[5].get_text(strip=True)
+            if len(tds) < 3:
+                continue
+            room_name = tds[i_name].get_text(strip=True) if i_name is not None and i_name < len(tds) else tds[1].get_text(strip=True)
+            category_name = tds[i_cat].get_text(strip=True) if i_cat is not None and i_cat < len(tds) else (tds[2].get_text(strip=True) if len(tds) > 2 else "")
+            floor = tds[i_floor].get_text(strip=True) if i_floor is not None and i_floor < len(tds) else (tds[5].get_text(strip=True) if len(tds) > 5 else "")
+            occ_val = tds[i_occ].get_text(strip=True) if i_occ is not None and i_occ < len(tds) else ""
+            max_occupancy = int(occ_val) if occ_val.isdigit() else None
 
-                edit_link = tr.find("a", href=True)
-                room_id = ""
-                if edit_link:
-                    m = re.search(r"/(\d+)$", edit_link.get("href", ""))
-                    if m:
-                        room_id = m.group(1)
+            edit_link = tr.find("a", href=True)
+            room_id = ""
+            if edit_link:
+                m = re.search(r"/(\d+)$", edit_link.get("href", ""))
+                if m:
+                    room_id = m.group(1)
 
-                rooms.append({
-                    "id": room_id or room_name,
-                    "name": room_name,
-                    "category_name": category_name,
-                    "floor": floor,
-                    "hotel_id": self.hotel_id,
-                    "is_active": True,
-                })
+            room_item: dict[str, Any] = {
+                "id": room_id or room_name,
+                "name": room_name,
+                "category_name": category_name,
+                "floor": floor or None,
+                "hotel_id": self.hotel_id,
+                "is_active": True,
+            }
+            if max_occupancy is not None:
+                room_item["max_occupancy"] = max_occupancy
+            rooms.append(room_item)
 
         return rooms
 
@@ -270,8 +328,7 @@ class SetupExtractor:
     # ============================================================
     async def extract_status(self) -> dict[str, Any]:
         """Extrae el estado operativo en vivo: llegadas pendientes, salidas y huéspedes alojados."""
-        client = await self._ensure_client()
-        resp = await client.get(self.urls.status_url)
+        resp = await self._get_with_retry(self.urls.status_url)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         status_data: dict[str, Any] = {
@@ -314,13 +371,12 @@ class SetupExtractor:
     # ============================================================
     async def extract_price_calendar(self, target_date: str | None = None) -> list[dict[str, Any]]:
         """Extrae la matriz de precios por canal de venta, categoría y fecha."""
-        client = await self._ensure_client()
         url = self.urls.price_calendar_url
         if target_date:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}date={target_date}"
 
-        resp = await client.get(url)
+        resp = await self._get_with_retry(url)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         rates_data: list[dict[str, Any]] = []
@@ -345,7 +401,7 @@ class SetupExtractor:
 
                     rates_data.append({
                         "category_id": cat_id,
-                        "rate_id": rate_id,
+                        "rate_id": rate_id or "1",
                         "channel": channel_name or "Directa",
                         "date": fulldate,
                         "price": price_val,

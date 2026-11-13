@@ -46,11 +46,6 @@ celery_app.conf.update(
             "schedule": crontab(minute="*/15"),
             "args": (settings.otelms_default_hotel_id,),
         },
-        "sync-categories-hourly": {
-            "task": "otelms.tasks.scraping_tasks.sync_categories",
-            "schedule": crontab(minute=0),
-            "args": (settings.otelms_default_hotel_id,),
-        },
         "sync-full-daily": {
             "task": "otelms.tasks.scraping_tasks.sync_full",
             "schedule": crontab(hour=3, minute=0),

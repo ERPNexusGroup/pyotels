@@ -160,7 +160,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Rate limiting middleware
+    # Rate limiting middleware (fast fallback when Redis unavailable)
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next: Any) -> Any:
         """Apply rate limiting based on API key or IP."""
@@ -173,11 +173,9 @@ def create_app() -> FastAPI:
             key = f"ip:{client_ip}"
 
         try:
-            # Use global rate limiter with key
-            bucket = rate_limiter.get_bucket(key)
-            await bucket.take(1)
+            await rate_limiter.wait_if_needed(key, 1)
         except Exception as e:
-            # If rate limiter fails (e.g., Redis down), log and allow request
+            # If rate limiter fails (e.g., Redis down mid-flight), log and allow request
             # to avoid blocking all traffic on rate limiter issues
             logger.warning("Rate limiter error, allowing request", key=key, error=str(e))
 
@@ -204,10 +202,90 @@ def create_app() -> FastAPI:
 
         return response
 
-    # Prometheus metrics endpoint
+    # Metrics endpoint (internal)
     @app.get("/metrics", include_in_schema=False)
     async def metrics() -> Response:
+        if not settings.api_enable_internal_sync:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Endpoint disabled in current API stage"},
+            )
         return Response(generate_latest(), media_type="text/plain")
+
+    # API Gateway middleware (feature flags por etapa)
+    @app.middleware("http")
+    async def api_gateway_middleware(request: Request, call_next: Any) -> Any:
+        path = request.url.path
+        method = request.method.upper()
+
+        # Root siempre disponible (info mínima)
+        if path == "/":
+            return await call_next(request)
+
+        # /health y /metrics dependen de flag interno
+        if path in {"/health", "/metrics"}:
+            if not settings.api_enable_internal_sync:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            return await call_next(request)
+
+        # WebSocket interno
+        if path.startswith("/ws/"):
+            if not settings.api_enable_internal_sync:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            return await call_next(request)
+
+        # Admin (panel + CRUD/tareas admin)
+        if path.startswith("/admin"):
+            if not settings.api_enable_admin_routes:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            return await call_next(request)
+
+        # Rutas legacy/redundantes específicas
+        legacy_paths = {
+            "/rooms/available",
+            "/reservations/sync/all",
+        }
+        if path in legacy_paths:
+            if not settings.api_enable_legacy_routes:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            # si legacy está habilitado, puede requerir además flags de lectura/escritura según método
+
+        # Endpoints internos de sync (triggers e históricos operativos)
+        sync_internal_paths = {
+            "/hotels/{hotel_id}/sync-setup",  # path template not directly comparable; handle by prefix/pattern below
+        }
+        is_sync_internal = (
+            (path.startswith("/reservations/sync") and path != "/reservations/sync/history")
+            or path == "/reservations/sync/history"
+            or (path.startswith("/reservations/") and path.endswith("/sync-deep"))
+            or (path.startswith("/hotels/") and path.endswith("/sync-setup"))
+        )
+        if is_sync_internal:
+            if not settings.api_enable_internal_sync:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            return await call_next(request)
+
+        # Escrituras operativas (Fase 2)
+        is_write_action = (
+            (path.startswith("/housekeeping") and method in {"PATCH", "POST", "PUT", "DELETE"})
+            or (path.startswith("/guests") and method in {"POST", "PUT", "PATCH", "DELETE"})
+            or (path.startswith("/hotels") and method in {"POST", "PATCH", "PUT", "DELETE"} and not path.endswith("/sync-setup"))
+            or (path.startswith("/reservations") and method in {"POST", "PATCH", "PUT", "DELETE"} and not is_sync_internal)
+        )
+        # Nota: POST /hotels crea hotel y POST /hotels/{id}/rotate-password son mutaciones; se tratan como F2 write/admin-like por etapa.
+        # Para simplificar Fase 1: cualquier mutación fuera de sync interno requiere API_ENABLE_WRITE_ACTIONS.
+        if method in {"POST", "PATCH", "PUT", "DELETE"} and not is_sync_internal and not path.startswith("/admin"):
+            if not settings.api_enable_write_actions:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            return await call_next(request)
+
+        # Lectura pública (GET/HEAD/OPTIONS)
+        if method in {"GET", "HEAD", "OPTIONS"}:
+            if not settings.api_enable_read_public:
+                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
+            return await call_next(request)
+
+        return await call_next(request)
 
     # Global exception handler
     @app.exception_handler(Exception)
@@ -224,19 +302,28 @@ def create_app() -> FastAPI:
             content={"detail": "Internal server error"},
         )
 
-    # Include routers
-    app.include_router(health.router)
-    app.include_router(hotels.router)
-    app.include_router(reservations.router)
-    app.include_router(guests.router)
-    app.include_router(categories.router)
-    app.include_router(rooms.router)
-    app.include_router(restrictions.router)
-    app.include_router(housekeeping.router)
-    app.include_router(websockets.router)
-
-    # Admin dashboard (solo en debug - el router mismo valida)
-    app.include_router(admin.router)
+    # Include routers (montaje condicional por feature flags de etapa)
+    if settings.api_enable_internal_sync or settings.api_enable_read_public:
+        # health router expone /health (lectura/estado) pero en etapa 1 se permite con internal/read flags según gateway
+        app.include_router(health.router)
+    if settings.api_enable_read_public or settings.api_enable_internal_sync or settings.api_enable_write_actions:
+        app.include_router(hotels.router)
+    if settings.api_enable_read_public or settings.api_enable_internal_sync or settings.api_enable_write_actions:
+        app.include_router(reservations.router)
+    if settings.api_enable_read_public or settings.api_enable_write_actions:
+        app.include_router(guests.router)
+    if settings.api_enable_read_public:
+        app.include_router(categories.router)
+    if settings.api_enable_read_public or settings.api_enable_legacy_routes:
+        app.include_router(rooms.router)
+    if settings.api_enable_read_public:
+        app.include_router(restrictions.router)
+    if settings.api_enable_read_public or settings.api_enable_write_actions:
+        app.include_router(housekeeping.router)
+    if settings.api_enable_internal_sync:
+        app.include_router(websockets.router)
+    if settings.api_enable_admin_routes:
+        app.include_router(admin.router)
 
     # Root endpoint
     @app.get("/", include_in_schema=False)

@@ -1,6 +1,6 @@
 """
 Rate limiter con token bucket (Redis-backed) para scraping distribuido.
-Incluye rate limiting adaptativo que ajusta RPM basado en éxito/error.
+Incluye fallback rápido en memoria cuando Redis no está disponible.
 """
 import asyncio
 import time
@@ -72,6 +72,52 @@ class AdaptiveRateLimiter:
         """Resetea al RPM base."""
         self.current_rpm = self.base_rpm
         self._success_count = 0
+
+
+class MemoryTokenBucket:
+    """Token bucket en memoria (fallback sin Redis)."""
+
+    def __init__(self, rate: int, burst: int):
+        self.rate = rate
+        self.burst = burst
+        self.refill_rate = rate / 60.0
+        self.tokens = float(burst)
+        self.last_refill = time.time()
+        self._lock = asyncio.Lock()
+
+    async def take(self, tokens: int = 1, timeout: float = 30.0) -> bool:
+        start_time = time.monotonic()
+        while True:
+            async with self._lock:
+                now = time.time()
+                elapsed = now - self.last_refill
+                self.tokens = min(self.burst, self.tokens + elapsed * self.refill_rate)
+                self.last_refill = now
+                if self.tokens >= tokens:
+                    self.tokens -= tokens
+                    return True
+                current = self.tokens
+            tokens_needed = tokens - current
+            wait_time = tokens_needed / self.refill_rate if self.refill_rate > 0 else 1.0
+            if time.monotonic() - start_time + wait_time > timeout:
+                raise RateLimitError(
+                    "Rate limit exceeded (memory bucket)",
+                    retry_after=int(wait_time) + 1,
+                )
+            await asyncio.sleep(min(wait_time, 0.1))
+
+    async def get_available(self) -> float:
+        async with self._lock:
+            now = time.time()
+            elapsed = now - self.last_refill
+            self.tokens = min(self.burst, self.tokens + elapsed * self.refill_rate)
+            self.last_refill = now
+            return self.tokens
+
+    async def reset(self) -> None:
+        async with self._lock:
+            self.tokens = float(self.burst)
+            self.last_refill = time.time()
 
 
 class TokenBucket:
@@ -200,12 +246,16 @@ class TokenBucket:
 class RateLimiter:
     """
     Gestor de rate limiting por hotel y global.
+    Fallback inmediato a memoria si Redis no responde (circuit breaker corto).
     """
 
     def __init__(self, redis_url: str | None = None):
         self.redis_url = redis_url or settings.redis_url
         self._client: redis.Redis | None = None
-        self._buckets: dict[str, TokenBucket] = {}
+        self._buckets: dict[str, TokenBucket | MemoryTokenBucket] = {}
+        self._redis_available: bool | None = None
+        self._redis_checked_at: float = 0.0
+        self._redis_retry_after_s: float = 30.0
 
     @property
     def client(self) -> redis.Redis:
@@ -213,19 +263,45 @@ class RateLimiter:
             self._client = redis.from_url(
                 self.redis_url,
                 decode_responses=True,
+                socket_connect_timeout=settings.redis_socket_connect_timeout,
+                socket_timeout=settings.redis_socket_timeout,
             )
         return self._client
 
-    def get_bucket(self, hotel_id: str | None = None) -> TokenBucket:
+    async def _ensure_redis_available(self) -> bool:
+        now = time.monotonic()
+        if self._redis_available is True:
+            return True
+        if self._redis_available is False and (now - self._redis_checked_at) < self._redis_retry_after_s:
+            return False
+        try:
+            await asyncio.wait_for(self.client.ping(), timeout=max(0.2, float(settings.redis_socket_connect_timeout)))
+            self._redis_available = True
+            self._redis_checked_at = now
+            return True
+        except Exception as e:
+            self._redis_available = False
+            self._redis_checked_at = now
+            logger.warning("Redis unavailable for rate limiting, using memory fallback", error=str(e))
+            return False
+
+    def get_bucket(self, hotel_id: str | None = None) -> TokenBucket | MemoryTokenBucket:
         """Obtiene o crea un bucket para el hotel (o global)."""
         key = f"hotel:{hotel_id}" if hotel_id else "global"
         if key not in self._buckets:
-            self._buckets[key] = TokenBucket(
-                self.client,
-                key,
-                rate=settings.scraper_rate_limit_requests_per_minute,
-                burst=settings.scraper_rate_limit_burst,
-            )
+            # Crear bucket en memoria por defecto si Redis ya marcado caído; se migrará si vuelve
+            if self._redis_available is False:
+                self._buckets[key] = MemoryTokenBucket(
+                    rate=settings.scraper_rate_limit_requests_per_minute,
+                    burst=settings.scraper_rate_limit_burst,
+                )
+            else:
+                self._buckets[key] = TokenBucket(
+                    self.client,
+                    key,
+                    rate=settings.scraper_rate_limit_requests_per_minute,
+                    burst=settings.scraper_rate_limit_burst,
+                )
         return self._buckets[key]
 
     @asynccontextmanager
@@ -240,8 +316,45 @@ class RateLimiter:
 
     async def wait_if_needed(self, hotel_id: str | None = None, tokens: int = 1) -> None:
         """Espera si es necesario antes de proceder."""
-        bucket = self.get_bucket(hotel_id)
-        await bucket.take(tokens)
+        # Check redis availability quickly and switch bucket impl if needed
+        redis_ok = await self._ensure_redis_available()
+        key = f"hotel:{hotel_id}" if hotel_id else "global"
+        bucket = self._buckets.get(key)
+        if redis_ok and isinstance(bucket, MemoryTokenBucket):
+            bucket = TokenBucket(
+                self.client,
+                key,
+                rate=settings.scraper_rate_limit_requests_per_minute,
+                burst=settings.scraper_rate_limit_burst,
+            )
+            self._buckets[key] = bucket
+        elif not redis_ok and isinstance(bucket, TokenBucket):
+            bucket = MemoryTokenBucket(
+                rate=settings.scraper_rate_limit_requests_per_minute,
+                burst=settings.scraper_rate_limit_burst,
+            )
+            self._buckets[key] = bucket
+        elif bucket is None:
+            bucket = self.get_bucket(hotel_id)
+            # re-evaluate type once
+            if redis_ok and isinstance(bucket, MemoryTokenBucket):
+                bucket = TokenBucket(self.client, key, rate=settings.scraper_rate_limit_requests_per_minute, burst=settings.scraper_rate_limit_burst)
+                self._buckets[key] = bucket
+            elif not redis_ok and isinstance(bucket, TokenBucket):
+                bucket = MemoryTokenBucket(rate=settings.scraper_rate_limit_requests_per_minute, burst=settings.scraper_rate_limit_burst)
+                self._buckets[key] = bucket
+        try:
+            await bucket.take(tokens)
+        except Exception:
+            # Si Redis falló en medio de la operación, degradar a memoria y permitir
+            if not isinstance(bucket, MemoryTokenBucket):
+                self._redis_available = False
+                self._redis_checked_at = time.monotonic()
+                mem = MemoryTokenBucket(rate=settings.scraper_rate_limit_requests_per_minute, burst=settings.scraper_rate_limit_burst)
+                self._buckets[key] = mem
+                await mem.take(tokens)
+            else:
+                raise
 
     async def get_status(self, hotel_id: str | None = None) -> dict:
         """Obtiene estado actual del rate limiter."""
@@ -252,6 +365,7 @@ class RateLimiter:
             "available_tokens": round(available, 2),
             "max_tokens": settings.scraper_rate_limit_burst,
             "rate_per_minute": settings.scraper_rate_limit_requests_per_minute,
+            "backend": "memory" if isinstance(bucket, MemoryTokenBucket) else "redis",
         }
 
     async def close(self) -> None:
@@ -266,3 +380,4 @@ rate_limiter = RateLimiter()
 async def get_rate_limiter() -> RateLimiter:
     """Dependency para FastAPI."""
     return rate_limiter
+
