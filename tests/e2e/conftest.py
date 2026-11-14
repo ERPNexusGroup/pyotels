@@ -41,5 +41,25 @@ async def async_client(base_url: str) -> AsyncGenerator[AsyncClient, None]:
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(async_client: AsyncClient, api_key: str) -> AsyncClient:
     """Pre-configured client with API key header."""
+    from otelms.config.settings import settings as _settings
+    prev = {
+        "read": _settings.api_enable_read_public,
+        "internal": _settings.api_enable_internal_sync,
+        "write": _settings.api_enable_write_actions,
+        "admin": _settings.api_enable_admin_routes,
+        "legacy": _settings.api_enable_legacy_routes,
+    }
+    _settings.api_enable_read_public = True
+    _settings.api_enable_internal_sync = True
+    _settings.api_enable_write_actions = True
+    _settings.api_enable_admin_routes = True
+    _settings.api_enable_legacy_routes = True
     async_client.headers.update({"X-API-Key": api_key})
-    return async_client
+    try:
+        yield async_client
+    finally:
+        _settings.api_enable_read_public = prev["read"]
+        _settings.api_enable_internal_sync = prev["internal"]
+        _settings.api_enable_write_actions = prev["write"]
+        _settings.api_enable_admin_routes = prev["admin"]
+        _settings.api_enable_legacy_routes = prev["legacy"]

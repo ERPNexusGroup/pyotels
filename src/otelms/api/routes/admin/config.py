@@ -1,4 +1,4 @@
-"""Admin config endpoints: hotels CRUD, API keys CRUD, system settings."""
+"""Admin config endpoints: hotels CRUD, API keys CRUD, system settings, gateway status."""
 
 import hashlib
 import secrets
@@ -10,11 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from otelms.config.settings import settings
 from otelms.domain.entities import (
     ApiKey,
     Hotel,
     SyncLog,
 )
+from otelms.scraping.rate_limiter import rate_limiter
 from otelms.utils.crypto import credential_encryption
 from otelms.utils.logging import get_logger
 
@@ -115,6 +117,20 @@ class ApiKeyCreateResponse(ApiKeyResponse):
     """Response model for API key creation (includes the plain key - shown once)."""
 
     key: str
+
+
+class GatewayStatusResponse(BaseModel):
+    flags: dict[str, bool]
+    redis: dict[str, Any]
+    default_hotel_id: str | None
+
+
+class GatewayStatusUpdate(BaseModel):
+    api_enable_read_public: bool | None = None
+    api_enable_internal_sync: bool | None = None
+    api_enable_write_actions: bool | None = None
+    api_enable_legacy_routes: bool | None = None
+    # api_enable_admin_routes intentionally excluded to avoid locking admin out
 
 
 # ============================================================
@@ -489,3 +505,75 @@ async def delete_api_key(
 
     await session.delete(key)
     await session.commit()
+
+
+# ============================================================
+# API GATEWAY STATUS / FEATURE FLAGS
+# ============================================================
+
+
+def _gateway_flags() -> dict[str, bool]:
+    return {
+        "api_enable_read_public": bool(settings.api_enable_read_public),
+        "api_enable_internal_sync": bool(settings.api_enable_internal_sync),
+        "api_enable_write_actions": bool(settings.api_enable_write_actions),
+        "api_enable_admin_routes": bool(settings.api_enable_admin_routes),
+        "api_enable_legacy_routes": bool(settings.api_enable_legacy_routes),
+    }
+
+
+async def _redis_status() -> dict[str, Any]:
+    # Fast probe with in-memory fallback awareness from rate limiter state
+    try:
+        await rate_limiter._ensure_redis_available()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    available = getattr(rate_limiter, "_redis_available", None)
+    if available is True:
+        return {"connected": True, "mode": "redis"}
+    if available is False:
+        return {"connected": False, "mode": "memory_fallback"}
+    return {"connected": False, "mode": "unknown"}
+
+
+@router.get("/api/gateway-status", response_model=GatewayStatusResponse)
+async def get_gateway_status(
+    _: dict[str, Any] = Depends(_require_admin),
+) -> GatewayStatusResponse:
+    """Estado actual de feature flags, Redis y hotel por defecto."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return GatewayStatusResponse(
+        flags=_gateway_flags(),
+        redis=await _redis_status(),
+        default_hotel_id=settings.otelms_default_hotel_id,
+    )
+
+
+@router.patch("/api/gateway-status", response_model=GatewayStatusResponse)
+async def update_gateway_status(
+    payload: GatewayStatusUpdate,
+    _: dict[str, Any] = Depends(_require_admin),
+) -> GatewayStatusResponse:
+    """Actualiza flags de etapa en caliente (sin permitir desactivar admin)."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    allowed = {
+        "api_enable_read_public",
+        "api_enable_internal_sync",
+        "api_enable_write_actions",
+        "api_enable_legacy_routes",
+    }
+    for key, value in updates.items():
+        if key in allowed and value is not None:
+            setattr(settings, key, bool(value))
+    # Seguridad: nunca apagar rutas admin desde este endpoint
+    settings.api_enable_admin_routes = True
+
+    return GatewayStatusResponse(
+        flags=_gateway_flags(),
+        redis=await _redis_status(),
+        default_hotel_id=settings.otelms_default_hotel_id,
+    )

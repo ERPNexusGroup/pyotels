@@ -1,25 +1,30 @@
-"""Admin dashboard endpoints: stats, sync logs, manual sync, hotels list/detail."""
+"""Admin dashboard endpoints: stats, sync logs, manual sync, hotels list/detail, hotel overview."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from otelms.config.settings import settings
 from otelms.domain.entities import (
     Category,
+    CategoryAvailability,
+    ChannelRate,
     Guest,
     Hotel,
     Payment,
+    PropertyService,
     Reservation,
     Room,
     Service,
     SyncLog,
 )
 from otelms.domain.repositories import HotelRepository
+from otelms.services.setup_sync_service import SetupSyncService
 from otelms.services.sync_service import SyncService
 from otelms.utils.logging import get_logger
 
@@ -33,7 +38,7 @@ router = APIRouter(tags=["admin"])
 class SyncRequest(BaseModel):
     """Payload for manual sync trigger."""
     hotel_id: str
-    sync_type: Literal["calendar", "categories", "full", "details"] = "full"
+    sync_type: Literal["calendar", "categories", "full", "details", "setup"] = "full"
     target_date: str | None = None
 
 
@@ -42,7 +47,7 @@ async def admin_stats(
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
-    """Estadísticas generales: conteos por entidad y último sync."""
+    """Estadísticas generales: conteos por entidad y últimos sync logs."""
     counts: dict[str, int] = {}
 
     for name, model in [
@@ -56,8 +61,8 @@ async def admin_stats(
         count_result = await session.execute(select(func.count()).select_from(model))
         counts[name] = int(count_result.scalar_one())
 
-    # Últimos sync logs
-    logs_stmt = select(SyncLog).order_by(SyncLog.started_at.desc()).limit(10)
+    # Últimos sync logs (15)
+    logs_stmt = select(SyncLog).order_by(SyncLog.started_at.desc()).limit(15)
     logs_result = await session.execute(logs_stmt)
     recent_logs = logs_result.scalars().all()
 
@@ -70,9 +75,11 @@ async def admin_stats(
                 "sync_type": log.sync_type,
                 "status": log.status,
                 "started_at": log.started_at.isoformat() if log.started_at else None,
+                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
                 "duration_ms": log.duration_ms,
                 "records_created": log.records_created,
                 "records_updated": log.records_updated,
+                "records_processed": log.records_processed,
                 "error_count": log.error_count,
             }
             for log in recent_logs
@@ -82,6 +89,106 @@ async def admin_stats(
             "debug": settings.app_debug,
             "version": "1.0.0",
         },
+    }
+
+
+@router.get("/api/hotel-overview")
+async def admin_hotel_overview(
+    hotel_id: str = "18330",
+    session: AsyncSession = Depends(_get_db),
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Resumen operativo y auditoría de calidad de datos para un hotel."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    today = date.today()
+    today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC)
+    today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=UTC)
+
+    def _hotel(model):
+        return getattr(model, "hotel_id") == hotel_id
+
+    # Operativo
+    arrivals_q = select(func.count()).select_from(Reservation).where(
+        _hotel(Reservation),
+        Reservation.check_in >= today_start,
+        Reservation.check_in <= today_end,
+        Reservation.status != 4,
+    )
+    departures_q = select(func.count()).select_from(Reservation).where(
+        _hotel(Reservation),
+        Reservation.check_out >= today_start,
+        Reservation.check_out <= today_end,
+        Reservation.status != 4,
+    )
+    in_house_q = select(func.count()).select_from(Reservation).where(
+        _hotel(Reservation),
+        Reservation.check_in <= today_start,
+        Reservation.check_out > today_start,
+        Reservation.status != 4,
+    )
+    pending_balance_q = select(func.count()).select_from(Reservation).where(
+        _hotel(Reservation),
+        Reservation.total_price.is_not(None),
+        Reservation.total_price > Decimal("0"),
+        Reservation.status != 4,
+    )
+
+    # Salud de datos
+    reservations_total_q = select(func.count()).select_from(Reservation).where(_hotel(Reservation))
+    negative_price_q = select(func.count()).select_from(Reservation).where(
+        _hotel(Reservation), Reservation.total_price.is_not(None), Reservation.total_price < Decimal("0")
+    )
+    channel_rates_q = select(func.count()).select_from(ChannelRate).where(_hotel(ChannelRate))
+    category_availability_q = select(func.count()).select_from(CategoryAvailability).where(_hotel(CategoryAvailability))
+    property_services_q = select(func.count()).select_from(PropertyService).where(_hotel(PropertyService))
+
+    arrivals = int((await session.execute(arrivals_q)).scalar_one())
+    departures = int((await session.execute(departures_q)).scalar_one())
+    in_house = int((await session.execute(in_house_q)).scalar_one())
+    pending_balance = int((await session.execute(pending_balance_q)).scalar_one())
+    reservations_total = int((await session.execute(reservations_total_q)).scalar_one())
+    negative_prices = int((await session.execute(negative_price_q)).scalar_one())
+    channel_rates = int((await session.execute(channel_rates_q)).scalar_one())
+    category_availability = int((await session.execute(category_availability_q)).scalar_one())
+    property_services = int((await session.execute(property_services_q)).scalar_one())
+
+    logs_stmt = select(SyncLog).where(SyncLog.hotel_id == hotel_id).order_by(SyncLog.started_at.desc()).limit(15)
+    recent_logs = (await session.execute(logs_stmt)).scalars().all()
+
+    return {
+        "hotel_id": hotel_id,
+        "date": today.isoformat(),
+        "operational": {
+            "arrivals_today": arrivals,
+            "departures_today": departures,
+            "in_house_today": in_house,
+            "reservations_pending_balance": pending_balance,
+        },
+        "data_health": {
+            "reservations_total": reservations_total,
+            "reservations_negative_total_price": negative_prices,
+            "channel_rates": channel_rates,
+            "category_availability": category_availability,
+            "property_services": property_services,
+        },
+        "recent_syncs": [
+            {
+                "id": log.id,
+                "hotel_id": log.hotel_id,
+                "sync_type": log.sync_type,
+                "status": log.status,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
+                "duration_ms": log.duration_ms,
+                "records_created": log.records_created,
+                "records_updated": log.records_updated,
+                "records_processed": log.records_processed,
+                "error_count": log.error_count,
+            }
+            for log in recent_logs
+        ],
     }
 
 
@@ -310,6 +417,9 @@ async def admin_trigger_sync(
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
     """Triggea una sincronización manual para un hotel."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
     hotel_repo = HotelRepository(session)
     hotel = await hotel_repo.get_by_id(sync_request.hotel_id)
     if not hotel:
@@ -321,6 +431,24 @@ async def admin_trigger_sync(
     service = await SyncService.from_hotel(hotel)
 
     try:
+        if sync_request.sync_type == "setup":
+            setup_service = SetupSyncService(sync_request.hotel_id)
+            setup_result = await setup_service.sync_all_setup()
+            return {
+                "operation": "setup",
+                "success": bool(setup_result.get("success", True)),
+                "duration_ms": None,
+                "records_created": 0,
+                "records_updated": 0,
+                "records_processed": int(setup_result.get("categories_synced", 0))
+                + int(setup_result.get("rooms_synced", 0))
+                + int(setup_result.get("payment_methods_synced", 0))
+                + int(setup_result.get("dealers_synced", 0)),
+                "errors": [] if setup_result.get("success", True) else [str(setup_result)],
+                "completed_at": datetime.now(UTC).isoformat(),
+                "details": setup_result,
+            }
+
         await service.initialize()
         if sync_request.sync_type == "calendar":
             result = await service.sync_calendar(sync_request.target_date)
@@ -341,6 +469,7 @@ async def admin_trigger_sync(
             "duration_ms": None,
             "records_created": 0,
             "records_updated": 0,
+            "records_processed": 0,
             "errors": [str(exc)],
             "completed_at": None,
         }
@@ -353,6 +482,7 @@ async def admin_trigger_sync(
         "duration_ms": result.duration_ms,
         "records_created": result.records_created,
         "records_updated": result.records_updated,
+        "records_processed": result.records_processed,
         "errors": result.errors,
         "completed_at": result.completed_at.isoformat() if result.completed_at else None,
     }

@@ -702,9 +702,9 @@ class ReservationRepository(BaseRepository):
                 # Sin cambios
                 return existing, False, False
 
-            # Actualizar
+            # Actualizar (no sobrescribir con None campos ya existentes cuando llega detalle parcial)
             for key, value in data.items():
-                if hasattr(existing, key) and key not in ["id", "created_at"]:
+                if value is not None and hasattr(existing, key) and key not in ["id", "created_at"]:
                     setattr(existing, key, value)
             existing.sync_hash = sync_hash
             existing.last_synced_at = datetime.now(UTC)

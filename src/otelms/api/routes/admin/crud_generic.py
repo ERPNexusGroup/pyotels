@@ -165,21 +165,13 @@ async def admin_create_row(
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
-    """Crea una nueva fila."""
+    """Mutación directa deshabilitada (salvo flujos específicos fuera de tablas genéricas)."""
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    model = _CRUD_MODELS.get(table_slug)
-    if not model:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
-
-    casted_data = _cast_payload_values(model, payload.data)
-    row = model(**casted_data)
-    session.add(row)
-    await session.flush()
-    await session.commit()
-
-    return {"id": row.id, "table": table_slug}  # type: ignore[attr-defined]
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Direct SQL mutations disabled; use OtelMS sync or Fase 2 task endpoints",
+    )
 
 
 @router.put("/api/tables/{table_slug}/{id}")
@@ -190,29 +182,13 @@ async def admin_update_row(
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
-    """Actualiza una fila existente."""
+    """Mutación directa deshabilitada (salvo flujos específicos fuera de tablas genéricas)."""
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    model = _CRUD_MODELS.get(table_slug)
-    if not model:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
-
-    stmt = select(model).where(model.id == id)  # type: ignore[attr-defined]
-    result = await session.execute(stmt)
-    row = result.scalar_one_or_none()
-
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Row not found")
-
-    casted_data = _cast_payload_values(model, payload.data)
-    for key, value in casted_data.items():
-        setattr(row, key, value)
-
-    await session.flush()
-    await session.commit()
-
-    return {"id": row.id, "table": table_slug, "updated": True}  # type: ignore[attr-defined]
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Direct SQL mutations disabled; use OtelMS sync or Fase 2 task endpoints",
+    )
 
 
 @router.delete("/api/tables/{table_slug}/{id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -222,20 +198,10 @@ async def admin_delete_row(
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> None:
-    """Elimina una fila."""
+    """Mutación directa deshabilitada (salvo flujos específicos fuera de tablas genéricas)."""
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    model = _CRUD_MODELS.get(table_slug)
-    if not model:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
-
-    stmt = select(model).where(model.id == id)  # type: ignore[attr-defined]
-    result = await session.execute(stmt)
-    row = result.scalar_one_or_none()
-
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Row not found")
-
-    await session.delete(row)
-    await session.commit()
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Direct SQL mutations disabled; use OtelMS sync or Fase 2 task endpoints",
+    )

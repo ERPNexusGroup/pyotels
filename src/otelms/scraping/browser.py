@@ -6,15 +6,15 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, cast
-
-from camoufox.async_api import AsyncCamoufox
-from playwright.async_api import Browser, BrowserContext, Page
+from typing import Any, TYPE_CHECKING, cast
 
 from otelms.config.settings import settings
 from otelms.scraping.exceptions import BrowserError
 from otelms.scraping.proxy_resolver import resolve_proxy
 from otelms.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, BrowserContext, Page
 
 logger = get_logger(__name__)
 
@@ -22,8 +22,8 @@ logger = get_logger(__name__)
 @dataclass
 class BrowserInstance:
     """Wrapper para una instancia de navegador con metadatos."""
-    browser: Browser
-    context: BrowserContext
+    browser: Any
+    context: Any
     created_at: float = field(default_factory=lambda: asyncio.get_event_loop().time())
     last_used: float = field(default_factory=lambda: asyncio.get_event_loop().time())
     in_use: bool = False
@@ -52,28 +52,42 @@ class BrowserPool:
         self.max_idle_seconds = max_idle_seconds
         self.headless = headless
 
-        self._browser: Browser | None = None
-        self._camoufox_context: AsyncCamoufox | None = None
+        self._browser: Any | None = None
+        self._camoufox_context: Any | None = None
         self._instances: list[BrowserInstance] = []
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
         self._shutdown = False
+        self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
-        """Inicializa el pool creando las instancias iniciales."""
-        logger.info("Initializing browser pool", pool_size=self.pool_size)
-        # AsyncCamoufox is an async context manager, use it directly
-        self._camoufox_context = AsyncCamoufox(headless=self.headless)
-        assert self._camoufox_context is not None
-        # __aenter__ tipa Browser | BrowserContext; el valor real es Browser
-        self._browser = cast(Browser, await self._camoufox_context.__aenter__())
+        """Inicializa el pool creando las instancias iniciales (lazy-safe)."""
+        if self._initialized:
+            return
+        async with self._init_lock:
+            if self._initialized:
+                return
+            try:
+                from camoufox.async_api import AsyncCamoufox
+            except Exception as e:
+                raise BrowserError(f"Camoufox/Playwright no disponible: {e}") from e
 
-        # Crear instancias iniciales
-        for _ in range(self.pool_size):
-            await self._create_instance()
+            logger.info("Initializing browser pool", pool_size=self.pool_size)
+            # AsyncCamoufox is an async context manager, use it directly
+            self._camoufox_context = AsyncCamoufox(headless=self.headless)
+            assert self._camoufox_context is not None
+            # __aenter__ tipa Browser | BrowserContext; el valor real es Browser
+            self._browser = cast(Any, await self._camoufox_context.__aenter__())
 
-        # Iniciar task de limpieza
-        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            # Crear instancias iniciales
+            for _ in range(self.pool_size):
+                await self._create_instance()
+
+            # Iniciar task de limpieza
+            self._shutdown = False
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            self._initialized = True
 
     async def _create_instance(self) -> BrowserInstance:
         """Crea una nueva instancia de navegador con contexto."""
@@ -117,13 +131,16 @@ class BrowserPool:
         return instance
 
     @contextlib.asynccontextmanager
-    async def acquire(self) -> AsyncIterator[Page]:
+    async def acquire(self) -> AsyncIterator[Any]:
         """
         Adquiere una página del pool (context manager).
+        Inicializa bajo demanda si es necesario.
         Uso:
             async with pool.acquire() as page:
                 await page.goto(url)
         """
+        if not self._initialized:
+            await self.initialize()
         instance = await self._get_available_instance()
         instance.in_use = True
         instance.last_used = asyncio.get_event_loop().time()
@@ -238,6 +255,7 @@ class BrowserPool:
         return {
             "pool_size": self.pool_size,
             "active_instances": len(self._instances),
+            "initialized": self._initialized,
             "instances": [
                 {
                     "in_use": inst.in_use,
@@ -249,37 +267,42 @@ class BrowserPool:
         }
 
     async def close(self) -> None:
-            """Cierra todo el pool."""
-            logger.info("Closing browser pool")
+        """Cierra todo el pool (idempotente, seguro si nunca se inicializó)."""
+        if not self._initialized and not self._instances and self._browser is None and self._camoufox_context is None:
             self._shutdown = True
+            return
+        logger.info("Closing browser pool")
+        self._shutdown = True
 
-            if self._cleanup_task:
-                self._cleanup_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._cleanup_task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+            self._cleanup_task = None
 
-            for instance in self._instances:
-                try:
-                    await instance.context.close()
-                    await instance.browser.close()
-                except Exception as e:
-                    logger.warning("Error closing instance", error=str(e))
+        for instance in list(self._instances):
+            try:
+                await instance.context.close()
+                await instance.browser.close()
+            except Exception as e:
+                logger.warning("Error closing instance", error=str(e))
 
-            self._instances.clear()
+        self._instances.clear()
 
-            if self._browser:
-                try:
-                    await self._browser.close()
-                except Exception:
-                    pass
-                self._browser = None
+        if self._browser:
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
 
-            if hasattr(self, '_camoufox_context') and self._camoufox_context:
-                try:
-                    await self._camoufox_context.__aexit__(None, None, None)
-                except Exception:
-                    pass
-                self._camoufox_context = None
+        if self._camoufox_context:
+            try:
+                await self._camoufox_context.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._camoufox_context = None
+        self._initialized = False
 
 
 # Instancia global

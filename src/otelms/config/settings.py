@@ -84,12 +84,12 @@ class Settings(BaseSettings):
     )
 
     # ============================================================
-    # API GATEWAY / FEATURE FLAGS (Fase 1)
+    # API GATEWAY / FEATURE FLAGS (Fase 1 vs Fase 2)
     # ============================================================
     api_enable_read_public: bool = Field(default=True, alias="API_ENABLE_READ_PUBLIC")
     api_enable_internal_sync: bool = Field(default=True, alias="API_ENABLE_INTERNAL_SYNC")
     api_enable_write_actions: bool = Field(default=False, alias="API_ENABLE_WRITE_ACTIONS")
-    api_enable_admin_routes: bool = Field(default=False, alias="API_ENABLE_ADMIN_ROUTES")
+    api_enable_admin_routes: bool = Field(default=True, alias="API_ENABLE_ADMIN_ROUTES")
     api_enable_legacy_routes: bool = Field(default=False, alias="API_ENABLE_LEGACY_ROUTES")
 
     # ============================================================
@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     )
 
     otelms_default_hotel_id: str = Field(
-        default="118510", alias="OTELMS_DEFAULT_HOTEL_ID"
+        default="18330", alias="OTELMS_DEFAULT_HOTEL_ID"
     )
     otelms_default_username: str = Field(
         default="gerencia@harmonyhotelgroup.com", alias="OTELMS_DEFAULT_USERNAME"

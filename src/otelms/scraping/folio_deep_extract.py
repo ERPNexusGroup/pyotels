@@ -478,11 +478,22 @@ def parse_folio_complete(html_content: str, reservation_id: str | int) -> dict[s
             if not date_v:
                 continue
             price_txt = _cell_text(r_cells, i_rp) or (r_cells[2] if len(r_cells) > 2 else "")
-            amount = _parse_decimal(price_txt or None)
+            amount = _parse_decimal_optional(price_txt)
+            if amount is None:
+                # Fallback: a veces el precio viene en otra columna numérica
+                for candidate in reversed(r_cells):
+                    cand = _parse_decimal_optional(candidate)
+                    if cand is not None:
+                        amount = cand
+                        if not price_txt:
+                            price_txt = candidate
+                        break
+            if amount is None:
+                amount = Decimal("0")
             night_rates.append({
                 "date": date_v,
                 "rate_name": _cell_text(r_cells, i_rn) or (r_cells[1] if len(r_cells) > 1 else ""),
-                "price": price_txt,
+                "price": str(amount),
                 "amount": amount,
                 "currency": "USD",
             })

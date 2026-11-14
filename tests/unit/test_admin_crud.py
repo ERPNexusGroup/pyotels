@@ -23,7 +23,14 @@ from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey, Hotel
 from otelms.utils.crypto import credential_encryption
 
+import pytest
+
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _enable_admin_routes(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "api_enable_admin_routes", True)
 
 
 def test_crud_models_mapping() -> None:

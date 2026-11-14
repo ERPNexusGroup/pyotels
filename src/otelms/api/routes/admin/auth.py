@@ -33,8 +33,8 @@ class LoginResponse(BaseModel):
 
 
 def _admin_enabled() -> bool:
-    """El dashboard admin solo está disponible en modo debug."""
-    return settings.app_debug
+    """Dashboard admin disponible en debug o cuando el gateway admin está habilitado explícitamente."""
+    return bool(settings.app_debug or settings.api_enable_admin_routes)
 
 
 def _create_session_token(key: ApiKey) -> str:

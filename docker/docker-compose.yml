@@ -62,13 +62,18 @@ services:
       - ../.env
     environment:
       - APP_ENV=production
-      - APP_DEBUG=true
-      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
+      - APP_DEBUG=false
+      - DATABASE_URL=postgresql+asyncpg://otelms:${POSTGRES_PASSWORD:-otelms_dev_password}@postgres:5432/otelms
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - API_KEY=${API_KEY:-changeme-secure-api-key-here}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme-jwt-secret-key-min-32-chars}
+      - API_ENABLE_READ_PUBLIC=${API_ENABLE_READ_PUBLIC:-true}
+      - API_ENABLE_INTERNAL_SYNC=${API_ENABLE_INTERNAL_SYNC:-true}
+      - API_ENABLE_WRITE_ACTIONS=${API_ENABLE_WRITE_ACTIONS:-false}
+      - API_ENABLE_ADMIN_ROUTES=${API_ENABLE_ADMIN_ROUTES:-false}
+      - API_ENABLE_LEGACY_ROUTES=${API_ENABLE_LEGACY_ROUTES:-false}
+      - API_KEY=${API_KEY:?Set API_KEY in .env}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
       # OTELMS_DEFAULT_HOTEL_ID/USERNAME/PASSWORD come from env_file (see note below)
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
@@ -106,8 +111,8 @@ services:
       - ../.env
     environment:
       - APP_ENV=production
-      - APP_DEBUG=true
-      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
+      - APP_DEBUG=false
+      - DATABASE_URL=postgresql+asyncpg://otelms:${POSTGRES_PASSWORD:-otelms_dev_password}@postgres:5432/otelms
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -148,12 +153,11 @@ services:
     environment:
       - APP_ENV=production
       - APP_DEBUG=false
-      - DATABASE_URL=postgresql+asyncpg://otelms:otelms_dev_password@postgres:5432/otelms
+      - DATABASE_URL=postgresql+asyncpg://otelms:${POSTGRES_PASSWORD:-otelms_dev_password}@postgres:5432/otelms
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - SYNC_CALENDAR_CRON=*/15 * * * *
-      - SYNC_CATEGORIES_CRON=0 * * * *
       - SYNC_FULL_DETAIL_CRON=0 3 * * *
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json

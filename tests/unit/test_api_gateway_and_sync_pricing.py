@@ -25,7 +25,7 @@ def test_compute_total_price_falls_back_to_night_rates_then_room_charges():
     assert _compute_total_price(folio2, night_rates_data=night_rates) == Decimal("40.00")
 
 
-def test_service_rows_excludes_synthetic_night_rows():
+def test_service_rows_includes_night_rows_for_compat_and_can_be_filtered():
     folio = {
         "services": [
             {"id": "49839", "date": "2026-11-10 14:00:00", "name": "Lavandería", "amount": Decimal("10.00"), "price": Decimal("10.00")},
@@ -36,9 +36,11 @@ def test_service_rows_excludes_synthetic_night_rows():
         ],
     }
     rows = SyncService._service_rows(folio, "23641")
-    assert len(rows) == 1
+    assert len(rows) == 3
     assert rows[0]["id"] == "23641-49839"
-    assert all("-night-" not in r["id"] for r in rows)
+    real = [r for r in rows if "-night-" not in r["id"]]
+    assert len(real) == 1
+    assert real[0]["title"] == "Lavandería"
 
 
 def test_gateway_blocks_disabled_read_endpoint():

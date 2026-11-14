@@ -56,23 +56,37 @@ class SetupExtractor:
             self._own_client = True
         return self._client
 
-    async def _get_with_retry(self, url: str, attempts: int = 3) -> httpx.Response:
-        """GET con reintentos y backoff ante desconexiones remotas/timeouts."""
+    async def _get_with_retry(self, url: str, attempts: int = 4) -> httpx.Response:
+        """GET con reintentos y backoff ante desconexiones remotas/timeouts/rate limits."""
         client = await self._ensure_client()
         last_exc: Exception | None = None
         for attempt in range(attempts):
             try:
                 resp = await client.get(url)
-                resp.raise_for_status()
-                return resp
-            except (httpx.RemoteProtocolError, httpx.TimeoutException, httpx.TransportError) as exc:
-                last_exc = exc
-                if attempt < attempts - 1:
-                    delay = 0.5 * (2 ** attempt)
-                    logger.warning("Setup GET retry", url=url, attempt=attempt + 1, error=str(exc))
+                if resp.status_code == 429 and attempt < attempts - 1:
+                    retry_after = resp.headers.get("Retry-After")
+                    try:
+                        delay = float(retry_after) if retry_after else 1.5 * (2 ** attempt)
+                    except Exception:
+                        delay = 1.5 * (2 ** attempt)
+                    logger.warning("Setup GET rate limited, retrying", url=url, attempt=attempt + 1, delay_s=delay)
                     await asyncio.sleep(delay)
-                else:
-                    raise
+                    continue
+                resp.raise_for_status()
+                body_lower = (resp.text or "").lower()
+                if "do_single_login" in body_lower or "single_login" in str(resp.url).lower():
+                    raise httpx.HTTPStatusError("Session expired", request=resp.request, response=resp)
+                return resp
+            except (httpx.RemoteProtocolError, httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                last_exc = exc
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                retryable = isinstance(exc, (httpx.RemoteProtocolError, httpx.TimeoutException, httpx.TransportError)) or status in {429, 500, 502, 503, 504}
+                if retryable and attempt < attempts - 1:
+                    delay = 0.75 * (2 ** attempt)
+                    logger.warning("Setup GET retry", url=url, attempt=attempt + 1, error=str(exc), status=status)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
         if last_exc:
             raise last_exc
         raise RuntimeError("Setup GET failed unexpectedly")
@@ -132,9 +146,6 @@ class SetupExtractor:
         for cb in soup.find_all("input", type="checkbox"):
             if not cb.has_attr("checked"):
                 continue
-            name = str(cb.get("name") or "")
-            if "{amenity_id}" in name or "amenity_types" in name:
-                continue
             # Filtrar plantillas ocultas/clonadas
             classes = " ".join(cb.get("class") or [])
             parent_classes = " ".join((cb.parent.get("class") or []) if cb.parent else [])
@@ -146,16 +157,23 @@ class SetupExtractor:
                 continue
 
             label = cb.find_parent("label") or soup.find("label", attrs={"for": cb.get("id")})
+            if not label:
+                group = cb.find_parent(class_="form-group")
+                if group:
+                    label = group.find("label")
             label_text = label.get_text(" ", strip=True) if label else ""
             if not label_text or "{amenity_id}" in label_text or "amenity_types" in label_text:
-                # evitar labels de plantilla
                 continue
-            key = (name or label_text).strip().lower()
-            if not key or key in seen:
+            key = label_text.strip().lower()
+            if key in seen:
                 continue
             seen.add(key)
+            cb_id = str(cb.get("id") or "").strip()
+            raw_name = str(cb.get("name") or "").strip()
+            clean_name = label_text if (not raw_name or "{amenity_id}" in raw_name) else raw_name
             active_amenities.append({
-                "name": name or label_text,
+                "id": cb_id or None,
+                "name": clean_name,
                 "label": label_text,
                 "is_active": True,
             })

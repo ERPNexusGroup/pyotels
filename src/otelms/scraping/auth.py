@@ -489,16 +489,39 @@ def _meta_refresh_target(body: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def _login_failed(resp: httpx.Response) -> bool:
+_TWOFA_MARKERS = ("2fa", "two-factor", "two_factor", "verification code", "otp", "challenge")
+
+
+def _has_session_cookie(client: httpx.AsyncClient) -> bool:
+    names = {c.name for c in client.cookies.jar}
+    return bool(names & {"PHPSESSID", "ci_session"})
+
+
+def _login_failed(resp: httpx.Response, client: httpx.AsyncClient) -> bool:
     """Si el POST de login no autenticó.
 
-    No se puede mirar `resp.url.path`: OtelMS no redirige, así que tras un login
-    correcto la URL sigue siendo `/login_c2/do_single_login` y ese chequeo daba
-    falso negativo siempre. Lo que sí distingue el éxito es el refresh al
-    calendario, que sólo se emite con sesión válida.
+    OtelMS puede responder 200 con meta-refresh legítimo al calendario (sin 302),
+    por lo que el éxito se detecta por cookies de sesión, landing a reservation_c2
+    o ausencia del formulario de login.
     """
-    landing = _meta_refresh_target(resp.text)
-    return "/reservation_c2/" not in (landing or "")
+    body = resp.text or ""
+    body_lower = body.lower()
+    if resp.status_code >= 400:
+        return True
+    if any(m in body_lower for m in _TWOFA_MARKERS):
+        return True
+    if _has_session_cookie(client):
+        return False
+    landing = _meta_refresh_target(body)
+    if landing and ("/reservation_c2/" in landing or "reservation_c2" in landing):
+        return False
+    login_form_present = "do_single_login" in body_lower or "single_login" in body_lower
+    if any(k in body_lower for k in ("incorrect", "error", "failed", "invalid", "inválido", "incorrecto")):
+        return True
+    # Meta-refresh u otra respuesta sin formulario de login se considera válida
+    if not login_form_present and body.strip():
+        return False
+    return True
 
 
 async def get_authenticated_http_session(hotel_id: str) -> httpx.AsyncClient:
@@ -515,34 +538,53 @@ async def get_authenticated_http_session(hotel_id: str) -> httpx.AsyncClient:
         headers={
             "User-Agent": settings.browser_user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )
 
     login_url = f"{client.base_url}/login_c2/single_login?hmsid={hotel_id}"
-    await client.get(login_url)
+    try:
+        resp = None
+        for attempt in range(4):
+            await client.get(login_url)
+            resp = await client.post(
+                f"{client.base_url}/login_c2/do_single_login",
+                data={
+                    "hotel": hotel_id,
+                    "login": settings.otelms_default_username,
+                    "password": settings.otelms_default_password,
+                    "action": "login",
+                },
+                headers={"Referer": login_url},
+            )
+            if resp.status_code not in (429, 503) or attempt == 3:
+                break
+            retry_after = resp.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after and retry_after.isdigit() else float(2 ** (attempt + 1))
+            logger.warning("Auth HTTP login rate-limited, retrying", status=resp.status_code, delay_s=delay, hotel_id=hotel_id)
+            await asyncio.sleep(min(delay, 15.0))
 
-    resp = await client.post(
-        f"{client.base_url}/login_c2/do_single_login",
-        data={
-            "hotel": hotel_id,
-            "login": settings.otelms_default_username,
-            "password": settings.otelms_default_password,
-            "action": "login",
-        },
-        headers={"Referer": login_url},
-    )
+        assert resp is not None
+        if _login_failed(resp, client):
+            raise AuthenticationError(f"Login failed for hotel {hotel_id}", hotel_id=hotel_id)
 
-    if _login_failed(resp):
-        raise AuthenticationError(f"Login failed for hotel {hotel_id}", hotel_id=hotel_id)
+        # OtelMS no redirige tras el login: contesta 200 con un
+        # <meta http-equiv='refresh' content='0;url=/reservation_c2/calendar'>. Sin
+        # seguir ese refresh, la sesión sigue sin cookies de aplicación y la
+        # siguiente página protegida devuelve el login otra vez.
+        landing = _meta_refresh_target(resp.text)
+        if landing:
+            target = landing if landing.startswith("http") else f"{client.base_url}{landing}"
+            resp = await client.get(target)
 
-    # OtelMS no redirige tras el login: contesta 200 con un
-    # <meta http-equiv='refresh' content='0;url=/reservation_c2/calendar'>. Sin
-    # seguir ese refresh, la sesión sigue sin cookies de aplicación y la
-    # siguiente página protegida devuelve el login otra vez.
-    landing = _meta_refresh_target(resp.text)
-    if landing:
-        await client.get(f"{client.base_url}{landing}")
+        final_body = (resp.text or "").lower()
+        if not _has_session_cookie(client) and ("do_single_login" in final_body or "single_login" in final_body):
+            raise AuthenticationError(f"Login failed for hotel {hotel_id}", hotel_id=hotel_id)
+    except BaseException:
+        await client.aclose()
+        raise
 
     logger.info("Authenticated HTTP session created", hotel_id=hotel_id)
     return client

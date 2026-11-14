@@ -1,12 +1,18 @@
 """
 WebSocket endpoints for real-time sync progress.
 """
+import hashlib
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.api.dependencies import verify_api_key
+from otelms.api.dependencies import get_db
+from otelms.config.settings import settings
+from otelms.domain.entities import ApiKey
 from otelms.utils.logging import get_logger
 
 router = APIRouter(prefix="/ws", tags=["websockets"])
@@ -52,16 +58,61 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def _authenticate_ws(
+    session: AsyncSession,
+    header_api_key: str | None,
+    query_api_key: str | None,
+    token: str | None,
+) -> ApiKey | dict | None:
+    """Validate WebSocket credentials via X-API-Key header/query or admin JWT token."""
+    if not settings.api_key_required:
+        return ApiKey(
+            id="local-test",
+            name="Local Testing (API Key Disabled)",
+            key_hash="",
+            is_active=True,
+            rate_limit=60,
+        )
+
+    raw_key = header_api_key or query_api_key
+    if raw_key:
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active)
+        result = await session.execute(stmt)
+        key_obj = result.scalar_one_or_none()
+        if key_obj:
+            return key_obj
+
+    if token:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.jwt_secret_key,
+                algorithms=[settings.jwt_algorithm],
+            )
+            if payload.get("role") == "admin":
+                return payload
+        except JWTError:
+            pass
+
+    return None
+
+
 @router.websocket("/sync-progress")
 async def websocket_sync_progress(
     websocket: WebSocket,
     hotel_id: str,
-    api_key: str = Depends(verify_api_key),
+    x_api_key: str | None = Header(None, alias=settings.api_key_header),
+    api_key: str | None = Query(None),
+    token: str | None = Query(None),
+    session: AsyncSession = Depends(get_db),
 ) -> None:
     """WebSocket endpoint for real-time sync progress updates.
 
     Query params:
     - hotel_id: Hotel ID to track progress for
+    - api_key: API key (alternative to X-API-Key header)
+    - token: Admin session JWT (alternative auth)
 
     Message format (server -> client):
     {
@@ -73,6 +124,11 @@ async def websocket_sync_progress(
         "timestamp": "2026-01-15T10:30:00Z"
     }
     """
+    auth = await _authenticate_ws(session, x_api_key, api_key, token)
+    if auth is None:
+        await websocket.close(code=4401)
+        return
+
     await manager.connect(websocket, hotel_id)
 
     try:

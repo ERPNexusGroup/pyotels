@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from otelms.api import dependencies as deps
 from otelms.api.main import app
+from otelms.config.settings import settings
 from otelms.domain.repositories import (
     CategoryRepository,
     GuestRepository,
@@ -176,11 +177,14 @@ class TestCheckinsCheckoutsForDate:
 def api_client(test_session):
     """TestClient con auth y repos apuntando a la sesión de test."""
     old = dict(app.dependency_overrides)
+    old_legacy = settings.api_enable_legacy_routes
+    settings.api_enable_legacy_routes = True
     app.dependency_overrides[deps.verify_api_key] = lambda: None
     app.dependency_overrides[deps.get_room_repo] = lambda: RoomRepository(test_session)
     app.dependency_overrides[deps.get_category_repo] = lambda: CategoryRepository(test_session)
     app.dependency_overrides[deps.get_reservation_repo] = lambda: ReservationRepository(test_session)
     yield TestClient(app)
+    settings.api_enable_legacy_routes = old_legacy
     app.dependency_overrides.clear()
     app.dependency_overrides.update(old)
 
@@ -269,10 +273,13 @@ class TestRoomsHttp:
     def test_requires_api_key(self, api_client, seeded):
         """Sin API key (override removido) debe fallar con 422/401, sin tocar la BD."""
         old = dict(app.dependency_overrides)
+        old_legacy = settings.api_enable_legacy_routes
+        settings.api_enable_legacy_routes = True
         app.dependency_overrides.pop(deps.verify_api_key, None)
         try:
             resp = api_client.get("/rooms/available", params={"hotel_id": "h1"})
         finally:
+            settings.api_enable_legacy_routes = old_legacy
             app.dependency_overrides.clear()
             app.dependency_overrides.update(old)
         assert resp.status_code in (401, 422)

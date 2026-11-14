@@ -1,6 +1,7 @@
 """
 Cache wrapper con soporte para Redis y diskcache fallback.
 """
+import asyncio
 import fnmatch
 import pickle
 from collections.abc import Callable
@@ -41,10 +42,13 @@ class RedisCache(CacheBackend):
     """Cache con Redis."""
 
     def __init__(self, url: str, max_connections: int = 20):
+        connect_timeout = getattr(settings, "redis_socket_connect_timeout", 0.5)
         self._pool = redis.ConnectionPool.from_url(
             url,
             max_connections=max_connections,
             decode_responses=False,  # Usamos pickle para serialización
+            socket_connect_timeout=connect_timeout,
+            socket_timeout=connect_timeout,
         )
         self._client: redis.Redis | None = None
 
@@ -176,26 +180,31 @@ class CacheManager:
         self._use_redis = False
 
     async def initialize(self) -> None:
-        """Inicializa el backend preferido (Redis) con fallback a diskcache."""
+        """Inicializa el backend preferido (Redis) con fallback inmediato a memoria/diskcache."""
         if not settings.cache_enabled:
             logger.info("Cache deshabilitado por configuración")
             self._backend = DiskCacheBackend()  # Dummy que no hace nada
             return
 
-        # Intentar Redis primero
+        # Intentar Redis primero con un solo ping rápido (sin health_check con set/get/delete)
+        redis_backend: RedisCache | None = None
         try:
-            self._backend = RedisCache(
+            redis_backend = RedisCache(
                 settings.redis_url,
                 max_connections=settings.redis_max_connections,
             )
-            # Test connection
-            await self._backend.set("_health_check", "ok", ttl=1)
-            await self._backend.get("_health_check")
-            await self._backend.delete("_health_check")
+            connect_timeout = float(getattr(settings, "redis_socket_connect_timeout", 0.5) or 0.5)
+            await asyncio.wait_for(redis_backend.client.ping(), timeout=connect_timeout)
+            self._backend = redis_backend
             self._use_redis = True
             logger.info("Cache inicializado con Redis")
         except Exception as e:
-            logger.warning("Redis no disponible, usando diskcache como fallback", error=str(e))
+            if redis_backend is not None:
+                try:
+                    await redis_backend.close()
+                except Exception:
+                    pass
+            logger.warning("Redis no disponible, usando diskcache/memoria como fallback", error=str(e))
             self._backend = DiskCacheBackend(max_size_mb=settings.cache_max_size_mb)
             self._use_redis = False
 

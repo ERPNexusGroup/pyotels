@@ -107,19 +107,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialized")
 
-    # Initialize cache
+    # Initialize cache (fast-fail Redis -> memory/disk fallback)
     await cache.initialize()
     logger.info("Cache initialized")
 
-    # Initialize browser pool (non-blocking - if it fails, log and continue)
-    try:
-        await browser_pool.initialize()
-        logger.info("Browser pool initialized")
-    except NotImplementedError as e:
-        logger.warning("Browser pool initialization failed - scraping features unavailable", error=str(e))
-        logger.warning("Run with proper event loop policy or on Linux for full scraping support")
-    except Exception as e:
-        logger.error("Browser pool initialization failed", error=str(e))
+    # Browser pool (Playwright/Camoufox) se inicializa bajo demanda.
+    # El scraping principal usa httpx; en Windows/Python 3.14 create_subprocess_exec
+    # puede fallar en el event loop por defecto si se fuerza en startup.
+    logger.info("Browser pool lazy initialization enabled (on-demand)")
 
     yield
 
@@ -212,7 +207,7 @@ def create_app() -> FastAPI:
             )
         return Response(generate_latest(), media_type="text/plain")
 
-    # API Gateway middleware (feature flags por etapa)
+    # API Gateway middleware (feature flags por etapa, evaluadas dinámicamente)
     @app.middleware("http")
     async def api_gateway_middleware(request: Request, call_next: Any) -> Any:
         path = request.url.path
@@ -235,8 +230,10 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         # Admin (panel + CRUD/tareas admin)
-        if path.startswith("/admin"):
-            if not settings.api_enable_admin_routes:
+        # Permitir acceso si el flag está activo, o en desarrollo con debug habilitado.
+        if path == "/admin" or path.startswith("/admin/"):
+            admin_allowed = settings.api_enable_admin_routes or (settings.app_debug and settings.is_dev)
+            if not admin_allowed:
                 return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
             return await call_next(request)
 
@@ -245,15 +242,10 @@ def create_app() -> FastAPI:
             "/rooms/available",
             "/reservations/sync/all",
         }
-        if path in legacy_paths:
-            if not settings.api_enable_legacy_routes:
-                return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
-            # si legacy está habilitado, puede requerir además flags de lectura/escritura según método
+        if path in legacy_paths and not settings.api_enable_legacy_routes:
+            return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
 
         # Endpoints internos de sync (triggers e históricos operativos)
-        sync_internal_paths = {
-            "/hotels/{hotel_id}/sync-setup",  # path template not directly comparable; handle by prefix/pattern below
-        }
         is_sync_internal = (
             (path.startswith("/reservations/sync") and path != "/reservations/sync/history")
             or path == "/reservations/sync/history"
@@ -265,15 +257,7 @@ def create_app() -> FastAPI:
                 return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
             return await call_next(request)
 
-        # Escrituras operativas (Fase 2)
-        is_write_action = (
-            (path.startswith("/housekeeping") and method in {"PATCH", "POST", "PUT", "DELETE"})
-            or (path.startswith("/guests") and method in {"POST", "PUT", "PATCH", "DELETE"})
-            or (path.startswith("/hotels") and method in {"POST", "PATCH", "PUT", "DELETE"} and not path.endswith("/sync-setup"))
-            or (path.startswith("/reservations") and method in {"POST", "PATCH", "PUT", "DELETE"} and not is_sync_internal)
-        )
-        # Nota: POST /hotels crea hotel y POST /hotels/{id}/rotate-password son mutaciones; se tratan como F2 write/admin-like por etapa.
-        # Para simplificar Fase 1: cualquier mutación fuera de sync interno requiere API_ENABLE_WRITE_ACTIONS.
+        # Escrituras operativas fuera de sync interno/admin (Fase 2)
         if method in {"POST", "PATCH", "PUT", "DELETE"} and not is_sync_internal and not path.startswith("/admin"):
             if not settings.api_enable_write_actions:
                 return JSONResponse(status_code=503, content={"detail": "Endpoint disabled in current API stage"})
@@ -302,28 +286,17 @@ def create_app() -> FastAPI:
             content={"detail": "Internal server error"},
         )
 
-    # Include routers (montaje condicional por feature flags de etapa)
-    if settings.api_enable_internal_sync or settings.api_enable_read_public:
-        # health router expone /health (lectura/estado) pero en etapa 1 se permite con internal/read flags según gateway
-        app.include_router(health.router)
-    if settings.api_enable_read_public or settings.api_enable_internal_sync or settings.api_enable_write_actions:
-        app.include_router(hotels.router)
-    if settings.api_enable_read_public or settings.api_enable_internal_sync or settings.api_enable_write_actions:
-        app.include_router(reservations.router)
-    if settings.api_enable_read_public or settings.api_enable_write_actions:
-        app.include_router(guests.router)
-    if settings.api_enable_read_public:
-        app.include_router(categories.router)
-    if settings.api_enable_read_public or settings.api_enable_legacy_routes:
-        app.include_router(rooms.router)
-    if settings.api_enable_read_public:
-        app.include_router(restrictions.router)
-    if settings.api_enable_read_public or settings.api_enable_write_actions:
-        app.include_router(housekeeping.router)
-    if settings.api_enable_internal_sync:
-        app.include_router(websockets.router)
-    if settings.api_enable_admin_routes:
-        app.include_router(admin.router)
+    # Include routers (siempre montados; acceso controlado dinámicamente por feature flags)
+    app.include_router(health.router)
+    app.include_router(hotels.router)
+    app.include_router(reservations.router)
+    app.include_router(guests.router)
+    app.include_router(categories.router)
+    app.include_router(rooms.router)
+    app.include_router(restrictions.router)
+    app.include_router(housekeeping.router)
+    app.include_router(websockets.router)
+    app.include_router(admin.router)
 
     # Root endpoint
     @app.get("/", include_in_schema=False)
