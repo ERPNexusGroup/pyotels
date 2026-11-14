@@ -79,6 +79,10 @@ RUN mkdir -p /usr/local/share/cache && \
 # ============================================================
 FROM camoufox AS api
 
+# Alembic config & migrations for DB upgrades in container
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+
 # Logs dir
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 
@@ -101,8 +105,8 @@ CMD ["uvicorn", "otelms.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # ============================================================
 FROM camoufox AS worker
 
-# Install redbeat (scheduler) on top of shared deps
-RUN uv pip install --system --no-cache "redbeat"
+# Install redbeat (scheduler) + packaging (required by kombu.transport.redis) on top of shared deps
+RUN uv pip install --system --no-cache "redbeat" "packaging"
 
 USER appuser
 

@@ -14,6 +14,7 @@ from otelms.api.dependencies import get_db
 from otelms.config.settings import settings
 from otelms.domain.entities import ApiKey
 from otelms.utils.logging import get_logger
+from otelms.utils.timezone import to_ecuador_iso, utc_now
 
 router = APIRouter(prefix="/ws", tags=["websockets"])
 logger = get_logger(__name__)
@@ -137,7 +138,7 @@ async def websocket_sync_progress(
             "type": "connected",
             "hotel_id": hotel_id,
             "message": f"Connected to sync progress for hotel {hotel_id}",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": to_ecuador_iso(utc_now()),
         })
 
         # Keep connection alive, listen for client messages (ping/pong)
@@ -147,7 +148,7 @@ async def websocket_sync_progress(
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "ping":
-                    await websocket.send_json({"type": "pong", "timestamp": datetime.utcnow().isoformat()})
+                    await websocket.send_json({"type": "pong", "timestamp": to_ecuador_iso(utc_now())})
             except json.JSONDecodeError:
                 pass
 

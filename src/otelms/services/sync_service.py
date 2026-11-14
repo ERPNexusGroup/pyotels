@@ -33,6 +33,7 @@ from otelms.scraping.exceptions import AuthenticationError
 from otelms.scraping.folio_deep_extract import parse_folio_complete
 from otelms.scraping.folio_extract import parse_folio
 from otelms.scraping.http_calendar import fetch_calendar_html
+from otelms.utils.timezone import to_ecuador_iso
 from otelms.scraping.http_folio import FolioClient
 from otelms.scraping.parsers import CalendarParser
 from otelms.scraping.setup_extract import SetupExtractor
@@ -1236,8 +1237,8 @@ class SyncService:
                     "id": log.id,
                     "sync_type": log.sync_type,
                     "status": log.status,
-                    "started_at": log.started_at.isoformat() if log.started_at else None,
-                    "completed_at": log.completed_at.isoformat() if log.completed_at else None,
+                    "started_at": to_ecuador_iso(log.started_at),
+                    "completed_at": to_ecuador_iso(log.completed_at),
                     "duration_ms": log.duration_ms,
                     "records_processed": log.records_processed,
                     "records_created": log.records_created,

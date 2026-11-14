@@ -3,8 +3,21 @@ API Schemas - Request/Response models for FastAPI endpoints.
 """
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from otelms.utils.timezone import to_ecuador_iso, utc_now
+
+
+class APISchema(BaseModel):
+    """Schema base: serializa datetimes en JSON con zona horaria de Ecuador (-05:00)."""
+
+    @field_serializer("*", when_used="json", check_fields=False)
+    def _serialize_datetimes_ecuador(self, value: Any) -> Any:
+        if isinstance(value, datetime):
+            return to_ecuador_iso(value)
+        return value
 
 
 # ============================================================
@@ -36,7 +49,7 @@ class HotelCreate(HotelBase):
     password: str
 
 
-class HotelResponse(HotelBase):
+class HotelResponse(HotelBase, APISchema):
     model_config = ConfigDict(from_attributes=True)
 
     created_at: datetime
@@ -94,7 +107,7 @@ class FrontDeskStatusResponse(BaseModel):
     departures_today: int = 0
     arrivals_today: int = 0
     inhouse_today: int = 0
-    synced_at: datetime = Field(default_factory=datetime.utcnow)
+    synced_at: datetime = Field(default_factory=utc_now)
 
 
 class PriceCalendarCellResponse(BaseModel):
@@ -290,10 +303,10 @@ class SyncStatusResponse(BaseModel):
     errors_last_sync: list[str] = []
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(APISchema):
     status: str = "healthy"
     version: str = "1.0.0"
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     checks: dict[str, bool] = {}
 
 
@@ -306,7 +319,7 @@ class MetricsResponse(BaseModel):
     errors_last_hour: int = 0
 
 
-class SyncResultResponse(BaseModel):
+class SyncResultResponse(APISchema):
     operation: str
     hotel_id: str
     success: bool

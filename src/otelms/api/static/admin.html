@@ -310,7 +310,16 @@ function adminApp(){
       if (this.token) await this.afterLogin();
     },
     toast(msg, type='info'){ const id = Date.now()+Math.random(); this.toasts.push({id,msg,type}); setTimeout(()=>{ this.toasts = this.toasts.filter(t=>t.id!==id); }, 3500); },
-    fmt(v){ if(!v) return '—'; try { return new Date(v).toLocaleString(); } catch(_) { return String(v); } },
+    fmt(v){
+      if(!v) return '—';
+      try {
+        let s = String(v).trim();
+        if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s) && !/(Z|[+-]\d{2}:\d{2})$/i.test(s)) {
+          s = s.replace(' ', 'T') + 'Z';
+        }
+        return new Date(s).toLocaleString('es-EC', { timeZone: 'America/Guayaquil', hour12: false });
+      } catch(_) { return String(v); }
+    },
     d(v){ if(!v) return '—'; try { return String(v).slice(0,10); } catch(_) { return String(v); } },
     str(v){ if(v===null||v===undefined) return ''; if(typeof v==='object'){ try{return JSON.stringify(v)}catch(_){return String(v)} } return String(v); },
     arr(v){ return Array.isArray(v) ? v : []; },

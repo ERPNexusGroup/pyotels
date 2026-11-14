@@ -4,10 +4,12 @@ Asegura que el hotel, categorías, habitaciones, métodos de pago y canales
 estén sincronizados con la realidad de OtelMS antes de procesar reservas.
 """
 from datetime import UTC, datetime
+import hashlib
 from typing import Any
 from sqlalchemy import select
 
 from otelms.config.settings import settings
+from otelms.utils.crypto import CredentialEncryption
 from otelms.domain.entities import (
     Category,
     Dealer,
@@ -58,6 +60,37 @@ class SetupSyncService:
                 hotel.check_out_time = hotel_info.get("check_out_time")
                 hotel.timezone = hotel_info.get("timezone")
                 hotel.last_sync_at = datetime.now(UTC)
+            else:
+                raw_pw = settings.otelms_default_password or ""
+                enc_pw = CredentialEncryption().encrypt(raw_pw) if raw_pw else None
+                pw_hash = hashlib.sha256(raw_pw.encode("utf-8")).hexdigest() if raw_pw else ""
+                hotel = Hotel(
+                    id=self.hotel_id,
+                    name=hotel_info.get("name") or f"Hotel {self.hotel_id}",
+                    domain=settings.otelms_base_domain,
+                    username=settings.otelms_default_username or "",
+                    password_hash=pw_hash,
+                    encrypted_password=enc_pw,
+                    is_active=True,
+                    legal_name=hotel_info.get("legal_name"),
+                    property_type=hotel_info.get("property_type"),
+                    street=hotel_info.get("street"),
+                    city=hotel_info.get("city"),
+                    state=hotel_info.get("state"),
+                    country=hotel_info.get("country"),
+                    post_code=hotel_info.get("post_code"),
+                    gps_coordinates=hotel_info.get("gps_coordinates"),
+                    phone=hotel_info.get("reception_phone"),
+                    email=hotel_info.get("email"),
+                    web_address=hotel_info.get("web_address"),
+                    star_rating=hotel_info.get("star_rating"),
+                    check_in_time=hotel_info.get("check_in_time"),
+                    check_out_time=hotel_info.get("check_out_time"),
+                    timezone=hotel_info.get("timezone"),
+                    last_sync_at=datetime.now(UTC),
+                )
+                session.add(hotel)
+            await session.flush()
 
             # 2. Sincronizar Categorías
             cat_map: dict[str, str] = {}

@@ -234,6 +234,7 @@ class Settings(BaseSettings):
     sync_calendar_cron: str = Field(default="*/15 * * * *", alias="SYNC_CALENDAR_CRON")
     sync_categories_cron: str = Field(default="0 * * * *", alias="SYNC_CATEGORIES_CRON")
     sync_full_detail_cron: str = Field(default="0 3 * * *", alias="SYNC_FULL_DETAIL_CRON")
+    display_timezone: str = Field(default="America/Guayaquil", alias="DISPLAY_TIMEZONE")
 
     # ============================================================
     # HELPERS
