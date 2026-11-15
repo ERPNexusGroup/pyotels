@@ -841,3 +841,36 @@ async def stop_local_worker(
     _WORKER_PID_PATH.unlink(missing_ok=True)
     logger.info("Local Celery worker stopped", pid=pid)
     return {"status": "stopped", "running": False, "pid": pid}
+
+
+@router.get("/api/logs")
+async def get_system_logs(
+    limit: int = 120,
+    q: str | None = None,
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Devuelve las últimas líneas del archivo de log para diagnóstico de pruebas."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    limit = max(1, min(limit, 500))
+    log_path = settings.get_log_path()
+    if not log_path.exists():
+        return {"log_file": str(log_path), "exists": False, "lines": []}
+
+    try:
+        raw_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Cannot read log file: {exc}") from exc
+
+    if q:
+        needle = q.strip().lower()
+        if needle:
+            raw_lines = [line for line in raw_lines if needle in line.lower()]
+
+    return {
+        "log_file": str(log_path),
+        "exists": True,
+        "total_matched": len(raw_lines),
+        "lines": raw_lines[-limit:],
+    }

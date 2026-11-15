@@ -200,10 +200,17 @@ async def check_in(
     async with _client_for(hotel_id, client) as session:
         resp = await session.get(url)
     ok = resp.status_code == 200
-    logger.info(
-        "check_in %s/%s -> HTTP %s (ok=%s)", hotel_id, reservation_id,
-        resp.status_code, ok,
-    )
+    if ok:
+        logger.info(
+            "check_in %s/%s -> HTTP %s (ok=%s)", hotel_id, reservation_id,
+            resp.status_code, ok,
+        )
+    else:
+        logger.warning(
+            "check_in %s/%s failed -> HTTP %s location=%s body=%r",
+            hotel_id, reservation_id, resp.status_code,
+            resp.headers.get("location"), resp.text[:300],
+        )
     return ok
 
 
@@ -221,10 +228,17 @@ async def check_out(
     async with _client_for(hotel_id, client) as session:
         resp = await session.get(url)
     ok = resp.status_code == 200
-    logger.info(
-        "check_out %s/%s -> HTTP %s (ok=%s)", hotel_id, reservation_id,
-        resp.status_code, ok,
-    )
+    if ok:
+        logger.info(
+            "check_out %s/%s -> HTTP %s (ok=%s)", hotel_id, reservation_id,
+            resp.status_code, ok,
+        )
+    else:
+        logger.warning(
+            "check_out %s/%s failed -> HTTP %s location=%s body=%r",
+            hotel_id, reservation_id, resp.status_code,
+            resp.headers.get("location"), resp.text[:300],
+        )
     return ok
 
 
@@ -291,10 +305,19 @@ async def move_reservation(
 
     async with _client_for(hotel_id, client) as session:
         resp = await session.post(f"{BASE}{UPDATE_RESERVATION_URL}", data=form)
+    location = resp.headers.get("location")
+    if resp.status_code >= 400 or (location and "login" in location.lower()):
+        logger.error(
+            "move_reservation %s/%s failed -> HTTP %s location=%s body=%r",
+            hotel_id, reservation_id, resp.status_code, location, resp.text[:300],
+        )
+        raise RuntimeError(
+            f"OtelMS move_reservation failed (HTTP {resp.status_code}, location={location})"
+        )
     logger.info(
-        "move_reservation %s/%s -> HTTP %s (room=%s cat=%s %s..%s)",
+        "move_reservation %s/%s -> HTTP %s (room=%s cat=%s %s..%s location=%s)",
         hotel_id, reservation_id, resp.status_code, room_id, category_id,
-        form.get("datein"), form.get("dateout"),
+        form.get("datein"), form.get("dateout"), location,
     )
     return form
 

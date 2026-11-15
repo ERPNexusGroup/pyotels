@@ -6,11 +6,13 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from otelms.api.dependencies import (
     get_reservation_repo,
     get_room_repo,
     get_sync_service,
+    require_permission,
     verify_api_key,
 )
 from otelms.api.mappers import guest_name as _guest_name
@@ -28,6 +30,11 @@ from otelms.api.schemas import (
 )
 from otelms.config.settings import settings
 from otelms.domain.repositories import ReservationRepository, RoomRepository
+from otelms.scraping.checkin import (
+    check_in as otelms_check_in,
+    check_out as otelms_check_out,
+    move_reservation as otelms_move_reservation,
+)
 from otelms.services.sync_service import SyncService
 from otelms.utils.logging import get_logger
 
@@ -225,6 +232,141 @@ async def sync_reservation_deep(
             detail=f"Reservation {reservation_id} not found",
         )
     return reservation_response(reservation)
+
+
+class MoveReservationBody(BaseModel):
+    """Payload para mover una reserva a otra habitación."""
+
+    new_room_id: str
+
+
+async def _resync_after_write(
+    sync_service: SyncService,
+    res_repo: ReservationRepository,
+    hotel_id: str,
+    reservation_id: str,
+):
+    try:
+        await sync_service.sync_reservation_details(reservation_ids=[reservation_id])
+    except Exception as exc:
+        logger.warning(
+            "Post-write re-sync failed, returning local state",
+            reservation_id=reservation_id,
+            error=str(exc),
+        )
+    return await res_repo.get_with_details(hotel_id, reservation_id)
+
+
+@router.post(
+    "/{reservation_id}/check-in",
+    response_model=ReservationResponse,
+    dependencies=[Depends(require_permission("reservations:write"))],
+)
+async def reservation_check_in(
+    reservation_id: str,
+    hotel_id: str = Query(..., description="Hotel ID"),
+    res_repo: ReservationRepository = Depends(get_reservation_repo),
+    sync_service: SyncService = Depends(get_sync_service),
+) -> ReservationResponse:
+    """Ejecuta check-in en OtelMS y re-sincroniza la reserva (Fase 2)."""
+    reservation = await res_repo.get_with_details(hotel_id, reservation_id)
+    if not reservation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reservation {reservation_id} not found",
+        )
+    logger.info("Public check-in requested", hotel_id=hotel_id, reservation_id=reservation_id)
+    ok = await otelms_check_in(hotel_id, reservation_id)
+    if not ok:
+        logger.error("Public check-in failed in OtelMS", hotel_id=hotel_id, reservation_id=reservation_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="OtelMS check-in failed")
+    reservation.status = 2
+    await res_repo.session.commit()
+    logger.info("Public check-in completed", hotel_id=hotel_id, reservation_id=reservation_id)
+    refreshed = await _resync_after_write(sync_service, res_repo, hotel_id, reservation_id)
+    return reservation_response(refreshed or reservation)
+
+
+@router.post(
+    "/{reservation_id}/check-out",
+    response_model=ReservationResponse,
+    dependencies=[Depends(require_permission("reservations:write"))],
+)
+async def reservation_check_out(
+    reservation_id: str,
+    hotel_id: str = Query(..., description="Hotel ID"),
+    res_repo: ReservationRepository = Depends(get_reservation_repo),
+    sync_service: SyncService = Depends(get_sync_service),
+) -> ReservationResponse:
+    """Ejecuta check-out en OtelMS y re-sincroniza la reserva (Fase 2)."""
+    reservation = await res_repo.get_with_details(hotel_id, reservation_id)
+    if not reservation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reservation {reservation_id} not found",
+        )
+    logger.info("Public check-out requested", hotel_id=hotel_id, reservation_id=reservation_id)
+    ok = await otelms_check_out(hotel_id, reservation_id)
+    if not ok:
+        logger.error("Public check-out failed in OtelMS", hotel_id=hotel_id, reservation_id=reservation_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="OtelMS check-out failed")
+    reservation.status = 4
+    await res_repo.session.commit()
+    logger.info("Public check-out completed", hotel_id=hotel_id, reservation_id=reservation_id)
+    refreshed = await _resync_after_write(sync_service, res_repo, hotel_id, reservation_id)
+    return reservation_response(refreshed or reservation)
+
+
+@router.post(
+    "/{reservation_id}/move",
+    response_model=ReservationResponse,
+    dependencies=[Depends(require_permission("reservations:write"))],
+)
+async def reservation_move_room(
+    reservation_id: str,
+    body: MoveReservationBody,
+    hotel_id: str = Query(..., description="Hotel ID"),
+    res_repo: ReservationRepository = Depends(get_reservation_repo),
+    room_repo: RoomRepository = Depends(get_room_repo),
+    sync_service: SyncService = Depends(get_sync_service),
+) -> ReservationResponse:
+    """Mueve una reserva de habitación en OtelMS y re-sincroniza (Fase 2)."""
+    reservation = await res_repo.get_with_details(hotel_id, reservation_id)
+    if not reservation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reservation {reservation_id} not found",
+        )
+    new_room = await room_repo.get_by_id(body.new_room_id)
+    if not new_room or new_room.hotel_id != hotel_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Target room {body.new_room_id} not found in hotel {hotel_id}",
+        )
+    logger.info(
+        "Public move_reservation requested",
+        hotel_id=hotel_id,
+        reservation_id=reservation_id,
+        old_room_id=reservation.room_id,
+        new_room_id=body.new_room_id,
+        category_id=new_room.category_id,
+    )
+    await otelms_move_reservation(
+        hotel_id,
+        reservation_id,
+        room_id=body.new_room_id,
+        category_id=new_room.category_id,
+    )
+    reservation.room_id = body.new_room_id
+    await res_repo.session.commit()
+    logger.info(
+        "Public move_reservation completed",
+        hotel_id=hotel_id,
+        reservation_id=reservation_id,
+        new_room_id=body.new_room_id,
+    )
+    refreshed = await _resync_after_write(sync_service, res_repo, hotel_id, reservation_id)
+    return reservation_response(refreshed or reservation)
 
 
 @router.get("/today/checkins", response_model=list[ReservationResponse])

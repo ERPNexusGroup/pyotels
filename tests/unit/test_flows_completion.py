@@ -354,3 +354,316 @@ def test_admin_workers_forbidden_when_debug_false(monkeypatch):
     assert r_status.status_code == 403
     assert r_start.status_code == 403
     assert r_stop.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_api_key_permissions(monkeypatch):
+    from otelms.api.routes.admin.auth import _get_db
+
+    monkeypatch.setattr(settings, "api_enable_admin_routes", True)
+    maker, engine = await _make_memory_session()
+
+    async def _override_db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[_get_db] = _override_db
+    try:
+        client = TestClient(app)
+        headers = {"Authorization": f"Bearer {_admin_token()}"}
+
+        r_perms = client.get("/admin/api/permissions", headers=headers)
+        assert r_perms.status_code == 200
+        assert "housekeeping:read" in r_perms.json()
+
+        r_create = client.post(
+            "/admin/api/api-keys",
+            headers=headers,
+            json={"name": "hk-mobile", "rate_limit": 60},
+        )
+        assert r_create.status_code == 201
+        key_id = r_create.json()["id"]
+
+        r_upd = client.put(
+            f"/admin/api/api-keys/{key_id}/permissions",
+            headers=headers,
+            json={"permissions": ["housekeeping:read", "housekeeping:write"]},
+        )
+        assert r_upd.status_code == 200
+        assert r_upd.json()["permissions"] == ["housekeeping:read", "housekeeping:write"]
+
+        r_list = client.get("/admin/api/api-keys", headers=headers)
+        assert r_list.status_code == 200
+        assert r_list.json()[0]["permissions"] == ["housekeeping:read", "housekeeping:write"]
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def test_admin_phase2_actions_gate_and_otelms_writes(monkeypatch):
+    from otelms.api.routes.admin.auth import _get_db
+
+    monkeypatch.setattr(settings, "api_enable_admin_routes", True)
+    maker, engine = await _make_memory_session()
+
+    async with maker() as session:
+        session.add(Hotel(id="18330", name="H", domain="d", username="u", password_hash="x"))
+        session.add(Category(id="13", hotel_id="18330", name="Matrimonial"))
+        session.add(Room(id="101", hotel_id="18330", category_id="13", name="101"))
+        session.add(Room(id="102", hotel_id="18330", category_id="13", name="102"))
+        session.add(Guest(id="g1", hotel_id="18330", first_name="Ana", last_name="Gomez"))
+        session.add(
+            Reservation(
+                id="res1",
+                hotel_id="18330",
+                guest_id="g1",
+                room_id="101",
+                check_in=datetime(2026, 11, 15, 14, 0, tzinfo=UTC),
+                check_out=datetime(2026, 11, 17, 12, 0, tzinfo=UTC),
+                status=1,
+            )
+        )
+        await session.commit()
+
+    async def _override_db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[_get_db] = _override_db
+    try:
+        client = TestClient(app)
+        headers = {"Authorization": f"Bearer {_admin_token()}"}
+
+        # Disabled -> 403
+        monkeypatch.setattr(settings, "api_enable_write_actions", False)
+        r_blocked = client.post(
+            "/admin/api/tasks/close-dates",
+            headers=headers,
+            json={
+                "hotel_id": "18330",
+                "categories": ["Matrimonial"],
+                "start_date": "2026-11-20T00:00:00Z",
+                "end_date": "2026-11-21T00:00:00Z",
+            },
+        )
+        assert r_blocked.status_code == 403
+
+        # Enabled -> calls OtelMS writers and updates local DB
+        monkeypatch.setattr(settings, "api_enable_write_actions", True)
+        close_mock = AsyncMock(return_value={"count_restricts_data": 2, "by_category": {}})
+        open_mock = AsyncMock(return_value={"count_restricts_data": 2, "by_category": {}})
+        move_mock = AsyncMock(return_value={"room_id": "102"})
+        checkin_mock = AsyncMock(return_value=True)
+        checkout_mock = AsyncMock(return_value=True)
+
+        with (
+            patch("otelms.api.routes.admin.crm.otelms_close_dates", close_mock),
+            patch("otelms.api.routes.admin.crm.otelms_open_dates", open_mock),
+            patch("otelms.api.routes.admin.crm.otelms_move_reservation", move_mock),
+            patch("otelms.api.routes.admin.crm.otelms_check_in", checkin_mock),
+            patch("otelms.api.routes.admin.crm.otelms_check_out", checkout_mock),
+        ):
+            r_close = client.post(
+                "/admin/api/tasks/close-dates",
+                headers=headers,
+                json={
+                    "hotel_id": "18330",
+                    "categories": ["Matrimonial"],
+                    "start_date": "2026-11-20T00:00:00Z",
+                    "end_date": "2026-11-21T00:00:00Z",
+                    "reason": "Mantenimiento",
+                },
+            )
+            assert r_close.status_code == 200
+            assert r_close.json()["rooms_blocked"] == 2
+            close_mock.assert_awaited_once()
+
+            r_open = client.post(
+                "/admin/api/tasks/open-dates",
+                headers=headers,
+                json={
+                    "hotel_id": "18330",
+                    "categories": ["Matrimonial"],
+                    "start_date": "2026-11-20T00:00:00Z",
+                    "end_date": "2026-11-21T00:00:00Z",
+                },
+            )
+            assert r_open.status_code == 200
+            assert r_open.json()["rooms_opened"] == 2
+            open_mock.assert_awaited_once()
+
+            r_move = client.post(
+                "/admin/api/tasks/move-reservation",
+                headers=headers,
+                json={"reservation_id": "res1", "new_room_id": "102"},
+            )
+            assert r_move.status_code == 200
+            assert r_move.json()["new_room_id"] == "102"
+            move_mock.assert_awaited_once()
+
+            r_ci = client.post(
+                "/admin/api/tasks/check-in",
+                headers=headers,
+                json={"reservation_id": "res1"},
+            )
+            assert r_ci.status_code == 200
+            assert r_ci.json()["status"] == 2
+
+            r_co = client.post(
+                "/admin/api/tasks/check-out",
+                headers=headers,
+                json={"reservation_id": "res1"},
+            )
+            assert r_co.status_code == 200
+            assert r_co.json()["status"] == 4
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def test_admin_login_with_env_master_api_key(monkeypatch):
+    from otelms.api.routes.admin.auth import _get_db
+
+    monkeypatch.setattr(settings, "api_enable_admin_routes", True)
+    maker, engine = await _make_memory_session()
+
+    async def _override_db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[_get_db] = _override_db
+    try:
+        client = TestClient(app)
+
+        # Default placeholder must still be rejected
+        monkeypatch.setattr(settings, "api_key", "changeme-secure-api-key-here")
+        r_bad = client.post("/admin/login", json={"api_key": "changeme-secure-api-key-here"})
+        assert r_bad.status_code == 401
+
+        # Configured .env API_KEY logs in as master admin
+        monkeypatch.setattr(settings, "api_key", "super-secret-master-admin-key")
+        r_ok = client.post("/admin/login", json={"api_key": "super-secret-master-admin-key"})
+        assert r_ok.status_code == 200
+        data = r_ok.json()
+        assert data["key_name"] == "Admin (.env)"
+        assert data["token"]
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_public_phase2_endpoints_gateway_and_writes(monkeypatch):
+    from otelms.api.dependencies import get_db, get_sync_service
+
+    maker, engine = await _make_memory_session()
+    async with maker() as session:
+        session.add(Hotel(id="18330", name="H", domain="d", username="u", password_hash="x"))
+        session.add(Category(id="13", hotel_id="18330", name="Matrimonial"))
+        session.add(Room(id="101", hotel_id="18330", category_id="13", name="101"))
+        session.add(Room(id="102", hotel_id="18330", category_id="13", name="102"))
+        session.add(Guest(id="g1", hotel_id="18330", first_name="Ana", last_name="Gomez"))
+        session.add(
+            Reservation(
+                id="res1",
+                hotel_id="18330",
+                guest_id="g1",
+                room_id="101",
+                check_in=datetime(2026, 11, 15, 14, 0, tzinfo=UTC),
+                check_out=datetime(2026, 11, 17, 12, 0, tzinfo=UTC),
+                status=1,
+            )
+        )
+        await session.commit()
+
+    async def _override_db():
+        async with maker() as session:
+            yield session
+
+    fake_sync = AsyncMock()
+    fake_sync.sync_reservation_details = AsyncMock(return_value=None)
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_sync_service] = lambda: fake_sync
+    app.dependency_overrides[verify_api_key] = lambda: ApiKey(
+        id="test-key", name="test", key_hash="h", is_active=True, rate_limit=60
+    )
+    monkeypatch.setattr(settings, "api_key_required", False)
+
+    mem_cache = CacheManager()
+    mem_cache._backend = MemoryCacheBackend()
+    mem_cache._use_redis = False
+
+    try:
+        client = TestClient(app)
+
+        # Gateway blocks public writes when api_enable_write_actions=False
+        monkeypatch.setattr(settings, "api_enable_write_actions", False)
+        r_gate = client.post(
+            "/restrictions/close",
+            json={"hotel_id": "18330", "date_from": "2026-11-20", "date_to": "2026-11-21"},
+        )
+        assert r_gate.status_code == 503
+
+        # Enabled -> executes OtelMS calls, clears restriction cache, and resyncs reservation
+        monkeypatch.setattr(settings, "api_enable_write_actions", True)
+        close_mock = AsyncMock(return_value={"count_restricts_data": 1})
+        open_mock = AsyncMock(return_value={"count_restricts_data": 1})
+        ci_mock = AsyncMock(return_value=True)
+        co_mock = AsyncMock(return_value=True)
+        move_mock = AsyncMock(return_value={"room_id": "102"})
+
+        with (
+            patch("otelms.api.routes.restrictions.otelms_close_dates", close_mock),
+            patch("otelms.api.routes.restrictions.otelms_open_dates", open_mock),
+            patch("otelms.api.routes.restrictions.get_cache", AsyncMock(return_value=mem_cache)),
+            patch("otelms.api.routes.reservations.otelms_check_in", ci_mock),
+            patch("otelms.api.routes.reservations.otelms_check_out", co_mock),
+            patch("otelms.api.routes.reservations.otelms_move_reservation", move_mock),
+        ):
+            r_c = client.post(
+                "/restrictions/close",
+                json={
+                    "hotel_id": "18330",
+                    "date_from": "2026-11-20",
+                    "date_to": "2026-11-21",
+                    "categories": ["13"],
+                },
+            )
+            assert r_c.status_code == 200
+            assert r_c.json()["action"] == "close"
+            close_mock.assert_awaited_once()
+
+            r_o = client.post(
+                "/restrictions/open",
+                json={
+                    "hotel_id": "18330",
+                    "date_from": "2026-11-20",
+                    "date_to": "2026-11-21",
+                },
+            )
+            assert r_o.status_code == 200
+            assert r_o.json()["action"] == "open"
+            open_mock.assert_awaited_once()
+
+            r_ci = client.post("/reservations/res1/check-in?hotel_id=18330")
+            assert r_ci.status_code == 200
+            assert r_ci.json()["status"] == 2
+            ci_mock.assert_awaited_once()
+
+            r_mv = client.post(
+                "/reservations/res1/move?hotel_id=18330",
+                json={"new_room_id": "102"},
+            )
+            assert r_mv.status_code == 200
+            assert r_mv.json()["room_id"] == "102"
+            move_mock.assert_awaited_once()
+
+            r_co = client.post("/reservations/res1/check-out?hotel_id=18330")
+            assert r_co.status_code == 200
+            assert r_co.json()["status"] == 4
+            co_mock.assert_awaited_once()
+            assert fake_sync.sync_reservation_details.await_count == 3
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()

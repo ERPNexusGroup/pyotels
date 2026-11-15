@@ -13,13 +13,16 @@ scrapeo.
 """
 
 from datetime import date, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from otelms.api.dependencies import (
     get_cache,
     get_category_repo,
     live_rate_limit,
+    require_permission,
     verify_api_key,
 )
 from otelms.api.schemas import RestrictionResponse, RestrictionRow
@@ -27,7 +30,9 @@ from otelms.domain.repositories import CategoryRepository
 from otelms.scraping.restrictions import (
     CATEGORY_IDS,
     RATE_STANDARD,
+    close_dates as otelms_close_dates,
     get_restrictions,
+    open_dates as otelms_open_dates,
 )
 from otelms.utils.logging import get_logger
 
@@ -126,3 +131,81 @@ async def list_restrictions(
     )
     await cache.set(cache_key, resp.model_dump(mode="json"), ttl=60)
     return resp
+
+
+class RestrictionMutationRequest(BaseModel):
+    """Payload para cerrar o abrir fechas en OtelMS."""
+
+    hotel_id: str
+    date_from: date
+    date_to: date
+    categories: list[str] | None = None
+    rate_id: str = RATE_STANDARD
+
+
+def _normalize_category_names(categories: list[str] | None) -> list[str] | None:
+    if not categories:
+        return None
+    id_to_name = {cid: name for name, cid in CATEGORY_IDS.items()}
+    names: list[str] = []
+    for item in categories:
+        if item in CATEGORY_IDS:
+            names.append(item)
+        elif item in id_to_name:
+            names.append(id_to_name[item])
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown category: {item}",
+            )
+    return names
+
+
+async def _apply_restriction_mutation(
+    action: str,
+    payload: RestrictionMutationRequest,
+) -> dict[str, Any]:
+    if payload.date_to < payload.date_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date_to must be greater than or equal to date_from",
+        )
+    cat_names = _normalize_category_names(payload.categories)
+    fn = otelms_close_dates if action == "close" else otelms_open_dates
+    result = await fn(
+        payload.hotel_id,
+        payload.date_from,
+        payload.date_to,
+        categories=cat_names,
+        rate_id=payload.rate_id,
+    )
+    cache = await get_cache()
+    await cache.clear_pattern("live:restrictions:*")
+    return {
+        "success": True,
+        "action": action,
+        "hotel_id": payload.hotel_id,
+        "date_from": payload.date_from.isoformat(),
+        "date_to": payload.date_to.isoformat(),
+        "otelms": result,
+    }
+
+
+@router.post(
+    "/close",
+    response_model=dict,
+    dependencies=[Depends(require_permission("settings:write"))],
+)
+async def close_restrictions_endpoint(payload: RestrictionMutationRequest) -> dict[str, Any]:
+    """Cierra fechas en la rejilla de restricciones de OtelMS (Fase 2)."""
+    return await _apply_restriction_mutation("close", payload)
+
+
+@router.post(
+    "/open",
+    response_model=dict,
+    dependencies=[Depends(require_permission("settings:write"))],
+)
+async def open_restrictions_endpoint(payload: RestrictionMutationRequest) -> dict[str, Any]:
+    """Abre (desbloquea) fechas en la rejilla de restricciones de OtelMS (Fase 2)."""
+    return await _apply_restriction_mutation("open", payload)

@@ -2,6 +2,8 @@
 Configuración de logging estructurado con structlog.
 """
 import logging
+from logging.handlers import RotatingFileHandler
+import re
 import sys
 from typing import Any, cast
 
@@ -9,6 +11,15 @@ import structlog
 from structlog.types import EventDict, WrappedLogger
 
 from otelms.config.settings import settings
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class _PlainFileFormatter(logging.Formatter):
+    """Formatea logs de archivo eliminando códigos ANSI de consola."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _ANSI_RE.sub("", super().format(record))
 
 
 def add_app_context(logger: WrappedLogger, method_name: str, event_dict: EventDict) -> EventDict:
@@ -75,13 +86,24 @@ def setup_logging() -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Configurar file handler si se especifica
+    # Configurar file handler rotativo si se especifica (sin duplicar handlers)
     if settings.log_file:
         log_path = settings.get_log_path()
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(logging.Formatter("%(message)s"))
-        logging.getLogger().addHandler(file_handler)
+        root_logger = logging.getLogger()
+        already_attached = any(
+            isinstance(h, RotatingFileHandler) and getattr(h, "baseFilename", None) == str(log_path)
+            for h in root_logger.handlers
+        )
+        if not already_attached:
+            file_handler = RotatingFileHandler(
+                log_path,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+            )
+            file_handler.setLevel(log_level)
+            file_handler.setFormatter(_PlainFileFormatter("%(message)s"))
+            root_logger.addHandler(file_handler)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

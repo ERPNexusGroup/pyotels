@@ -163,6 +163,13 @@ def parse_folio_complete(html_content: str, reservation_id: str | int) -> dict[s
     balance_str = ""
     if balans_elem:
         balance_str = balans_elem.get_text(strip=True).replace("Saldo:", "").replace("Balance:", "").strip()
+    else:
+        for el in soup.find_all(["span", "div"]):
+            txt = el.get_text(" ", strip=True)
+            m_bal = re.match(r"^(?:Saldo|Balance)\s*:\s*([+-]?\s*\$?\s*[\d.,]+)$", txt, re.I)
+            if m_bal:
+                balance_str = m_bal.group(1).replace(" ", "")
+                break
 
     # Mapeo de campos en paneles (DOM-based)
     basic_info: dict[str, Any] = {}

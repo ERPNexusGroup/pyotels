@@ -6,11 +6,15 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import uuid4
 
+import structlog
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import REGISTRY, Counter, Histogram, generate_latest
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from otelms.api.routes import (
@@ -270,6 +274,65 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         return await call_next(request)
+
+    # Request correlation ID & structured HTTP audit logging
+    @app.middleware("http")
+    async def request_logging_middleware(request: Request, call_next: Any) -> Any:
+        request_id = request.headers.get("X-Request-ID") or uuid4().hex[:12]
+        client_ip = request.client.host if request.client else "unknown"
+        path = request.url.path
+        method = request.method
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id,
+            method=method,
+            path=path,
+        )
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        finally:
+            structlog.contextvars.clear_contextvars()
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        response.headers["X-Request-ID"] = request_id
+        status_code = response.status_code
+
+        if path not in {"/health", "/metrics"}:
+            log_kwargs = {
+                "request_id": request_id,
+                "method": method,
+                "path": path,
+                "query": str(request.url.query) or None,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+                "client_ip": client_ip,
+            }
+            if status_code >= 500:
+                logger.error("HTTP request failed", **log_kwargs)
+            elif status_code >= 400:
+                logger.warning("HTTP request error", **log_kwargs)
+            elif method in {"POST", "PATCH", "PUT", "DELETE"}:
+                logger.info("HTTP write request completed", **log_kwargs)
+            else:
+                logger.debug("HTTP request completed", **log_kwargs)
+
+        return response
+
+    # Global HTTPException logger (captures 4xx/5xx detail for manual debugging)
+    @app.exception_handler(StarletteHTTPException)
+    async def logged_http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> Response:
+        log_fn = logger.error if exc.status_code >= 500 else logger.warning
+        log_fn(
+            "HTTPException raised",
+            path=request.url.path,
+            method=request.method,
+            status_code=exc.status_code,
+            detail=exc.detail,
+        )
+        return await http_exception_handler(request, exc)
 
     # Global exception handler
     @app.exception_handler(Exception)

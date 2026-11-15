@@ -1275,7 +1275,9 @@ class SyncService:
                 else folio.get("balance")
             )
             if otelms_bal is not None:
-                res.otelms_balance = otelms_bal
+                # OtelMS reporta Saldo = pagos - cargos (negativo cuando hay deuda);
+                # normalizamos a saldo pendiente (cargos - pagos) para reconciliar con computed_balance.
+                res.otelms_balance = -otelms_bal if otelms_bal != Decimal("0") else Decimal("0.00")
             res.deep_synced_at = utc_now()
 
         await session.commit()

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from otelms.config.settings import settings
 from otelms.domain.entities import (
     Guest,
     Hotel,
@@ -18,6 +19,18 @@ from otelms.domain.entities import (
     RoomAvailability,
     SyncLog,
 )
+from otelms.scraping.checkin import (
+    check_in as otelms_check_in,
+    check_out as otelms_check_out,
+    move_reservation as otelms_move_reservation,
+)
+from otelms.scraping.restrictions import (
+    CATEGORY_IDS,
+    RATE_STANDARD,
+    close_dates as otelms_close_dates,
+    open_dates as otelms_open_dates,
+)
+from otelms.utils.cache import cache
 from otelms.utils.logging import get_logger
 
 from .auth import _admin_enabled, _get_db, _require_admin
@@ -37,6 +50,8 @@ class CloseDatesRequest(BaseModel):
 
     hotel_id: str
     room_ids: list[str] = Field(default_factory=list)  # Empty = all rooms in hotel
+    categories: list[str] = Field(default_factory=list)  # Category names or IDs; empty = all
+    rate_id: str = RATE_STANDARD
     start_date: datetime
     end_date: datetime
     reason: str | None = None
@@ -47,6 +62,8 @@ class OpenDatesRequest(BaseModel):
 
     hotel_id: str
     room_ids: list[str] = Field(default_factory=list)  # Empty = all rooms in hotel
+    categories: list[str] = Field(default_factory=list)  # Category names or IDs; empty = all
+    rate_id: str = RATE_STANDARD
     start_date: datetime
     end_date: datetime
 
@@ -56,6 +73,12 @@ class MoveReservationRequest(BaseModel):
 
     reservation_id: str
     new_room_id: str
+
+
+class ReservationActionRequest(BaseModel):
+    """Payload for check-in / check-out actions."""
+
+    reservation_id: str
 
 
 class AvailabilityResponse(BaseModel):
@@ -125,15 +148,42 @@ class NotificationResponse(BaseModel):
 # ============================================================
 
 
+def _require_write_actions_enabled() -> None:
+    if not settings.api_enable_write_actions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write actions (Phase 2) are disabled (api_enable_write_actions=false)",
+        )
+
+
+def _resolve_category_names(requested: list[str], rooms: list[Room]) -> list[str] | None:
+    """Normaliza nombres o IDs de categorías a nombres válidos de CATEGORY_IDS."""
+    id_to_name = {cid: name for name, cid in CATEGORY_IDS.items()}
+    names: list[str] = []
+    for item in requested:
+        if item in CATEGORY_IDS:
+            names.append(item)
+        elif item in id_to_name:
+            names.append(id_to_name[item])
+    if not names and rooms:
+        seen: set[str] = set()
+        for r in rooms:
+            if r.category_id and r.category_id in id_to_name and id_to_name[r.category_id] not in seen:
+                seen.add(id_to_name[r.category_id])
+                names.append(id_to_name[r.category_id])
+    return names or None
+
+
 @router.post("/api/tasks/close-dates")
 async def close_dates(
     payload: CloseDatesRequest,
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
-    """Block rooms for a date range (close availability)."""
+    """Block rooms for a date range in OtelMS and local availability."""
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_write_actions_enabled()
 
     # Validate hotel exists
     hotel_stmt = select(Hotel).where(Hotel.id == payload.hotel_id)
@@ -146,14 +196,34 @@ async def close_dates(
     if payload.room_ids:
         rooms_stmt = select(Room).where(Room.id.in_(payload.room_ids), Room.hotel_id == payload.hotel_id)
         rooms_result = await session.execute(rooms_stmt)
-        rooms = rooms_result.scalars().all()
+        rooms = list(rooms_result.scalars().all())
         if len(rooms) != len(payload.room_ids):
             raise HTTPException(status_code=400, detail="Some room IDs not found in this hotel")
     else:
-        # All rooms in hotel
         rooms_stmt = select(Room).where(Room.hotel_id == payload.hotel_id)
+        if payload.categories:
+            resolved_ids = [CATEGORY_IDS.get(c, c) for c in payload.categories]
+            rooms_stmt = rooms_stmt.where(Room.category_id.in_(resolved_ids))
         rooms_result = await session.execute(rooms_stmt)
-        rooms = rooms_result.scalars().all()
+        rooms = list(rooms_result.scalars().all())
+
+    cat_names = _resolve_category_names(payload.categories, rooms if (payload.room_ids or payload.categories) else [])
+    logger.info(
+        "Admin close_dates requested",
+        hotel_id=payload.hotel_id,
+        start_date=str(payload.start_date.date()),
+        end_date=str(payload.end_date.date()),
+        categories=cat_names,
+        rate_id=payload.rate_id,
+        rooms_matched=len(rooms),
+    )
+    otelms_result = await otelms_close_dates(
+        payload.hotel_id,
+        payload.start_date.date(),
+        payload.end_date.date(),
+        categories=cat_names,
+        rate_id=payload.rate_id,
+    )
 
     created_count = 0
     for room in rooms:
@@ -170,10 +240,13 @@ async def close_dates(
         created_count += 1
 
     await session.commit()
+    if cache._backend is not None:
+        await cache.clear_pattern("live:restrictions:*")
     return {
         "success": True,
         "message": f"Blocked {created_count} rooms from {payload.start_date.date()} to {payload.end_date.date()}",
         "rooms_blocked": created_count,
+        "otelms": otelms_result,
     }
 
 
@@ -183,9 +256,10 @@ async def open_dates(
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
-    """Unblock rooms for a date range (open availability)."""
+    """Unblock rooms for a date range in OtelMS and local availability."""
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_write_actions_enabled()
 
     # Validate hotel exists
     hotel_stmt = select(Hotel).where(Hotel.id == payload.hotel_id)
@@ -198,18 +272,37 @@ async def open_dates(
     if payload.room_ids:
         rooms_stmt = select(Room).where(Room.id.in_(payload.room_ids), Room.hotel_id == payload.hotel_id)
         rooms_result = await session.execute(rooms_stmt)
-        rooms = rooms_result.scalars().all()
+        rooms = list(rooms_result.scalars().all())
         if len(rooms) != len(payload.room_ids):
             raise HTTPException(status_code=400, detail="Some room IDs not found in this hotel")
     else:
-        # All rooms in hotel
         rooms_stmt = select(Room).where(Room.hotel_id == payload.hotel_id)
+        if payload.categories:
+            resolved_ids = [CATEGORY_IDS.get(c, c) for c in payload.categories]
+            rooms_stmt = rooms_stmt.where(Room.category_id.in_(resolved_ids))
         rooms_result = await session.execute(rooms_stmt)
-        rooms = rooms_result.scalars().all()
+        rooms = list(rooms_result.scalars().all())
+
+    cat_names = _resolve_category_names(payload.categories, rooms if (payload.room_ids or payload.categories) else [])
+    logger.info(
+        "Admin open_dates requested",
+        hotel_id=payload.hotel_id,
+        start_date=str(payload.start_date.date()),
+        end_date=str(payload.end_date.date()),
+        categories=cat_names,
+        rate_id=payload.rate_id,
+        rooms_matched=len(rooms),
+    )
+    otelms_result = await otelms_open_dates(
+        payload.hotel_id,
+        payload.start_date.date(),
+        payload.end_date.date(),
+        categories=cat_names,
+        rate_id=payload.rate_id,
+    )
 
     opened_count = 0
     for room in rooms:
-        # Find and delete blocking records that overlap with the range
         overlap_stmt = select(RoomAvailability).where(
             RoomAvailability.room_id == room.id,
             RoomAvailability.start_date <= payload.end_date,
@@ -224,10 +317,13 @@ async def open_dates(
             opened_count += 1
 
     await session.commit()
+    if cache._backend is not None:
+        await cache.clear_pattern("live:restrictions:*")
     return {
         "success": True,
         "message": f"Opened {opened_count} rooms from {payload.start_date.date()} to {payload.end_date.date()}",
         "rooms_opened": opened_count,
+        "otelms": otelms_result,
     }
 
 
@@ -404,9 +500,10 @@ async def move_reservation(
     session: AsyncSession = Depends(_get_db),
     _: dict[str, Any] = Depends(_require_admin),
 ) -> dict[str, Any]:
-    """Move a reservation to a different room."""
+    """Move a reservation to a different room in OtelMS and local DB."""
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_write_actions_enabled()
 
     # Get reservation
     res_stmt = select(Reservation).where(Reservation.id == payload.reservation_id)
@@ -435,10 +532,32 @@ async def move_reservation(
     if conflict:
         raise HTTPException(status_code=400, detail="Room not available for those dates")
 
+    logger.info(
+        "Admin move_reservation requested",
+        hotel_id=reservation.hotel_id,
+        reservation_id=payload.reservation_id,
+        old_room_id=reservation.room_id,
+        new_room_id=payload.new_room_id,
+        category_id=new_room.category_id,
+    )
+    otelms_result = await otelms_move_reservation(
+        reservation.hotel_id,
+        payload.reservation_id,
+        room_id=payload.new_room_id,
+        category_id=new_room.category_id,
+    )
+
     old_room_id = reservation.room_id
     reservation.room_id = payload.new_room_id
     await session.flush()
     await session.commit()
+    logger.info(
+        "Admin move_reservation completed",
+        hotel_id=reservation.hotel_id,
+        reservation_id=payload.reservation_id,
+        old_room_id=old_room_id,
+        new_room_id=payload.new_room_id,
+    )
 
     return {
         "success": True,
@@ -446,7 +565,92 @@ async def move_reservation(
         "reservation_id": payload.reservation_id,
         "old_room_id": old_room_id,
         "new_room_id": payload.new_room_id,
+        "otelms": otelms_result,
     }
+
+
+@router.post("/api/tasks/check-in")
+async def task_check_in(
+    payload: ReservationActionRequest,
+    session: AsyncSession = Depends(_get_db),
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Ejecuta check-in en OtelMS y actualiza estado local."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_write_actions_enabled()
+
+    reservation = (
+        await session.execute(select(Reservation).where(Reservation.id == payload.reservation_id))
+    ).scalar_one_or_none()
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    logger.info(
+        "Admin check_in requested",
+        hotel_id=reservation.hotel_id,
+        reservation_id=payload.reservation_id,
+        prev_status=reservation.status,
+    )
+    ok = await otelms_check_in(reservation.hotel_id, payload.reservation_id)
+    if not ok:
+        logger.error(
+            "Admin check_in failed in OtelMS",
+            hotel_id=reservation.hotel_id,
+            reservation_id=payload.reservation_id,
+        )
+        raise HTTPException(status_code=502, detail="OtelMS check-in failed")
+
+    reservation.status = 2
+    await session.commit()
+    logger.info(
+        "Admin check_in completed",
+        hotel_id=reservation.hotel_id,
+        reservation_id=payload.reservation_id,
+    )
+    return {"success": True, "reservation_id": payload.reservation_id, "status": 2, "message": "Check-in ejecutado"}
+
+
+@router.post("/api/tasks/check-out")
+async def task_check_out(
+    payload: ReservationActionRequest,
+    session: AsyncSession = Depends(_get_db),
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Ejecuta check-out en OtelMS y actualiza estado local."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_write_actions_enabled()
+
+    reservation = (
+        await session.execute(select(Reservation).where(Reservation.id == payload.reservation_id))
+    ).scalar_one_or_none()
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    logger.info(
+        "Admin check_out requested",
+        hotel_id=reservation.hotel_id,
+        reservation_id=payload.reservation_id,
+        prev_status=reservation.status,
+    )
+    ok = await otelms_check_out(reservation.hotel_id, payload.reservation_id)
+    if not ok:
+        logger.error(
+            "Admin check_out failed in OtelMS",
+            hotel_id=reservation.hotel_id,
+            reservation_id=payload.reservation_id,
+        )
+        raise HTTPException(status_code=502, detail="OtelMS check-out failed")
+
+    reservation.status = 4
+    await session.commit()
+    logger.info(
+        "Admin check_out completed",
+        hotel_id=reservation.hotel_id,
+        reservation_id=payload.reservation_id,
+    )
+    return {"success": True, "reservation_id": payload.reservation_id, "status": 4, "message": "Check-out ejecutado"}
 
 
 @router.get("/api/tasks/notifications", response_model=list[NotificationResponse])

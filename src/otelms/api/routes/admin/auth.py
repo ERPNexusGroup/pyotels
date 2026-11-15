@@ -1,6 +1,7 @@
 """Admin authentication: login, JWT session tokens, and auth dependencies."""
 
 import hashlib
+import secrets
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -37,13 +38,13 @@ def _admin_enabled() -> bool:
     return bool(settings.app_debug or settings.api_enable_admin_routes)
 
 
-def _create_session_token(key: ApiKey) -> str:
+def _create_session_token(sub: str, name: str) -> str:
     """Crea un JWT de sesión para el dashboard."""
     now = datetime.now(UTC)
     expire = now + timedelta(hours=12)
     payload = {
-        "sub": key.id,
-        "name": key.name,
+        "sub": sub,
+        "name": name,
         "role": "admin",
         "iat": now,
         "exp": expire,
@@ -115,6 +116,20 @@ async def admin_login(
     if not _admin_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
+    master_key = (settings.api_key or "").strip()
+    if (
+        master_key
+        and master_key != "changeme-secure-api-key-here"
+        and secrets.compare_digest(login_data.api_key, master_key)
+    ):
+        token = _create_session_token("env-admin", "Admin (.env)")
+        return LoginResponse(
+            token=token,
+            token_type="bearer",
+            expires_in=12 * 3600,
+            key_name="Admin (.env)",
+        )
+
     key_hash = hashlib.sha256(login_data.api_key.encode()).hexdigest()
     stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active)
     result = await session.execute(stmt)
@@ -130,7 +145,7 @@ async def admin_login(
     await session.flush()
     await session.commit()
 
-    token = _create_session_token(key_obj)
+    token = _create_session_token(key_obj.id, key_obj.name)
     return LoginResponse(
         token=token,
         token_type="bearer",

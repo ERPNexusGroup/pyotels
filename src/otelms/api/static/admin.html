@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OtelMS Admin</title>
+  <title>Hotel Ensueños by HHG — Panel Admin OtelMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class', theme: { extend: {} } }</script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
@@ -15,7 +15,7 @@
   <div x-show="!token" x-cloak class="min-h-screen flex items-center justify-center p-6">
     <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
       <h1 class="text-xl font-semibold">Portal de Control Administrativo</h1>
-      <p class="text-sm text-slate-400 mt-1 mb-5">Hotel 18330 — Hotel Ensueños by HHG</p>
+      <p class="text-sm text-slate-400 mt-1 mb-5">Hotel Ensueños by HHG — Hotel 18330</p>
       <form @submit.prevent="login()" class="space-y-4">
         <label class="block text-sm text-slate-300">API Key de administrador
           <input x-model="apiKeyInput" type="password" required class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Ingrese API Key" />
@@ -32,7 +32,7 @@
     <header class="sticky top-0 z-30 border-b border-slate-800 bg-slate-900/90 backdrop-blur">
       <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap gap-3 items-center justify-between">
         <div>
-          <div class="font-semibold">18330 — Hotel Ensueños by HHG <span class="text-xs text-slate-400 font-normal" x-text="'('+hotelId+')'"></span></div>
+          <div class="font-semibold">Hotel Ensueños by HHG <span class="text-xs text-slate-400 font-normal" x-text="'(Hotel '+hotelId+')'"></span></div>
           <div class="text-xs text-slate-400 flex flex-wrap gap-x-4 gap-y-1 mt-1">
             <span>BD: <span :class="dbOk?'text-emerald-400':'text-amber-400'" x-text="dbOk?'conectada':'sin confirmar'"></span></span>
             <span>Redis: <span :class="(gateway.redis?.connected)?'text-emerald-400':'text-amber-400'" x-text="redisLabel()"></span></span>
@@ -164,10 +164,36 @@
             </div>
           </div>
           <div class="overflow-auto">
-            <table class="w-full text-sm min-w-[700px]"><thead class="text-slate-400"><tr class="text-left"><th class="p-2">Nombre</th><th class="p-2">Activa</th><th class="p-2">RPM</th><th class="p-2">Creada</th><th class="p-2">Último uso</th><th class="p-2">Expira</th><th class="p-2">Acciones</th></tr></thead><tbody>
-              <template x-if="!apiKeys.length"><tr><td colspan="7" class="p-3 text-slate-500">Sin API Keys</td></tr></template>
-              <template x-for="k in apiKeys" :key="k.id"><tr class="border-t border-slate-800"><td class="p-2" x-text="k.name"></td><td class="p-2"><span class="text-xs px-2 py-0.5 rounded border" :class="k.is_active?'bg-emerald-900/20 border-emerald-700 text-emerald-300':'bg-slate-700/30 border-slate-600 text-slate-300'" x-text="k.is_active?'sí':'no'"></span></td><td class="p-2" x-text="k.rate_limit"></td><td class="p-2" x-text="fmt(k.created_at)"></td><td class="p-2" x-text="fmt(k.last_used_at)"></td><td class="p-2" x-text="fmt(k.expires_at)"></td><td class="p-2 space-x-1"><button type="button" @click="copyKeyRow(k)" :class="createdKeysById[k.id] ? 'bg-sky-800/80 hover:bg-sky-700' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800'" class="px-2 py-1 text-xs rounded" :title="createdKeysById[k.id] ? 'Copiar API Key' : 'Solo disponible para claves creadas en esta sesión'">Copiar</button><button @click="toggleKey(k)" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700" x-text="k.is_active?'Desactivar':'Activar'"></button><button @click="deleteKey(k)" class="px-2 py-1 text-xs rounded bg-red-800/70 hover:bg-red-700">Eliminar</button></td></tr></template>
+            <table class="w-full text-sm min-w-[780px]"><thead class="text-slate-400"><tr class="text-left"><th class="p-2">Nombre</th><th class="p-2">Activa</th><th class="p-2">RPM</th><th class="p-2">Permisos</th><th class="p-2">Creada</th><th class="p-2">Último uso</th><th class="p-2">Expira</th><th class="p-2">Acciones</th></tr></thead><tbody>
+              <template x-if="!apiKeys.length"><tr><td colspan="8" class="p-3 text-slate-500">Sin API Keys</td></tr></template>
+              <template x-for="k in apiKeys" :key="k.id"><tr class="border-t border-slate-800"><td class="p-2" x-text="k.name"></td><td class="p-2"><span class="text-xs px-2 py-0.5 rounded border" :class="k.is_active?'bg-emerald-900/20 border-emerald-700 text-emerald-300':'bg-slate-700/30 border-slate-600 text-slate-300'" x-text="k.is_active?'sí':'no'"></span></td><td class="p-2" x-text="k.rate_limit"></td><td class="p-2"><div class="flex flex-wrap gap-1 max-w-xs"><template x-if="!arr(k.permissions).length"><span class="text-xs text-slate-500">Sin permisos</span></template><template x-for="p in arr(k.permissions)" :key="p"><span class="text-[11px] px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-200 font-mono" x-text="p"></span></template></div></td><td class="p-2" x-text="fmt(k.created_at)"></td><td class="p-2" x-text="fmt(k.last_used_at)"></td><td class="p-2" x-text="fmt(k.expires_at)"></td><td class="p-2 space-x-1 whitespace-nowrap"><button type="button" @click="copyKeyRow(k)" :class="createdKeysById[k.id] ? 'bg-sky-800/80 hover:bg-sky-700' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800'" class="px-2 py-1 text-xs rounded" :title="createdKeysById[k.id] ? 'Copiar API Key' : 'Solo disponible para claves creadas en esta sesión'">Copiar</button><button type="button" @click="openPermModal(k)" class="px-2 py-1 text-xs rounded bg-indigo-800/80 hover:bg-indigo-700">Permisos</button><button @click="toggleKey(k)" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700" x-text="k.is_active?'Desactivar':'Activar'"></button><button @click="deleteKey(k)" class="px-2 py-1 text-xs rounded bg-red-800/70 hover:bg-red-700">Eliminar</button></td></tr></template>
             </tbody></table>
+          </div>
+
+          <!-- Modal de permisos de API Key -->
+          <div x-show="permModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" @keydown.escape.window="permModal.open=false">
+            <div class="bg-slate-900 border border-slate-700 rounded-lg max-w-lg w-full p-5 space-y-4">
+              <div class="flex items-center justify-between">
+                <h4 class="font-medium">Permisos de API Key: <span class="text-sky-400" x-text="permModal.keyName"></span></h4>
+                <button type="button" @click="permModal.open=false" class="text-slate-400 hover:text-white text-sm">Cerrar</button>
+              </div>
+              <div class="flex gap-2 text-xs">
+                <button type="button" @click="permModal.selected = [...availablePermissions]" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Seleccionar todos</button>
+                <button type="button" @click="permModal.selected = []" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Limpiar</button>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-auto">
+                <template x-for="perm in availablePermissions" :key="perm">
+                  <label class="flex items-center gap-2 text-sm bg-slate-950 border border-slate-800 rounded px-2.5 py-2 cursor-pointer hover:border-slate-600">
+                    <input type="checkbox" :value="perm" x-model="permModal.selected" class="rounded bg-slate-900 border-slate-600" />
+                    <span class="font-mono text-xs" x-text="perm"></span>
+                  </label>
+                </template>
+              </div>
+              <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button type="button" @click="permModal.open=false" class="px-3 py-1.5 text-sm rounded bg-slate-800 hover:bg-slate-700">Cancelar</button>
+                <button type="button" @click="saveKeyPermissions()" :disabled="permModal.saving" class="px-3 py-1.5 text-sm rounded bg-sky-700 hover:bg-sky-600 disabled:opacity-50" x-text="permModal.saving ? 'Guardando...' : 'Guardar permisos'"></button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -208,33 +234,141 @@
         </div>
       </section>
 
-      <!-- Tab 4: Acciones Fase 2 -->
+      <!-- Tab 4: Acciones -->
       <section x-show="activeTab==='actions'" x-cloak class="space-y-4">
         <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
           <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <h3 class="font-medium">Acciones Operativas (Fase 2 — Bloqueo/Desbloqueo)</h3>
+            <h3 class="font-medium">Acciones Operativas — Bloqueo/Desbloqueo</h3>
             <span class="text-xs px-2 py-1 rounded border" :class="gateway.flags?.api_enable_write_actions ? 'bg-emerald-900/20 border-emerald-700 text-emerald-300' : 'bg-red-900/20 border-red-700 text-red-300'" x-text="gateway.flags?.api_enable_write_actions ? 'Escritura ACTIVA' : 'Escritura BLOQUEADA'"></span>
           </div>
           <div x-show="!gateway.flags?.api_enable_write_actions" class="mb-4 text-sm rounded border border-amber-800 bg-amber-950/20 text-amber-200 p-3">Aviso: <code>api_enable_write_actions</code> está desactivado. Las acciones pueden ser rechazadas por el API Gateway.</div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <form @submit.prevent="runDateAction('close')" class="border border-slate-800 rounded p-3 space-y-2">
-              <div class="font-medium text-sm">Cerrar / Bloquear fechas</div>
+              <div class="font-medium text-sm">Cerrar / Bloquear fechas en OtelMS</div>
               <label class="block text-sm">Hotel ID<input x-model="actionForm.hotel_id" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <label class="block text-sm">Desde<input x-model="actionForm.start_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <label class="block text-sm">Hasta<input x-model="actionForm.end_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="block text-sm">Desde<input x-model="actionForm.start_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+                <label class="block text-sm">Hasta<input x-model="actionForm.end_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+              </div>
+              <label class="block text-sm">Tarifa
+                <select x-model="actionForm.rate_id" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5">
+                  <option value="1">1 — Standard</option>
+                  <option value="2">2 — Feriados</option>
+                </select>
+              </label>
+              <div class="text-sm">
+                <div class="flex items-center justify-between mb-1">
+                  <span>Categorías (vacío = todas)</span>
+                  <button type="button" @click="actionForm.categories=[]" class="text-xs text-sky-400 hover:underline">Limpiar</button>
+                </div>
+                <div class="grid grid-cols-2 gap-1 max-h-28 overflow-auto bg-slate-950 border border-slate-800 rounded p-2 text-xs">
+                  <template x-for="c in actionCategories" :key="c.id">
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" :value="c.name" x-model="actionForm.categories" />
+                      <span x-text="c.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
               <label class="block text-sm">Motivo (opcional)<input x-model="actionForm.reason" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <button class="w-full rounded bg-amber-700 hover:bg-amber-600 px-3 py-2 text-sm">POST /admin/api/tasks/close-dates</button>
+              <button class="w-full rounded bg-amber-700 hover:bg-amber-600 px-3 py-2 text-sm">Bloquear en OtelMS</button>
             </form>
             <form @submit.prevent="runDateAction('open')" class="border border-slate-800 rounded p-3 space-y-2">
-              <div class="font-medium text-sm">Abrir / Desbloquear fechas</div>
+              <div class="font-medium text-sm">Abrir / Desbloquear fechas en OtelMS</div>
               <label class="block text-sm">Hotel ID<input x-model="actionForm.hotel_id" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <label class="block text-sm">Desde<input x-model="actionForm.start_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <label class="block text-sm">Hasta<input x-model="actionForm.end_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <label class="block text-sm">Motivo (opcional)<input x-model="actionForm.reason" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
-              <button class="w-full rounded bg-emerald-700 hover:bg-emerald-600 px-3 py-2 text-sm">POST /admin/api/tasks/open-dates</button>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="block text-sm">Desde<input x-model="actionForm.start_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+                <label class="block text-sm">Hasta<input x-model="actionForm.end_date" type="date" required class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+              </div>
+              <label class="block text-sm">Tarifa
+                <select x-model="actionForm.rate_id" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5">
+                  <option value="1">1 — Standard</option>
+                  <option value="2">2 — Feriados</option>
+                </select>
+              </label>
+              <div class="text-sm">
+                <div class="flex items-center justify-between mb-1">
+                  <span>Categorías (vacío = todas)</span>
+                  <button type="button" @click="actionForm.categories=[]" class="text-xs text-sky-400 hover:underline">Limpiar</button>
+                </div>
+                <div class="grid grid-cols-2 gap-1 max-h-28 overflow-auto bg-slate-950 border border-slate-800 rounded p-2 text-xs">
+                  <template x-for="c in actionCategories" :key="'open-'+c.id">
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" :value="c.name" x-model="actionForm.categories" />
+                      <span x-text="c.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <button class="w-full rounded bg-emerald-700 hover:bg-emerald-600 px-3 py-2 text-sm">Desbloquear en OtelMS</button>
             </form>
           </div>
-          <p class="text-xs text-slate-400 mt-3">Cada envío solicita confirmación doble antes de ejecutar.</p>
+          <p class="text-xs text-slate-400 mt-3">Cada envío solicita confirmación doble antes de ejecutar en OtelMS.</p>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="font-medium">Operaciones de Reserva en OtelMS</h3>
+            <button type="button" @click="loadActionCategories(); loadActionRooms()" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700">Recargar categorías y habitaciones</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form @submit.prevent="runMoveReservation()" class="border border-slate-800 rounded p-3 space-y-2">
+              <div class="font-medium text-sm">Mover reserva de habitación</div>
+              <label class="block text-sm">ID de Reserva<input x-model="resAction.reservation_id" required placeholder="Ej: 23641" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+              <label class="block text-sm">ID Habitación destino
+                <input x-model="resAction.new_room_id" list="actionRoomsList" required placeholder="Ej: 101" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" />
+                <datalist id="actionRoomsList">
+                  <template x-for="r in actionRooms" :key="r.id">
+                    <option :value="r.id" x-text="(r.name || r.id) + (r.category_id ? ' (cat ' + r.category_id + ')' : '')"></option>
+                  </template>
+                </datalist>
+              </label>
+              <button class="w-full rounded bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm">Mover habitación en OtelMS</button>
+            </form>
+            <div class="border border-slate-800 rounded p-3 space-y-3">
+              <div class="font-medium text-sm">Check-in / Check-out</div>
+              <label class="block text-sm">ID de Reserva<input x-model="resAction.reservation_id" placeholder="Ej: 23641" class="mt-1 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1.5" /></label>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" @click="runResStatusAction('check-in')" class="rounded bg-emerald-700 hover:bg-emerald-600 px-3 py-2 text-sm">Ejecutar Check-in</button>
+                <button type="button" @click="runResStatusAction('check-out')" class="rounded bg-indigo-700 hover:bg-indigo-600 px-3 py-2 text-sm">Ejecutar Check-out</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Historial de acciones Fase 2 en esta sesión -->
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="font-medium text-sm">Resultado e Historial de Acciones (Sesión actual)</h3>
+            <button type="button" @click="actionHistory=[]" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700">Limpiar</button>
+          </div>
+          <div x-show="!actionHistory.length" class="text-xs text-slate-400">Aún no se han ejecutado acciones en esta sesión.</div>
+          <div class="space-y-2 max-h-60 overflow-auto">
+            <template x-for="(item, idx) in actionHistory" :key="idx">
+              <div class="border rounded p-2 text-xs" :class="item.ok ? 'border-emerald-800 bg-emerald-950/20' : 'border-red-800 bg-red-950/20'">
+                <div class="flex flex-wrap items-center justify-between gap-2 font-medium">
+                  <span x-text="item.action + ' — ' + (item.ok ? 'OK' : 'ERROR')"></span>
+                  <span class="text-slate-400 font-mono" x-text="item.ts"></span>
+                </div>
+                <pre class="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] text-slate-200" x-text="item.detail"></pre>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Visor de logs del sistema -->
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="font-medium text-sm">Logs del Sistema</h3>
+              <p class="text-[11px] text-slate-400 font-mono" x-text="sysLogsFile || 'logs/otelms.log'"></p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <input x-model="sysLogsQuery" @keydown.enter.prevent="loadSysLogs()" placeholder="Filtrar (ej: check_in, ERROR, request_id)" class="rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs w-64" />
+              <button type="button" @click="loadSysLogs()" class="px-2.5 py-1 text-xs rounded bg-sky-700 hover:bg-sky-600">Actualizar logs</button>
+            </div>
+          </div>
+          <pre class="bg-slate-950 border border-slate-800 rounded p-2 max-h-72 overflow-auto text-[11px] font-mono text-slate-200 whitespace-pre-wrap" x-text="sysLogs.length ? sysLogs.join('\n') : 'Sin líneas de log disponibles (o archivo aún no creado).'"></pre>
         </div>
       </section>
     </main>
@@ -297,7 +431,7 @@ function adminApp(){
       {id:'sync', label:'Sincronización y Salud'},
       {id:'gateway', label:'Gateway y API Keys'},
       {id:'ops', label:'Operativa y Auditoría'},
-      {id:'actions', label:'Acciones Fase 2'}
+      {id:'actions', label:'Acciones'}
     ],
     activeTab: 'sync',
     gateway: { flags: {}, redis: {}, default_hotel_id: '18330' },
@@ -314,9 +448,18 @@ function adminApp(){
     ws: null, wsState: 'closed', wsMsg: '',
     apiKeys: [], newKey: { name: '', rate_limit: 60, expires_at: '' }, createdPlainKey: '',
     createdKeysById: (()=>{ try { return JSON.parse(sessionStorage.getItem('admin_created_api_keys')||'{}'); } catch(_) { return {}; } })(),
+    availablePermissions: [],
+    permModal: { open: false, keyId: '', keyName: '', selected: [], saving: false },
     reservations: [], reservationsMsg: '', resQuery: '',
     tableSlug: 'categories', tableRows: [], tableCols: [], tableInfo: '',
-    actionForm: { hotel_id: '18330', start_date: '', end_date: '', reason: '' },
+    actionForm: { hotel_id: '18330', start_date: '', end_date: '', reason: '', rate_id: '1', categories: [] },
+    actionCategories: [],
+    actionRooms: [],
+    actionHistory: [],
+    sysLogs: [],
+    sysLogsQuery: '',
+    sysLogsFile: '',
+    resAction: { reservation_id: '', new_room_id: '' },
     modal: { open: false, loading: false, data: null },
     toasts: [],
 
@@ -396,8 +539,8 @@ function adminApp(){
     logout(){ this.token=''; this.keyName=''; this.apiKeyInput=''; this.publicApiKey=''; localStorage.removeItem('admin_token'); localStorage.removeItem('admin_key_name'); localStorage.removeItem('public_api_key'); try { sessionStorage.removeItem('admin_api_key'); } catch(_) {} this.closeWs(); },
     async afterLogin(){ this.hotelId = (this.gateway.default_hotel_id || '18330'); this.actionForm.hotel_id = this.hotelId; await this.refreshAll(); this.connectWs(); },
 
-    async setTab(id){ this.activeTab = id; if(id==='gateway') await Promise.allSettled([this.loadGateway(), this.loadWorkerStatus(), this.loadKeys()]); if(id==='sync') await Promise.allSettled([this.loadOverview(), this.loadSyncLogs()]); if(id==='ops') await Promise.allSettled([this.loadReservations(), this.loadTable()]); },
-    async refreshAll(){ await Promise.allSettled([this.loadGateway(), this.loadWorkerStatus(), this.loadOverview(), this.loadSyncLogs(), this.loadKeys(), this.loadReservations(), this.loadTable()]); },
+    async setTab(id){ this.activeTab = id; if(id==='gateway') await Promise.allSettled([this.loadGateway(), this.loadWorkerStatus(), this.loadKeys()]); if(id==='sync') await Promise.allSettled([this.loadOverview(), this.loadSyncLogs()]); if(id==='ops') await Promise.allSettled([this.loadReservations(), this.loadTable()]); if(id==='actions') await Promise.allSettled([this.loadActionCategories(), this.loadActionRooms(), this.loadSysLogs()]); },
+    async refreshAll(){ await Promise.allSettled([this.loadGateway(), this.loadWorkerStatus(), this.loadOverview(), this.loadSyncLogs(), this.loadKeys(), this.loadReservations(), this.loadTable(), this.loadActionCategories(), this.loadActionRooms()]); },
 
     async loadGateway(){
       try {
@@ -463,7 +606,41 @@ function adminApp(){
       } catch(e) { this.toast(e.message, 'error'); }
     },
 
-    async loadKeys(){ try { this.apiKeys = await this.api('/admin/api/api-keys?limit=100'); } catch(e) { /* may be disabled */ } },
+    async loadKeys(){
+      try {
+        const [keys, perms] = await Promise.all([
+          this.api('/admin/api/api-keys?limit=100'),
+          this.availablePermissions.length ? Promise.resolve(this.availablePermissions) : this.api('/admin/api/permissions'),
+        ]);
+        this.apiKeys = keys || [];
+        this.availablePermissions = perms || [];
+      } catch(e) { /* may be disabled */ }
+    },
+    openPermModal(k){
+      this.permModal = {
+        open: true,
+        keyId: k.id,
+        keyName: k.name,
+        selected: Array.isArray(k.permissions) ? [...k.permissions] : [],
+        saving: false,
+      };
+    },
+    async saveKeyPermissions(){
+      this.permModal.saving = true;
+      try {
+        await this.api('/admin/api/api-keys/' + encodeURIComponent(this.permModal.keyId) + '/permissions', {
+          method: 'PUT',
+          body: JSON.stringify({ permissions: this.permModal.selected }),
+        });
+        this.permModal.open = false;
+        await this.loadKeys();
+        this.toast('Permisos actualizados', 'success');
+      } catch(e) {
+        this.toast('Permisos: ' + e.message, 'error');
+      } finally {
+        this.permModal.saving = false;
+      }
+    },
     async createKey(){
       try {
         const payload = { name: this.newKey.name, rate_limit: Number(this.newKey.rate_limit||60) };
@@ -567,20 +744,80 @@ function adminApp(){
       }
     },
 
+    async loadActionCategories(){
+      try {
+        this.actionCategories = await this.api('/admin/api/calendar/categories?hotel_id='+encodeURIComponent(this.actionForm.hotel_id || this.hotelId || '18330'));
+      } catch(_) { this.actionCategories = []; }
+    },
+    async loadActionRooms(){
+      try {
+        const res = await this.api('/admin/api/tables/rooms?limit=200');
+        const hid = String(this.actionForm.hotel_id || this.hotelId || '18330');
+        this.actionRooms = (res?.items || []).filter(r => !r.hotel_id || String(r.hotel_id) === hid);
+      } catch(_) { this.actionRooms = []; }
+    },
+    async loadSysLogs(){
+      try {
+        const params = new URLSearchParams({ limit: '120' });
+        if (this.sysLogsQuery && this.sysLogsQuery.trim()) params.set('q', this.sysLogsQuery.trim());
+        const res = await this.api('/admin/api/logs?' + params.toString());
+        this.sysLogs = res?.lines || [];
+        this.sysLogsFile = res?.log_file || '';
+      } catch(e) { this.sysLogs = ['Error cargando logs: ' + e.message]; }
+    },
+    pushActionHistory(action, ok, detail){
+      const ts = new Date().toLocaleTimeString('es-EC', { timeZone: 'America/Guayaquil', hour12: false });
+      const text = typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2);
+      this.actionHistory.unshift({ ts, action, ok, detail: text });
+      if (this.actionHistory.length > 25) this.actionHistory.length = 25;
+    },
     async runDateAction(mode){
       const action = mode === 'close' ? 'bloquear' : 'abrir';
       if (!this.gateway.flags?.api_enable_write_actions) this.toast('Aviso: api_enable_write_actions está bloqueado; la acción puede ser rechazada.', 'error');
       if (!confirm(`Confirmación 1/2: ¿Deseas ${action} fechas para el hotel ${this.actionForm.hotel_id}?`)) return;
-      if (!confirm(`Confirmación 2/2: Esta es una acción operativa de Fase 2. ¿Confirmas ejecutar el ${action} de ${this.actionForm.start_date} a ${this.actionForm.end_date}?`)) return;
+      if (!confirm(`Confirmación 2/2: Esta es una acción operativa de Fase 2 en OtelMS. ¿Confirmas ejecutar el ${action} de ${this.actionForm.start_date} a ${this.actionForm.end_date}?`)) return;
       const path = mode === 'close' ? '/admin/api/tasks/close-dates' : '/admin/api/tasks/open-dates';
-      const payload = { hotel_id: this.actionForm.hotel_id, start_date: this.actionForm.start_date, end_date: this.actionForm.end_date };
+      const payload = {
+        hotel_id: this.actionForm.hotel_id,
+        start_date: this.actionForm.start_date,
+        end_date: this.actionForm.end_date,
+        rate_id: this.actionForm.rate_id || '1',
+        categories: this.actionForm.categories || [],
+      };
       if (mode === 'close' && this.actionForm.reason) payload.reason = this.actionForm.reason;
       try {
         const res = await this.api(path, { method:'POST', body: JSON.stringify(payload) });
-        this.toast(`Acción ${action} enviada: ${(res && (res.message || res.status)) || 'ok'}`, 'success');
+        this.pushActionHistory(`${mode}-dates (${payload.start_date}..${payload.end_date})`, true, res);
+        this.toast(`Acción ${action} ejecutada: ${(res && (res.message || res.status)) || 'ok'}`, 'success');
       } catch(e) {
+        this.pushActionHistory(`${mode}-dates (${payload.start_date}..${payload.end_date})`, false, e.message);
         this.toast(`Error al ${action} fechas: ${e.message}`, 'error');
-      }
+      } finally { this.loadSysLogs(); }
+    },
+    async runMoveReservation(){
+      if (!confirm(`Confirmación 1/2: ¿Mover reserva ${this.resAction.reservation_id} a habitación ${this.resAction.new_room_id}?`)) return;
+      if (!confirm(`Confirmación 2/2: Esta acción modificará la reserva en OtelMS. ¿Confirmas?`)) return;
+      try {
+        const res = await this.api('/admin/api/tasks/move-reservation', { method:'POST', body: JSON.stringify(this.resAction) });
+        this.pushActionHistory(`move-reservation (${this.resAction.reservation_id} -> ${this.resAction.new_room_id})`, true, res);
+        this.toast(res?.message || 'Reserva movida', 'success');
+      } catch(e) {
+        this.pushActionHistory(`move-reservation (${this.resAction.reservation_id} -> ${this.resAction.new_room_id})`, false, e.message);
+        this.toast('Mover reserva: '+e.message, 'error');
+      } finally { this.loadSysLogs(); }
+    },
+    async runResStatusAction(action){
+      if (!this.resAction.reservation_id) { this.toast('Ingresa el ID de reserva', 'error'); return; }
+      if (!confirm(`Confirmación 1/2: ¿Ejecutar ${action} en reserva ${this.resAction.reservation_id}?`)) return;
+      if (!confirm(`Confirmación 2/2: Esta acción modificará el estado en OtelMS. ¿Confirmas?`)) return;
+      try {
+        const res = await this.api('/admin/api/tasks/' + action, { method:'POST', body: JSON.stringify({ reservation_id: this.resAction.reservation_id }) });
+        this.pushActionHistory(`${action} (${this.resAction.reservation_id})`, true, res);
+        this.toast(res?.message || `${action} ejecutado`, 'success');
+      } catch(e) {
+        this.pushActionHistory(`${action} (${this.resAction.reservation_id})`, false, e.message);
+        this.toast(`${action}: `+e.message, 'error');
+      } finally { this.loadSysLogs(); }
     },
 
     connectWs(){
