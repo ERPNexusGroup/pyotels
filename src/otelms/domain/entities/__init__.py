@@ -148,6 +148,7 @@ class Room(Base):
     max_occupancy: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
+    last_cleaned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -338,9 +339,11 @@ class Reservation(Base):
     room_reservation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Metadatos de sync
+    otelms_balance: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     otelms_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     otelms_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deep_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sync_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Hash para detectar cambios
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -619,6 +622,7 @@ class HousekeepingStatus(Base):
     room_id: Mapped[str] = mapped_column(String(64), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0=pending, 1=in_progress, 2=cleaned
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)  # quién cambió el estado
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -12,7 +12,7 @@ Issue 3: Actualización de estado de limpieza por habitación.
 - POST /reset      → reiniciar todos a pending (requiere housekeeping:write)
 - GET (existente)  → lista filtrando exclude cleaned (requiere housekeeping:read)
 """
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, select
@@ -35,7 +35,9 @@ from otelms.api.schemas import (
     HousekeepingStatusResponse,
     HousekeepingStatusUpdate,
 )
-from otelms.domain.entities import Reservation
+from otelms.config.settings import settings
+from otelms.domain.entities import Reservation, RoomAvailability
+from otelms.utils.timezone import ensure_utc, to_ecuador, utc_now
 from otelms.domain.repositories import (
     HousekeepingStatusRepository,
     ReservationRepository,
@@ -59,6 +61,15 @@ def _build_item(res, cleaning_type: str, target_date: date) -> HousekeepingItem:
     salida = res.check_out.date() if res.check_out else target_date
     noches_restantes = max((salida - target_date).days, 0)
 
+def _build_item(
+    res: Reservation,
+    cleaning_type: str,
+    target_date: date,
+    notes_map: dict[str, str] | None = None,
+) -> HousekeepingItem:
+    room_data = room_response(res.room) if res.room else None
+    co_date = res.check_out.date() if res.check_out else target_date
+    noches_restantes = max((co_date - target_date).days, 0)
     return HousekeepingItem(
         room_id=res.room_id,
         room_name=room_data.name if room_data else res.room_id,
@@ -73,6 +84,8 @@ def _build_item(res, cleaning_type: str, target_date: date) -> HousekeepingItem:
         nights_remaining=noches_restantes,
         cleaning_type=cleaning_type,
         status=res.status,
+        last_cleaned_at=getattr(res.room, "last_cleaned_at", None) if res.room else None,
+        notes=(notes_map or {}).get(res.room_id),
     )
 
 
@@ -97,7 +110,8 @@ async def _get_future_reservations(
 async def get_housekeeping(
     hotel_id: str = Query(..., description="Hotel ID"),
     target_date: date = Query(
-        default_factory=date.today, description="Fecha a consultar (YYYY-MM-DD)"
+        default_factory=lambda: to_ecuador(utc_now()).date(),
+        description="Fecha a consultar (YYYY-MM-DD)",
     ),
     room_repo: RoomRepository = Depends(get_room_repo),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
@@ -121,8 +135,21 @@ async def get_housekeeping(
 
     Las habitaciones ya marcadas como limpias (status=2) no aparecen en el listado.
     """
-    # Obtener room_ids ya limpias para excluir del listado
+    # Obtener room_ids ya limpias y notas para esa fecha
     cleaned_room_ids = await hk_repo.get_cleaned_room_ids_for_date(hotel_id, target_date)
+    notes_map = await hk_repo.get_notes_map_for_date(hotel_id, target_date)
+
+    # Habitaciones bloqueadas por mantenimiento (candado) en room_availability
+    day_start = datetime.combine(target_date, datetime.min.time(), tzinfo=UTC)
+    day_end = day_start + timedelta(days=1)
+    avail_stmt = select(RoomAvailability.room_id).where(
+        RoomAvailability.hotel_id == hotel_id,
+        RoomAvailability.room_id.isnot(None),
+        RoomAvailability.is_blocked.is_(True),
+        RoomAvailability.start_date < day_end,
+        RoomAvailability.end_date >= day_start,
+    )
+    maint_blocked_ids = {row[0] for row in (await session.execute(avail_stmt)).all()}
     # 1. Check-outs de hoy = limpieza completa
     checkouts = await res_repo.get_checkouts_for_date(hotel_id, target_date)
     # Excluir habitaciones Overbooking (categoria 21) y ya limpias
@@ -168,23 +195,35 @@ async def get_housekeeping(
 
     full_cleaning: list[HousekeepingItem] = []
     continuous_cleaning: list[HousekeepingItem] = []
+    dusting_rooms: list[HousekeepingItem] = []
     blocked_rooms: list[HousekeepingItem] = []
     income_generating: list[HousekeepingItem] = []
 
     # Anadir check-outs (limpieza completa)
     for res in checkouts:
-        full_cleaning.append(_build_item(res, "full", target_date))
+        full_cleaning.append(_build_item(res, "full", target_date, notes_map))
 
     # Anadir ocupadas que pernoctan (limpieza continua)
     # Excluir habitaciones que tienen check-out hoy (ya son full_cleaning)
     for res in continuous_reservations:
         if res.room_id not in checkout_room_ids:
-            continuous_cleaning.append(_build_item(res, "stay_over", target_date))
+            continuous_cleaning.append(_build_item(res, "stay_over", target_date, notes_map))
 
-    # Anadir bloqueadas
+    # Clasificar habitaciones sin reserva activa en dusting (desocupadas >= N dias) o blocked
+    now_utc = utc_now()
+    dusting_days = settings.housekeeping_dusting_days
     for room in blocked_rooms_data:
         room_data = room_response(room)
-        blocked_rooms.append(HousekeepingItem(
+        last_cleaned = getattr(room, "last_cleaned_at", None)
+        is_maint_blocked = room.id in maint_blocked_ids
+        needs_dusting = (
+            not is_maint_blocked
+            and (
+                last_cleaned is None
+                or (now_utc - ensure_utc(last_cleaned)).days >= dusting_days
+            )
+        )
+        item = HousekeepingItem(
             room_id=room.id,
             room_name=room_data.name,
             category_id=room_data.category_id,
@@ -196,21 +235,30 @@ async def get_housekeeping(
             adults=0,
             children=0,
             nights_remaining=0,
-            cleaning_type="blocked",
+            cleaning_type="dusting" if needs_dusting else "blocked",
             status=0,
-        ))
+            last_cleaned_at=last_cleaned,
+            notes=notes_map.get(room.id),
+        )
+        if needs_dusting:
+            dusting_rooms.append(item)
+        else:
+            blocked_rooms.append(item)
 
     # Anadir ingresos (check-ins de hoy)
     for res in checkin_today:
-        income_generating.append(_build_item(res, "income", target_date))
+        income_generating.append(_build_item(res, "income", target_date, notes_map))
 
-    total_rooms_to_clean = len(full_cleaning) + len(continuous_cleaning) + len(income_generating)
+    total_rooms_to_clean = (
+        len(full_cleaning) + len(continuous_cleaning) + len(dusting_rooms) + len(income_generating)
+    )
 
     return HousekeepingResponse(
         hotel_id=hotel_id,
         date=target_date,
         full_cleaning=full_cleaning,
         continuous_cleaning=continuous_cleaning,
+        dusting_rooms=dusting_rooms,
         blocked_rooms=blocked_rooms,
         income_generating_rooms=income_generating,
         total_rooms_to_clean=total_rooms_to_clean,
@@ -266,7 +314,11 @@ async def update_housekeeping_status(
         target_date=target_date,
         status=body.status,
         updated_by=body.updated_by,
+        notes=body.notes,
     )
+    if body.status == 2:
+        room.last_cleaned_at = utc_now()
+        await room_repo.session.flush()
 
     return HousekeepingStatusResponse(
         room_id=result.room_id,
@@ -274,6 +326,7 @@ async def update_housekeeping_status(
         date=result.date,
         status=result.status,
         status_label=_STATUS_LABELS[result.status],
+        notes=result.notes,
         updated_by=result.updated_by,
         updated_at=result.updated_at,
     )

@@ -2,6 +2,8 @@
 Reservation endpoints.
 """
 from datetime import date
+from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -16,12 +18,15 @@ from otelms.api.mappers import reservation_response, room_response
 from otelms.api.schemas import (
     InHouseItem,
     InHouseResponse,
+    PendingChargesItem,
     PendingChargesResponse,
     PaginationParams,
     ReservationFilterParams,
     ReservationListResponse,
     ReservationResponse,
+    format_money,
 )
+from otelms.config.settings import settings
 from otelms.domain.repositories import ReservationRepository, RoomRepository
 from otelms.services.sync_service import SyncService
 from otelms.utils.logging import get_logger
@@ -33,6 +38,10 @@ logger = get_logger(__name__)
 @router.get("", response_model=ReservationListResponse)
 async def list_reservations(
     hotel_id: str = Query(..., description="Hotel ID"),
+    note_keyword: str | None = Query(None, description="Filtrar por palabra clave en notas"),
+    money_unit: Literal["decimal", "cents"] | None = Query(
+        None, description="Formato monetario de salida (decimal o cents)"
+    ),
     pagination: PaginationParams = Depends(),
     filters: ReservationFilterParams = Depends(),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
@@ -44,6 +53,7 @@ async def list_reservations(
     from_attributes y leerlas en diferido fuera del contexto async lanzaría
     MissingGreenlet.
     """
+    unit = money_unit or settings.billing_money_unit
     rows = await res_repo.get_by_hotel(
         hotel_id=hotel_id,
         status=filters.status,
@@ -51,12 +61,13 @@ async def list_reservations(
         check_in_to=filters.check_in_to,
         check_out_from=filters.check_out_from,
         check_out_to=filters.check_out_to,
+        note_keyword=note_keyword,
         limit=pagination.page_size,
         offset=(pagination.page - 1) * pagination.page_size,
     )
-    items = [reservation_response(r) for r in rows]
+    items = [reservation_response(r, money_unit=unit) for r in rows]
 
-    total = await res_repo.count_by_hotel(hotel_id, filters.status)
+    total = await res_repo.count_by_hotel(hotel_id, filters.status, note_keyword=note_keyword)
 
     return ReservationListResponse(
         items=items,
@@ -129,6 +140,9 @@ async def get_in_house(
 async def get_pending_charges(
     hotel_id: str = Query(..., description="Hotel ID"),
     only_pending: bool = Query(True, description="Solo reservas con saldo != 0"),
+    money_unit: Literal["decimal", "cents"] | None = Query(
+        None, description="Formato monetario de salida (decimal o cents)"
+    ),
     limit: int = Query(100, ge=1, le=500, description="Máximo resultados"),
     offset: int = Query(0, ge=0, description="Offset para paginación"),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
@@ -142,20 +156,36 @@ async def get_pending_charges(
     Los servicios incluyen room_charges, room_price y cargos del folio,
     que el sync persiste como Services con `total` != 0.
     """
-    items = await res_repo.get_pending_charges(
+    unit = money_unit or settings.billing_money_unit
+    raw_items = await res_repo.get_pending_charges(
         hotel_id=hotel_id,
         only_pending=only_pending,
         limit=limit,
         offset=offset,
     )
 
-    total_pending = round(sum(item["pending"] for item in items), 2)
+    total_pending_dec = sum(
+        (Decimal(str(item["pending"])) for item in raw_items), Decimal("0.00")
+    )
+    formatted_items = [
+        PendingChargesItem(
+            **{
+                **item,
+                "money_unit": unit,
+                "total_charges": format_money(Decimal(str(item["total_charges"])), unit),
+                "total_paid": format_money(Decimal(str(item["total_paid"])), unit),
+                "pending": format_money(Decimal(str(item["pending"])), unit),
+            }
+        )
+        for item in raw_items
+    ]
 
     return PendingChargesResponse(
         hotel_id=hotel_id,
-        count=len(items),
-        total_pending=total_pending,
-        items=items,
+        count=len(formatted_items),
+        money_unit=unit,
+        total_pending=format_money(total_pending_dec, unit),  # type: ignore[arg-type]
+        items=formatted_items,
     )
 
 
@@ -163,16 +193,20 @@ async def get_pending_charges(
 async def get_reservation(
     reservation_id: str,
     hotel_id: str = Query(..., description="Hotel ID"),
+    money_unit: Literal["decimal", "cents"] | None = Query(
+        None, description="Formato monetario de salida (decimal o cents)"
+    ),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> ReservationResponse:
     """Obtiene una reserva con todos sus detalles."""
+    unit = money_unit or settings.billing_money_unit
     reservation = await res_repo.get_with_details(hotel_id, reservation_id)
     if not reservation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reservation {reservation_id} not found",
         )
-    return reservation_response(reservation)
+    return reservation_response(reservation, money_unit=unit)
 
 
 @router.post("/{reservation_id}/sync-deep", response_model=ReservationResponse)
@@ -206,11 +240,15 @@ async def get_today_checkins(
 @router.get("/today/checkouts", response_model=list[ReservationResponse])
 async def get_today_checkouts(
     hotel_id: str = Query(..., description="Hotel ID"),
+    money_unit: Literal["decimal", "cents"] | None = Query(
+        None, description="Formato monetario de salida (decimal o cents)"
+    ),
     res_repo: ReservationRepository = Depends(get_reservation_repo),
 ) -> list[ReservationResponse]:
     """Obtiene check-outs programados para hoy."""
+    unit = money_unit or settings.billing_money_unit
     rows = await res_repo.get_today_checkouts(hotel_id)
-    return [reservation_response(r) for r in rows]
+    return [reservation_response(r, money_unit=unit) for r in rows]
 
 
 @router.post("/sync/calendar", response_model=dict)

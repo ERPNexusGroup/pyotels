@@ -16,7 +16,12 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from otelms.api.dependencies import get_category_repo, verify_api_key
+from otelms.api.dependencies import (
+    get_cache,
+    get_category_repo,
+    live_rate_limit,
+    verify_api_key,
+)
 from otelms.api.schemas import RestrictionResponse, RestrictionRow
 from otelms.domain.repositories import CategoryRepository
 from otelms.scraping.restrictions import (
@@ -38,7 +43,11 @@ logger = get_logger(__name__)
 MAX_RANGE_DAYS = 46
 
 
-@router.get("", response_model=RestrictionResponse)
+@router.get(
+    "",
+    response_model=RestrictionResponse,
+    dependencies=[Depends(live_rate_limit("restrictions.list"))],
+)
 async def list_restrictions(
     hotel_id: str = Query(..., description="Hotel ID"),
     date_from: date = Query(
@@ -63,6 +72,15 @@ async def list_restrictions(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="date_to must be greater than or equal to date_from",
         )
+
+    cache = await get_cache()
+    cache_key = (
+        f"live:restrictions:{hotel_id}:{date_from.isoformat()}:{date_to.isoformat()}:"
+        f"{category_id or ''}:{rate_id}"
+    )
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return RestrictionResponse.model_validate(cached)
 
     category_ids = [category_id] if category_id else None
     cells = await get_restrictions(
@@ -98,7 +116,7 @@ async def list_restrictions(
         "Restrictions listed for %s..%s: %d closed cells",
         date_from, date_to, len(rows),
     )
-    return RestrictionResponse(
+    resp = RestrictionResponse(
         hotel_id=hotel_id,
         date_from=date_from,
         date_to=date_to,
@@ -106,3 +124,5 @@ async def list_restrictions(
         count=len(rows),
         items=rows,
     )
+    await cache.set(cache_key, resp.model_dump(mode="json"), ttl=60)
+    return resp

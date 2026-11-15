@@ -136,6 +136,18 @@
           </template>
         </div>
 
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+          <div class="text-sm space-y-1">
+            <div><span class="font-medium">Infraestructura Local:</span> Redis <span class="font-mono text-xs" :class="(gateway.redis?.connected)?'text-emerald-400':'text-amber-400'" x-text="redisLabel()"></span></div>
+            <div class="text-xs text-slate-400">Worker Celery local: <span x-text="workerStatus.running ? ('Activo (PID ' + workerStatus.pid + ')') : 'Detenido'"></span></div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button @click="reconnectRedis()" class="px-3 py-1.5 text-sm rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">Reconectar Redis</button>
+            <button @click="startWorker()" class="px-3 py-1.5 text-sm rounded bg-emerald-800/80 hover:bg-emerald-700">Iniciar Worker</button>
+            <button @click="stopWorker()" class="px-3 py-1.5 text-sm rounded bg-red-800/80 hover:bg-red-700">Detener Worker</button>
+          </div>
+        </div>
+
         <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
           <h3 class="font-medium">Gestor de API Keys</h3>
           <form @submit.prevent="createKey()" class="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
@@ -147,14 +159,14 @@
           <div x-show="createdPlainKey" class="rounded border border-amber-700 bg-amber-950/20 p-3 text-sm">
             <div class="text-amber-300 mb-1">Clave generada (se muestra una sola vez):</div>
             <div class="flex flex-wrap gap-2 items-center">
-              <code class="bg-slate-950 border border-slate-700 rounded px-2 py-1 break-all" x-text="createdPlainKey"></code>
-              <button @click="copyCreated()" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Copiar al portapapeles</button>
+              <code class="bg-slate-950 border border-slate-700 rounded px-2 py-1 break-all select-all" x-text="createdPlainKey"></code>
+              <button type="button" @click="copyCreated()" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Copiar al portapapeles</button>
             </div>
           </div>
           <div class="overflow-auto">
             <table class="w-full text-sm min-w-[700px]"><thead class="text-slate-400"><tr class="text-left"><th class="p-2">Nombre</th><th class="p-2">Activa</th><th class="p-2">RPM</th><th class="p-2">Creada</th><th class="p-2">Último uso</th><th class="p-2">Expira</th><th class="p-2">Acciones</th></tr></thead><tbody>
               <template x-if="!apiKeys.length"><tr><td colspan="7" class="p-3 text-slate-500">Sin API Keys</td></tr></template>
-              <template x-for="k in apiKeys" :key="k.id"><tr class="border-t border-slate-800"><td class="p-2" x-text="k.name"></td><td class="p-2"><span class="text-xs px-2 py-0.5 rounded border" :class="k.is_active?'bg-emerald-900/20 border-emerald-700 text-emerald-300':'bg-slate-700/30 border-slate-600 text-slate-300'" x-text="k.is_active?'sí':'no'"></span></td><td class="p-2" x-text="k.rate_limit"></td><td class="p-2" x-text="fmt(k.created_at)"></td><td class="p-2" x-text="fmt(k.last_used_at)"></td><td class="p-2" x-text="fmt(k.expires_at)"></td><td class="p-2 space-x-1"><button @click="toggleKey(k)" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700" x-text="k.is_active?'Desactivar':'Activar'"></button><button @click="deleteKey(k)" class="px-2 py-1 text-xs rounded bg-red-800/70 hover:bg-red-700">Eliminar</button></td></tr></template>
+              <template x-for="k in apiKeys" :key="k.id"><tr class="border-t border-slate-800"><td class="p-2" x-text="k.name"></td><td class="p-2"><span class="text-xs px-2 py-0.5 rounded border" :class="k.is_active?'bg-emerald-900/20 border-emerald-700 text-emerald-300':'bg-slate-700/30 border-slate-600 text-slate-300'" x-text="k.is_active?'sí':'no'"></span></td><td class="p-2" x-text="k.rate_limit"></td><td class="p-2" x-text="fmt(k.created_at)"></td><td class="p-2" x-text="fmt(k.last_used_at)"></td><td class="p-2" x-text="fmt(k.expires_at)"></td><td class="p-2 space-x-1"><button type="button" @click="copyKeyRow(k)" :class="createdKeysById[k.id] ? 'bg-sky-800/80 hover:bg-sky-700' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800'" class="px-2 py-1 text-xs rounded" :title="createdKeysById[k.id] ? 'Copiar API Key' : 'Solo disponible para claves creadas en esta sesión'">Copiar</button><button @click="toggleKey(k)" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700" x-text="k.is_active?'Desactivar':'Activar'"></button><button @click="deleteKey(k)" class="px-2 py-1 text-xs rounded bg-red-800/70 hover:bg-red-700">Eliminar</button></td></tr></template>
             </tbody></table>
           </div>
         </div>
@@ -289,6 +301,7 @@ function adminApp(){
     ],
     activeTab: 'sync',
     gateway: { flags: {}, redis: {}, default_hotel_id: '18330' },
+    workerStatus: { running: false, pid: null },
     flagDefs: [
       {key:'api_enable_read_public', label:'Fase 1: Lectura Pública (api_enable_read_public)', desc:'Habilita endpoints GET/HEAD/OPTIONS públicos.'},
       {key:'api_enable_internal_sync', label:'Interno: Sync y Salud (api_enable_internal_sync)', desc:'Habilita /health, /metrics, WebSocket y triggers internos de sincronización.'},
@@ -300,6 +313,7 @@ function adminApp(){
     syncLogs: [], syncing: false,
     ws: null, wsState: 'closed', wsMsg: '',
     apiKeys: [], newKey: { name: '', rate_limit: 60, expires_at: '' }, createdPlainKey: '',
+    createdKeysById: (()=>{ try { return JSON.parse(sessionStorage.getItem('admin_created_api_keys')||'{}'); } catch(_) { return {}; } })(),
     reservations: [], reservationsMsg: '', resQuery: '',
     tableSlug: 'categories', tableRows: [], tableCols: [], tableInfo: '',
     actionForm: { hotel_id: '18330', start_date: '', end_date: '', reason: '' },
@@ -382,8 +396,8 @@ function adminApp(){
     logout(){ this.token=''; this.keyName=''; this.apiKeyInput=''; this.publicApiKey=''; localStorage.removeItem('admin_token'); localStorage.removeItem('admin_key_name'); localStorage.removeItem('public_api_key'); try { sessionStorage.removeItem('admin_api_key'); } catch(_) {} this.closeWs(); },
     async afterLogin(){ this.hotelId = (this.gateway.default_hotel_id || '18330'); this.actionForm.hotel_id = this.hotelId; await this.refreshAll(); this.connectWs(); },
 
-    async setTab(id){ this.activeTab = id; if(id==='gateway') await Promise.allSettled([this.loadGateway(), this.loadKeys()]); if(id==='sync') await Promise.allSettled([this.loadOverview(), this.loadSyncLogs()]); if(id==='ops') await Promise.allSettled([this.loadReservations(), this.loadTable()]); },
-    async refreshAll(){ await Promise.allSettled([this.loadGateway(), this.loadOverview(), this.loadSyncLogs(), this.loadKeys(), this.loadReservations(), this.loadTable()]); },
+    async setTab(id){ this.activeTab = id; if(id==='gateway') await Promise.allSettled([this.loadGateway(), this.loadWorkerStatus(), this.loadKeys()]); if(id==='sync') await Promise.allSettled([this.loadOverview(), this.loadSyncLogs()]); if(id==='ops') await Promise.allSettled([this.loadReservations(), this.loadTable()]); },
+    async refreshAll(){ await Promise.allSettled([this.loadGateway(), this.loadWorkerStatus(), this.loadOverview(), this.loadSyncLogs(), this.loadKeys(), this.loadReservations(), this.loadTable()]); },
 
     async loadGateway(){
       try {
@@ -391,6 +405,32 @@ function adminApp(){
         this.hotelId = this.gateway.default_hotel_id || '18330';
         this.actionForm.hotel_id = this.hotelId;
       } catch(e) { this.toast('Gateway: '+e.message, 'error'); }
+    },
+    async reconnectRedis(){
+      try {
+        const res = await this.api('/admin/api/redis/reconnect', { method:'POST' });
+        this.gateway.redis = res.redis || this.gateway.redis;
+        this.toast(res.cache_redis ? 'Redis reconectado' : 'Redis sigue no disponible', res.cache_redis ? 'success' : 'error');
+      } catch(e) { this.toast('Redis: '+e.message, 'error'); }
+    },
+    async loadWorkerStatus(){
+      try {
+        this.workerStatus = await this.api('/admin/api/workers/status');
+      } catch(_) { this.workerStatus = { running: false, pid: null }; }
+    },
+    async startWorker(){
+      try {
+        const res = await this.api('/admin/api/workers/start', { method:'POST' });
+        this.workerStatus = { running: !!res.running, pid: res.pid || null };
+        this.toast('Worker iniciado (PID '+res.pid+')', 'success');
+      } catch(e) { this.toast('Worker: '+e.message, 'error'); }
+    },
+    async stopWorker(){
+      try {
+        const res = await this.api('/admin/api/workers/stop', { method:'POST' });
+        this.workerStatus = { running: !!res.running, pid: res.pid || null };
+        this.toast('Worker detenido', 'success');
+      } catch(e) { this.toast('Worker: '+e.message, 'error'); }
     },
     async loadOverview(){
       try {
@@ -430,14 +470,63 @@ function adminApp(){
         if (this.newKey.expires_at) payload.expires_at = new Date(this.newKey.expires_at).toISOString();
         const res = await this.api('/admin/api/api-keys', { method:'POST', body: JSON.stringify(payload) });
         this.createdPlainKey = res.key || '';
+        if (res.id && res.key) {
+          this.createdKeysById[res.id] = res.key;
+          try { sessionStorage.setItem('admin_created_api_keys', JSON.stringify(this.createdKeysById)); } catch(_) {}
+        }
         this.newKey = { name:'', rate_limit:60, expires_at:'' };
         await this.loadKeys();
         this.toast('API Key creada', 'success');
       } catch(e) { this.toast(e.message, 'error'); }
     },
-    async copyCreated(){ try { await navigator.clipboard.writeText(this.createdPlainKey||''); this.toast('Clave copiada al portapapeles','success'); } catch(_) { this.toast('No se pudo copiar','error'); } },
+    async copyText(text){
+      if (!text) return;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          this.toast('Clave copiada al portapapeles','success');
+          return;
+        }
+      } catch(_) {}
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) {
+          this.toast('Clave copiada al portapapeles','success');
+          return;
+        }
+      } catch(_) {}
+      this.toast('No se pudo copiar automáticamente; selecciona la clave y usa Ctrl+C','error');
+    },
+    async copyCreated(){ await this.copyText(this.createdPlainKey || ''); },
+    async copyKeyRow(k){
+      const plain = this.createdKeysById[k.id];
+      if (!plain) {
+        this.toast('Por seguridad la BD solo guarda el hash; solo se puede copiar una clave recién creada en esta sesión','error');
+        return;
+      }
+      await this.copyText(plain);
+    },
     async toggleKey(k){ try { await this.api('/admin/api/api-keys/'+encodeURIComponent(k.id)+'/toggle', { method:'PATCH' }); await this.loadKeys(); } catch(e){ this.toast(e.message,'error'); } },
-    async deleteKey(k){ if(!confirm(`¿Eliminar API Key "${k.name}"?`)) return; try { await this.api('/admin/api/api-keys/'+encodeURIComponent(k.id), { method:'DELETE' }); await this.loadKeys(); this.toast('API Key eliminada','success'); } catch(e){ this.toast(e.message,'error'); } },
+    async deleteKey(k){
+      if(!confirm(`¿Eliminar API Key "${k.name}"?`)) return;
+      try {
+        await this.api('/admin/api/api-keys/'+encodeURIComponent(k.id), { method:'DELETE' });
+        delete this.createdKeysById[k.id];
+        try { sessionStorage.setItem('admin_created_api_keys', JSON.stringify(this.createdKeysById)); } catch(_) {}
+        await this.loadKeys();
+        this.toast('API Key eliminada','success');
+      } catch(e){ this.toast(e.message,'error'); }
+    },
 
     async loadReservations(){
       this.reservationsMsg = 'Cargando...';

@@ -457,6 +457,7 @@ class ReservationRepository(BaseRepository):
         check_in_to: datetime | None = None,
         check_out_from: datetime | None = None,
         check_out_to: datetime | None = None,
+        note_keyword: str | None = None,
         limit: int = 100,
         offset: int = 0,
         order_by: str = "check_in",
@@ -489,6 +490,9 @@ class ReservationRepository(BaseRepository):
                 check_out_to = datetime.fromisoformat(check_out_to.replace("Z", "+00:00"))
             stmt = stmt.where(Reservation.check_out <= check_out_to)
 
+        if note_keyword:
+            stmt = stmt.where(Reservation.notes.ilike(f"%{note_keyword}%"))
+
         stmt = stmt.order_by(getattr(Reservation, order_by).desc()).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
         return result.scalars().all()
@@ -507,12 +511,15 @@ class ReservationRepository(BaseRepository):
         self,
         hotel_id: str,
         status: int | None = None,
+        note_keyword: str | None = None,
     ) -> int:
         """Cuenta reservas de un hotel."""
 
         stmt = select(func.count()).select_from(Reservation).where(Reservation.hotel_id == hotel_id)
         if status is not None:
             stmt = stmt.where(Reservation.status == status)
+        if note_keyword:
+            stmt = stmt.where(Reservation.notes.ilike(f"%{note_keyword}%"))
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
@@ -649,9 +656,9 @@ class ReservationRepository(BaseRepository):
             check_in = row.check_in
             check_out = row.check_out
             nights = max((check_out.date() - check_in.date()).days, 0) if check_in and check_out else 0
-            total_charges = float(row.total_charges or 0)
-            total_paid = float(row.total_paid or 0)
-            pending = round(total_charges - total_paid, 2)
+            total_charges = Decimal(str(row.total_charges or 0))
+            total_paid = Decimal(str(row.total_paid or 0))
+            pending = total_charges - total_paid
 
             first = (row.first_name or "").strip()
             last = (row.last_name or "").strip()

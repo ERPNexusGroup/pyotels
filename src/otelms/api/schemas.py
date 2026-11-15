@@ -2,8 +2,8 @@
 API Schemas - Request/Response models for FastAPI endpoints.
 """
 from datetime import date, datetime
-from decimal import Decimal
-from typing import Any
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -115,7 +115,17 @@ class PriceCalendarCellResponse(BaseModel):
     room_id: str
     dealer_id: str
     category_id: str
-    price: float | None = None
+    price: Decimal | None = None
+
+
+def format_money(value: Decimal | None, unit: Literal["decimal", "cents"] = "decimal") -> Decimal | int | None:
+    """Formatea un monto Decimal como Decimal(0.01) o entero en centavos con ROUND_HALF_UP."""
+    if value is None:
+        return None
+    dec = value if isinstance(value, Decimal) else Decimal(str(value))
+    if unit == "cents":
+        return int((dec * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class ReservationNightRateBase(BaseModel):
@@ -181,6 +191,7 @@ class GuestBase(BaseModel):
     phone: str | None = None
     document_type: str | None = None
     document_number: str | None = None
+    address: str | None = None
     nationality: str | None = None
     country: str | None = None
     city: str | None = None
@@ -263,6 +274,14 @@ class ReservationResponse(ReservationBase):
     payments: list[PaymentResponse] = []
     night_rates: list[ReservationNightRateResponse] = []
     history: list[ReservationChangeHistoryResponse] = []
+    money_unit: Literal["decimal", "cents"] = "decimal"
+    accommodation_total: Decimal | int = Decimal("0.00")
+    services_total: Decimal | int = Decimal("0.00")
+    payments_total: Decimal | int = Decimal("0.00")
+    otelms_balance: Decimal | int | None = None
+    computed_balance: Decimal | int = Decimal("0.00")
+    balance_mismatch: bool = False
+    is_billable: bool = False
     created_at: datetime
     updated_at: datetime
     last_synced_at: datetime
@@ -585,8 +604,10 @@ class HousekeepingItem(BaseModel):
     adults: int = 1
     children: int = 0
     nights_remaining: int = Field(..., description="Noches restantes desde la fecha consultada")
-    cleaning_type: str = Field(..., description="full=limpieza completa (checkout), stay_over=limpieza continua (pernocta), blocked=bloqueada, income=ingresos")
+    cleaning_type: str = Field(..., description="full=limpieza completa (checkout), stay_over=limpieza continua (pernocta), dusting=limpieza ligera por desocupacion, blocked=bloqueada, income=ingresos")
     status: int = Field(..., description="Estado en OtelMS: 1 Reservación, 2 Check in, 3 Check out")
+    last_cleaned_at: datetime | None = None
+    notes: str | None = None
 
 
 class HousekeepingResponse(BaseModel):
@@ -594,9 +615,10 @@ class HousekeepingResponse(BaseModel):
     date: date
     full_cleaning: list[HousekeepingItem] = Field(..., description="Habitaciones con checkout hoy (limpieza completa)")
     continuous_cleaning: list[HousekeepingItem] = Field(..., description="Habitaciones que pernoctan (limpieza continua)")
+    dusting_rooms: list[HousekeepingItem] = Field(default_factory=list, description="Habitaciones desocupadas por N dias que requieren limpieza ligera")
     blocked_rooms: list[HousekeepingItem] = Field(..., description="Habitaciones bloqueadas (sin reserva activa)")
     income_generating_rooms: list[HousekeepingItem] = Field(..., description="Habitaciones con reserva futura (generarán ingresos)")
-    total_rooms_to_clean: int = Field(..., description="Suma de full_cleaning + continuous_cleaning")
+    total_rooms_to_clean: int = Field(..., description="Suma de full_cleaning + continuous_cleaning + dusting_rooms")
 
 
 # ============================================================
@@ -606,6 +628,7 @@ class HousekeepingResponse(BaseModel):
 class HousekeepingStatusUpdate(BaseModel):
     """Solicitud para actualizar el estado de limpieza de una habitación."""
     status: int = Field(..., description="0=pending, 1=in_progress, 2=cleaned")
+    notes: str | None = Field(None, description="Observaciones de limpieza")
     updated_by: str | None = Field(None, max_length=255, description="Quién realiza el cambio")
 
 
@@ -618,6 +641,7 @@ class HousekeepingStatusResponse(BaseModel):
     date: date
     status: int
     status_label: str
+    notes: str | None = None
     updated_by: str | None = None
     updated_at: datetime
 
@@ -647,9 +671,15 @@ class PendingChargesItem(BaseModel):
     check_in: datetime
     check_out: datetime
     nights: int = Field(..., description="Noches de la estancia")
-    total_charges: Decimal = Field(..., description="Suma de todos los servicios (room + cargos)")
-    total_paid: Decimal = Field(..., description="Suma de todos los pagos")
-    pending: Decimal = Field(..., description="Saldo pendiente = total_charges - total_paid")
+    total_charges: Decimal | int = Field(..., description="Suma de todos los servicios (room + cargos)")
+    total_paid: Decimal | int = Field(..., description="Suma de todos los pagos")
+    pending: Decimal | int = Field(..., description="Saldo pendiente = total_charges - total_paid")
+    money_unit: Literal["decimal", "cents"] = "decimal"
+    accommodation_total: Decimal | int = Decimal("0.00")
+    services_total: Decimal | int = Decimal("0.00")
+    otelms_balance: Decimal | int | None = None
+    balance_mismatch: bool = False
+    is_billable: bool = False
     currency: str = "USD"
     status: int | None = None
 
@@ -658,7 +688,8 @@ class PendingChargesResponse(BaseModel):
     """Lista de reservas con saldos pendientes."""
     hotel_id: str
     count: int = Field(..., description="Reservas con pending != 0")
-    total_pending: Decimal = Field(..., description="Suma de todos los pendientes")
+    money_unit: Literal["decimal", "cents"] = "decimal"
+    total_pending: Decimal | int = Field(..., description="Suma de todos los pendientes")
     items: list[PendingChargesItem] = []
 
 

@@ -2,6 +2,7 @@
 FastAPI dependencies - Inyección de dependencias.
 """
 import hashlib
+import time
 from collections.abc import AsyncGenerator
 
 from fastapi import Depends, Header, HTTPException, status
@@ -298,6 +299,32 @@ async def optional_api_key(
 async def get_rate_limiter() -> RateLimiter:
     """Dependency para rate limiter."""
     return rate_limiter
+
+
+_live_rate_windows: dict[str, list[float]] = {}
+
+
+def live_rate_limit(route_key: str):
+    """Dependency que limita requests por minuto en endpoints en vivo (HTTP 429)."""
+
+    async def _check() -> None:
+        limit = settings.live_endpoint_rate_limit_per_minute
+        if limit <= 0:
+            return
+        now = time.monotonic()
+        cutoff = now - 60.0
+        timestamps = [ts for ts in _live_rate_windows.get(route_key, []) if ts > cutoff]
+        if len(timestamps) >= limit:
+            retry_after = max(1, int(timestamps[0] + 60.0 - now))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded for live endpoint",
+                headers={"Retry-After": str(retry_after)},
+            )
+        timestamps.append(now)
+        _live_rate_windows[route_key] = timestamps
+
+    return _check
 
 
 async def rate_limit_dependency(

@@ -1,8 +1,14 @@
 """Admin config endpoints: hotels CRUD, API keys CRUD, system settings, gateway status."""
 
 import hashlib
+import json
+import os
 import secrets
+import signal
+import subprocess
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,10 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from otelms.config.settings import settings
 from otelms.domain.entities import (
     ApiKey,
+    ApiKeyRole,
     Hotel,
+    Permission,
+    Role,
     SyncLog,
 )
 from otelms.scraping.rate_limiter import rate_limiter
+from otelms.utils.cache import cache
 from otelms.utils.crypto import credential_encryption
 from otelms.utils.logging import get_logger
 
@@ -90,6 +100,7 @@ class ApiKeyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     rate_limit: int = Field(default=60, ge=1, le=10000)
     expires_at: datetime | None = None
+    permissions: list[str] | None = None
 
 
 class ApiKeyUpdate(BaseModel):
@@ -99,6 +110,12 @@ class ApiKeyUpdate(BaseModel):
     rate_limit: int | None = Field(default=None, ge=1, le=10000)
     is_active: bool | None = None
     expires_at: datetime | None = None
+
+
+class ApiKeyPermissionsUpdate(BaseModel):
+    """Payload for assigning permissions to an API key."""
+
+    permissions: list[str] = Field(default_factory=list)
 
 
 class ApiKeyResponse(BaseModel):
@@ -111,6 +128,7 @@ class ApiKeyResponse(BaseModel):
     created_at: datetime
     last_used_at: datetime | None
     expires_at: datetime | None
+    permissions: list[str] = Field(default_factory=list)
 
 
 class ApiKeyCreateResponse(ApiKeyResponse):
@@ -313,6 +331,79 @@ async def config_delete_hotel(
 # ============================================================
 
 
+async def _get_permissions_map(session: AsyncSession, key_ids: list[str]) -> dict[str, list[str]]:
+    """Obtiene los permisos efectivos agrupados por api_key_id."""
+    if not key_ids:
+        return {}
+    stmt = (
+        select(ApiKeyRole.api_key_id, Role.permissions)
+        .join(Role, Role.id == ApiKeyRole.role_id)
+        .where(ApiKeyRole.api_key_id.in_(key_ids), Role.is_active.is_(True))
+    )
+    rows = (await session.execute(stmt)).all()
+    perms_map: dict[str, set[str]] = {kid: set() for kid in key_ids}
+    for kid, raw_perms in rows:
+        try:
+            parsed = json.loads(raw_perms) if isinstance(raw_perms, str) else list(raw_perms or [])
+        except (json.JSONDecodeError, TypeError):
+            parsed = []
+        perms_map.setdefault(kid, set()).update(str(p) for p in parsed)
+    return {kid: sorted(vals) for kid, vals in perms_map.items()}
+
+
+async def _set_key_permissions(session: AsyncSession, key_id: str, permissions: list[str]) -> list[str]:
+    """Asigna permisos directos a una API key mediante su rol dedicado."""
+    allowed = {p.value for p in Permission}
+    invalid = [p for p in permissions if p not in allowed]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid permissions: {', '.join(invalid)}",
+        )
+    clean_perms = sorted(set(permissions))
+    role_id = f"keyrole:{key_id}"
+    role = (await session.execute(select(Role).where(Role.id == role_id))).scalar_one_or_none()
+    if role is None:
+        role = Role(
+            id=role_id,
+            name=f"key:{key_id}",
+            description=f"Permisos directos para API Key {key_id}",
+            permissions=json.dumps(clean_perms),
+            is_active=True,
+        )
+        session.add(role)
+        await session.flush()
+    else:
+        role.permissions = json.dumps(clean_perms)
+        role.is_active = True
+
+    link = (
+        await session.execute(
+            select(ApiKeyRole).where(ApiKeyRole.api_key_id == key_id, ApiKeyRole.role_id == role_id)
+        )
+    ).scalar_one_or_none()
+    if link is None:
+        session.add(
+            ApiKeyRole(
+                id=secrets.token_urlsafe(16),
+                api_key_id=key_id,
+                role_id=role_id,
+            )
+        )
+    await session.flush()
+    return clean_perms
+
+
+@router.get("/api/permissions", response_model=list[str])
+async def list_available_permissions(
+    _: dict[str, Any] = Depends(_require_admin),
+) -> list[str]:
+    """Lista todos los permisos disponibles del sistema."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return [p.value for p in Permission]
+
+
 @router.get("/api/api-keys", response_model=list[ApiKeyResponse])
 async def list_api_keys(
     limit: int = 100,
@@ -330,6 +421,7 @@ async def list_api_keys(
     stmt = select(ApiKey).order_by(ApiKey.created_at.desc()).offset(offset).limit(limit)
     result = await session.execute(stmt)
     keys = result.scalars().all()
+    perms_map = await _get_permissions_map(session, [k.id for k in keys])
 
     return [
         ApiKeyResponse(
@@ -340,6 +432,7 @@ async def list_api_keys(
             created_at=key.created_at,
             last_used_at=key.last_used_at,
             expires_at=key.expires_at,
+            permissions=perms_map.get(key.id, []),
         )
         for key in keys
     ]
@@ -400,6 +493,9 @@ async def create_api_key(
     )
     session.add(new_key)
     await session.flush()
+    assigned_perms: list[str] = []
+    if payload.permissions:
+        assigned_perms = await _set_key_permissions(session, key_id, payload.permissions)
     await session.commit()
     await session.refresh(new_key)
 
@@ -411,7 +507,39 @@ async def create_api_key(
         created_at=new_key.created_at,
         last_used_at=new_key.last_used_at,
         expires_at=new_key.expires_at,
+        permissions=assigned_perms,
         key=plain_key,
+    )
+
+
+@router.put("/api/api-keys/{key_id}/permissions", response_model=ApiKeyResponse)
+async def update_api_key_permissions(
+    key_id: str,
+    payload: ApiKeyPermissionsUpdate,
+    session: AsyncSession = Depends(_get_db),
+    _: dict[str, Any] = Depends(_require_admin),
+) -> ApiKeyResponse:
+    """Asigna o actualiza los permisos de una API key."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    key = (await session.execute(select(ApiKey).where(ApiKey.id == key_id))).scalar_one_or_none()
+    if not key:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    perms = await _set_key_permissions(session, key_id, payload.permissions)
+    await session.commit()
+    await session.refresh(key)
+
+    return ApiKeyResponse(
+        id=key.id,
+        name=key.name,
+        is_active=key.is_active,
+        rate_limit=key.rate_limit,
+        created_at=key.created_at,
+        last_used_at=key.last_used_at,
+        expires_at=key.expires_at,
+        permissions=perms,
     )
 
 
@@ -577,3 +705,139 @@ async def update_gateway_status(
         redis=await _redis_status(),
         default_hotel_id=settings.otelms_default_hotel_id,
     )
+
+
+@router.post("/api/redis/reconnect")
+async def reconnect_redis_endpoint(
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Reintenta conectar Redis en cache y rate_limiter."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    cache_ok = await cache.reconnect_redis()
+    rl_ok = await rate_limiter.reset_circuit_breaker()
+    return {
+        "cache_redis": cache_ok,
+        "rate_limiter_redis": rl_ok,
+        "redis": await _redis_status(),
+    }
+
+
+# ============================================================
+# LOCAL DEV WORKER CONTROLS (APP_DEBUG=true ONLY)
+# ============================================================
+
+_WORKER_PID_PATH = Path("logs/local_worker.pid")
+_worker_proc: subprocess.Popen[bytes] | None = None
+
+
+def _require_debug_mode() -> None:
+    if not settings.app_debug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Worker controls are only available when APP_DEBUG=true",
+        )
+
+
+def _get_worker_state() -> tuple[bool, int | None]:
+    global _worker_proc
+    if _worker_proc is not None:
+        if _worker_proc.poll() is None:
+            return True, _worker_proc.pid
+        _worker_proc = None
+
+    if _WORKER_PID_PATH.exists():
+        try:
+            pid = int(_WORKER_PID_PATH.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)
+            return True, pid
+        except Exception:
+            _WORKER_PID_PATH.unlink(missing_ok=True)
+    return False, None
+
+
+@router.get("/api/workers/status")
+async def get_workers_status(
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Estado del worker Celery local (solo APP_DEBUG=true)."""
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_debug_mode()
+    running, pid = _get_worker_state()
+    return {"running": running, "pid": pid, "app_debug": settings.app_debug}
+
+
+@router.post("/api/workers/start")
+async def start_local_worker(
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Inicia un worker Celery local en modo solo (solo APP_DEBUG=true)."""
+    global _worker_proc
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_debug_mode()
+
+    running, pid = _get_worker_state()
+    if running:
+        return {"status": "already_running", "running": True, "pid": pid}
+
+    _WORKER_PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    log_path = _WORKER_PID_PATH.parent / "local_worker.log"
+    log_file = log_path.open("ab")
+    try:
+        _worker_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "celery",
+                "-A",
+                "otelms.tasks.celery_app",
+                "worker",
+                "-P",
+                "solo",
+                "--loglevel=info",
+            ],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+    finally:
+        log_file.close()
+
+    _WORKER_PID_PATH.write_text(str(_worker_proc.pid), encoding="utf-8")
+    logger.info("Local Celery worker started", pid=_worker_proc.pid)
+    return {"status": "started", "running": True, "pid": _worker_proc.pid}
+
+
+@router.post("/api/workers/stop")
+async def stop_local_worker(
+    _: dict[str, Any] = Depends(_require_admin),
+) -> dict[str, Any]:
+    """Detiene el worker Celery local (solo APP_DEBUG=true)."""
+    global _worker_proc
+    if not _admin_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _require_debug_mode()
+
+    running, pid = _get_worker_state()
+    if not running or pid is None:
+        _WORKER_PID_PATH.unlink(missing_ok=True)
+        return {"status": "not_running", "running": False, "pid": None}
+
+    if _worker_proc is not None and _worker_proc.poll() is None:
+        _worker_proc.terminate()
+        try:
+            _worker_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _worker_proc.kill()
+        _worker_proc = None
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    _WORKER_PID_PATH.unlink(missing_ok=True)
+    logger.info("Local Celery worker stopped", pid=pid)
+    return {"status": "stopped", "running": False, "pid": pid}

@@ -198,7 +198,21 @@ class Settings(BaseSettings):
 
     cache_enabled: bool = Field(default=True, alias="CACHE_ENABLED")
     cache_ttl_seconds: int = Field(default=1800, alias="CACHE_TTL_SECONDS")
+    memory_cache_ttl_seconds: int = Field(default=60, alias="MEMORY_CACHE_TTL_SECONDS")
     cache_max_size_mb: int = Field(default=100, alias="CACHE_MAX_SIZE_MB")
+
+    # ============================================================
+    # BILLING, HOUSEKEEPING & LIVE RATE LIMIT
+    # ============================================================
+    billing_money_unit: Literal["decimal", "cents"] = Field(
+        default="decimal", alias="BILLING_MONEY_UNIT"
+    )
+    housekeeping_dusting_days: int = Field(
+        default=3, alias="HOUSEKEEPING_DUSTING_DAYS"
+    )
+    live_endpoint_rate_limit_per_minute: int = Field(
+        default=10, alias="LIVE_ENDPOINT_RATE_LIMIT_PER_MINUTE"
+    )
 
     # ============================================================
     # LOGGING

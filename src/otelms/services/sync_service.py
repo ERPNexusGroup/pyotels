@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from otelms.domain.entities import Hotel, HousekeepingStatus, Room
+from otelms.domain.entities import Hotel, HousekeepingStatus, Reservation, Room
 from otelms.domain.repositories import (
     CategoryAvailabilityRepository,
     CategoryRepository,
@@ -33,7 +33,7 @@ from otelms.scraping.exceptions import AuthenticationError
 from otelms.scraping.folio_deep_extract import parse_folio_complete
 from otelms.scraping.folio_extract import parse_folio
 from otelms.scraping.http_calendar import fetch_calendar_html
-from otelms.utils.timezone import to_ecuador_iso
+from otelms.utils.timezone import to_ecuador, to_ecuador_iso, utc_now
 from otelms.scraping.http_folio import FolioClient
 from otelms.scraping.parsers import CalendarParser
 from otelms.scraping.setup_extract import SetupExtractor
@@ -410,6 +410,64 @@ class SyncService:
                 result.records_updated = updated
                 result.records_processed = created + updated
                 result.availability_persisted = availability
+
+            # Sincronización delta de folios dentro del ciclo de 15 minutos
+            cells = calendar_data.get("cells", [])
+            if cells:
+                today_ec = to_ecuador(utc_now()).date()
+                stale_cutoff = datetime.now(UTC).timestamp() - 3600
+                cell_hashes: dict[str, str] = {}
+                for c in cells:
+                    rid = str(c.get("reservation_id") or "")
+                    if not rid:
+                        continue
+                    raw = f"{c.get('status')}|{c.get('room_id')}|{c.get('check_in')}|{c.get('check_out')}|{c.get('balance')}"
+                    cell_hashes[rid] = hashlib.sha256(raw.encode()).hexdigest()
+
+                if cell_hashes:
+                    delta_ids: list[str] = []
+                    stale_candidates: list[str] = []
+                    async with get_db_session() as session:
+                        stmt = select(Reservation).where(
+                            Reservation.hotel_id == self.hotel_id,
+                            Reservation.id.in_(list(cell_hashes.keys())),
+                        )
+                        rows = (await session.execute(stmt)).scalars().all()
+                        by_id = {r.id: r for r in rows}
+
+                    for rid, chash in cell_hashes.items():
+                        existing = by_id.get(rid)
+                        if existing is None or existing.sync_hash != chash or existing.deep_synced_at is None:
+                            delta_ids.append(rid)
+                            continue
+                        co_date = to_ecuador(existing.check_out).date()
+                        ci_date = to_ecuador(existing.check_in).date()
+                        if co_date == today_ec or (ci_date <= today_ec <= co_date):
+                            delta_ids.append(rid)
+                        elif existing.deep_synced_at.timestamp() < stale_cutoff:
+                            stale_candidates.append(rid)
+
+                    delta_ids.extend(stale_candidates[:10])
+                    if delta_ids:
+                        detail_res = await self.sync_reservation_details(
+                            target_date=target_date, reservation_ids=delta_ids
+                        )
+                        result.services_persisted += detail_res.services_persisted
+                        result.payments_persisted += detail_res.payments_persisted
+                        if detail_res.errors:
+                            result.errors.extend(detail_res.errors)
+                        else:
+                            async with get_db_session() as session:
+                                stmt = select(Reservation).where(
+                                    Reservation.hotel_id == self.hotel_id,
+                                    Reservation.id.in_(delta_ids),
+                                    Reservation.deep_synced_at.is_not(None),
+                                )
+                                synced_rows = (await session.execute(stmt)).scalars().all()
+                                for sr in synced_rows:
+                                    if sr.id in cell_hashes:
+                                        sr.sync_hash = cell_hashes[sr.id]
+                                await session.commit()
 
             result.success = True
             result.duration_ms = self._elapsed_ms(start)
@@ -1094,6 +1152,9 @@ class SyncService:
                 guest_patch: dict[str, Any] = {}
                 phone = _normalize_scalar(deep_client.get("phone") or primary.get("phone"))
                 email = _normalize_scalar(deep_client.get("email") or primary.get("email"))
+                address = _normalize_scalar(deep_client.get("address") or primary.get("address"))
+                doc_type = _normalize_scalar(deep_client.get("document_type") or primary.get("document_type"))
+                doc_number = _normalize_scalar(deep_client.get("document_number") or primary.get("document_number"))
                 gender = _normalize_scalar(primary.get("gender"))
                 nationality = _normalize_scalar(primary.get("nationality"))
                 birth = _normalize_scalar(primary.get("birth_date"))
@@ -1101,6 +1162,12 @@ class SyncService:
                     guest_patch["phone"] = phone
                 if email:
                     guest_patch["email"] = email
+                if address:
+                    guest_patch["address"] = address
+                if doc_type:
+                    guest_patch["document_type"] = doc_type
+                if doc_number:
+                    guest_patch["document_number"] = doc_number
                 if gender:
                     guest_patch["gender"] = gender
                 if nationality:
@@ -1198,10 +1265,18 @@ class SyncService:
             if payments:
                 payments_total += await pmt_repo.bulk_upsert(str(res_id), payments)
 
-            # total_price real (sin usar balance)
+            # total_price real (sin usar balance) + saldo OtelMS para reconciliación
             computed_total = _compute_total_price(folio, night_rates_data)
             if computed_total is not None:
                 res.total_price = computed_total
+            otelms_bal = _decimal_or_none(
+                folio_deep.get("balance")
+                if folio_deep.get("balance") not in (None, "")
+                else folio.get("balance")
+            )
+            if otelms_bal is not None:
+                res.otelms_balance = otelms_bal
+            res.deep_synced_at = utc_now()
 
         await session.commit()
         return created, updated, services_total, payments_total

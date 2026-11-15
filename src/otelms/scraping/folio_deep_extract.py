@@ -186,6 +186,28 @@ def parse_folio_complete(html_content: str, reservation_id: str | int) -> dict[s
             email = _normalize_optional(_panel_get(rows, "email", "correo electrónico", "correo electronico", "correo"))
             if email:
                 basic_info["email"] = email
+            address = _normalize_optional(_panel_get(rows, "dirección", "direccion", "address", "domicilio"))
+            if address:
+                basic_info["address"] = address
+            doc_num = _normalize_optional(
+                _panel_get(
+                    rows,
+                    "cédula",
+                    "cedula",
+                    "ruc",
+                    "pasaporte",
+                    "documento",
+                    "número de documento",
+                    "numero de documento",
+                    "dni",
+                    "id fiscal",
+                )
+            )
+            if doc_num:
+                basic_info["document_number"] = doc_num
+            doc_type = _normalize_optional(_panel_get(rows, "tipo de documento", "tipo documento"))
+            if doc_type:
+                basic_info["document_type"] = doc_type
             legal = _normalize_optional(_panel_get(rows, "entidad legal", "pagador"))
             if legal:
                 basic_info["legal_entity"] = legal
@@ -335,6 +357,9 @@ def parse_folio_complete(html_content: str, reservation_id: str | int) -> dict[s
         i_email = _col_idx(hdrs, "email", "correo")
         i_birth = _col_idx(hdrs, "nacimiento", "birth")
         i_nationality = _col_idx(hdrs, "nacionalidad", "país", "pais")
+        i_doc_type = _col_idx(hdrs, "tipo de documento", "tipo documento")
+        i_doc_num = _col_idx(hdrs, "cédula", "cedula", "ruc", "pasaporte", "documento", "dni")
+        i_address = _col_idx(hdrs, "dirección", "direccion", "address", "domicilio")
         for tr in tbl_guests.find_all("tr")[1:]:
             cells = [td.get_text(" ", strip=True) for td in tr.find_all(["td", "th"])]
             if not cells or not any(cells):
@@ -345,6 +370,9 @@ def parse_folio_complete(html_content: str, reservation_id: str | int) -> dict[s
                 "email": _cell_text(cells, i_email) or (cells[2] if len(cells) > 2 else ""),
                 "birth_date": _cell_text(cells, i_birth) or (cells[3] if len(cells) > 3 else ""),
                 "nationality": _cell_text(cells, i_nationality) or (cells[5] if len(cells) > 5 else ""),
+                "document_type": _cell_text(cells, i_doc_type),
+                "document_number": _cell_text(cells, i_doc_num),
+                "address": _cell_text(cells, i_address),
             })
 
     # 2. Servicios / Cargos (mapeo por cabecera)

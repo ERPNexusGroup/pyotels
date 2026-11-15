@@ -15,6 +15,18 @@ from otelms.api import dependencies as deps
 from otelms.api.main import app
 from otelms.api.routes import restrictions as restrictions_route
 from otelms.domain.repositories import CategoryRepository, HotelRepository
+from otelms.utils.cache import cache
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clear_restrictions_cache_and_rate_limit():
+    deps._live_rate_windows.pop("restrictions.list", None)
+    if cache._backend is not None:
+        await cache.clear_pattern("live:restrictions:*")
+    yield
+    deps._live_rate_windows.pop("restrictions.list", None)
+    if cache._backend is not None:
+        await cache.clear_pattern("live:restrictions:*")
 
 
 @pytest.fixture

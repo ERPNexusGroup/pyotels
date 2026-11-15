@@ -72,6 +72,20 @@ class HousekeepingStatusRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return {row[0] for row in result.all()}
 
+    async def get_notes_map_for_date(self, hotel_id: str, target_date: date) -> dict[str, str]:
+        """Retorna {room_id: notes} para habitaciones con observaciones en esa fecha."""
+        from sqlalchemy import select as _q
+        stmt = (
+            _q(HousekeepingStatus.room_id, HousekeepingStatus.notes)
+            .where(
+                HousekeepingStatus.hotel_id == hotel_id,
+                HousekeepingStatus.date == target_date,
+                HousekeepingStatus.notes.is_not(None),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return {row[0]: row[1] for row in result.all() if row[1]}
+
     async def upsert(
         self,
         hotel_id: str,
@@ -79,6 +93,7 @@ class HousekeepingStatusRepository(BaseRepository):
         target_date: date,
         status: int,
         updated_by: str | None = None,
+        notes: str | None = None,
     ) -> HousekeepingStatus:
         """Crea o actualiza el estado de limpieza de una habitacion."""
         from sqlalchemy import select as _q
@@ -96,6 +111,8 @@ class HousekeepingStatusRepository(BaseRepository):
         if existing:
             existing.status = status
             existing.updated_by = updated_by
+            if notes is not None:
+                existing.notes = notes
             existing.updated_at = datetime.now(UTC)
             await self.session.flush()
             await self.session.refresh(existing)
@@ -107,6 +124,7 @@ class HousekeepingStatusRepository(BaseRepository):
             room_id=room_id,
             date=target_date,
             status=status,
+            notes=notes,
             updated_by=updated_by,
         )
         self.session.add(obj)

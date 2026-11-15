@@ -18,7 +18,8 @@ reintroduce el ciclo.
 Para leer una relación sin disparar SQL se usa `obj.__dict__.get(nombre)`: solo
 devuelve algo si la relación ya está precargada, y `None` si no lo está.
 """
-from typing import Any
+from decimal import Decimal
+from typing import Any, Literal
 
 from otelms.api.schemas import (
     CategoryResponse,
@@ -32,6 +33,7 @@ from otelms.api.schemas import (
     ReservationResponse,
     RoomResponse,
     ServiceResponse,
+    format_money,
 )
 from otelms.domain.entities import (
     Category,
@@ -103,6 +105,7 @@ def guest_response(guest: Guest) -> GuestResponse:
         phone=guest.phone,
         document_type=guest.document_type,
         document_number=guest.document_number,
+        address=guest.address,
         nationality=guest.nationality,
         country=guest.country,
         city=guest.city,
@@ -200,12 +203,67 @@ def change_history_response(item: ReservationChangeHistory) -> ReservationChange
     )
 
 
-def reservation_response(reservation: Reservation) -> ReservationResponse:
+def compute_billing_summary(
+    reservation: Reservation,
+    money_unit: Literal["decimal", "cents"] = "decimal",
+) -> dict[str, Any]:
+    """Calcula totales consolidados y guarda de saldo sin aritmética flotante."""
+    services = _loaded(reservation, "services") or []
+    payments = _loaded(reservation, "payments") or []
+    night_rates = _loaded(reservation, "night_rates") or []
+
+    accom_services = [
+        s for s in services
+        if "alojamiento" in (s.title or "").lower() and "-night-" not in str(s.id)
+    ]
+    if accom_services:
+        accommodation_dec = sum((Decimal(str(s.total)) for s in accom_services), Decimal("0.00"))
+    else:
+        accommodation_dec = sum((Decimal(str(r.price)) for r in night_rates), Decimal("0.00"))
+
+    other_services = [
+        s for s in services
+        if "alojamiento" not in (s.title or "").lower() and "-night-" not in str(s.id)
+    ]
+    services_dec = sum((Decimal(str(s.total)) for s in other_services), Decimal("0.00"))
+    payments_dec = sum((Decimal(str(p.amount)) for p in payments), Decimal("0.00"))
+    computed_dec = accommodation_dec + services_dec - payments_dec
+
+    otelms_bal_dec = (
+        Decimal(str(reservation.otelms_balance))
+        if getattr(reservation, "otelms_balance", None) is not None
+        else None
+    )
+    deep_synced = getattr(reservation, "deep_synced_at", None) is not None
+    mismatch = (
+        otelms_bal_dec is None
+        or not deep_synced
+        or otelms_bal_dec.quantize(Decimal("0.01")) != computed_dec.quantize(Decimal("0.01"))
+    )
+    is_billable = computed_dec.quantize(Decimal("0.01")) == Decimal("0.00") and not mismatch
+
+    return {
+        "money_unit": money_unit,
+        "accommodation_total": format_money(accommodation_dec, money_unit),
+        "services_total": format_money(services_dec, money_unit),
+        "payments_total": format_money(payments_dec, money_unit),
+        "otelms_balance": format_money(otelms_bal_dec, money_unit),
+        "computed_balance": format_money(computed_dec, money_unit),
+        "balance_mismatch": mismatch,
+        "is_billable": is_billable,
+    }
+
+
+def reservation_response(
+    reservation: Reservation,
+    money_unit: Literal["decimal", "cents"] = "decimal",
+) -> ReservationResponse:
     """ReservationResponse con las relaciones que ya vinieron precargadas."""
     guest = _loaded(reservation, "guest")
     room = _loaded(reservation, "room")
     night_rates = _loaded(reservation, "night_rates") or []
     history = _loaded(reservation, "change_history") or []
+    billing = compute_billing_summary(reservation, money_unit=money_unit)
 
     return ReservationResponse(
         id=reservation.id,
@@ -235,6 +293,7 @@ def reservation_response(reservation: Reservation) -> ReservationResponse:
         payments=[payment_response(p) for p in (_loaded(reservation, "payments") or [])],
         night_rates=[night_rate_response(r) for r in night_rates],
         history=[change_history_response(h) for h in history],
+        **billing,
         created_at=reservation.created_at,
         updated_at=reservation.updated_at,
         last_synced_at=reservation.last_synced_at,

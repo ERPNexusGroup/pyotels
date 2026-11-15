@@ -4,6 +4,7 @@ Cache wrapper con soporte para Redis y diskcache fallback.
 import asyncio
 import fnmatch
 import pickle
+import time
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -172,6 +173,57 @@ class DiskCacheBackend(CacheBackend):
         self._cache.close()
 
 
+class MemoryCacheBackend(CacheBackend):
+    """Cache en memoria acotado con TTL para dev/test sin Redis."""
+
+    def __init__(self, max_entries: int = 1024) -> None:
+        self._max_entries = max_entries
+        self._store: dict[str, tuple[Any, float]] = {}
+
+    def _purge_expired(self) -> None:
+        now = time.monotonic()
+        expired = [k for k, (_, exp) in self._store.items() if now >= exp]
+        for k in expired:
+            self._store.pop(k, None)
+
+    async def get(self, key: str) -> Any | None:
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        val, expires_at = entry
+        if time.monotonic() >= expires_at:
+            self._store.pop(key, None)
+            return None
+        # Mover al final para evicción LRU simple
+        self._store.pop(key, None)
+        self._store[key] = (val, expires_at)
+        return val
+
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
+        if self._max_entries <= 0:
+            return False
+        self._purge_expired()
+        if len(self._store) >= self._max_entries and key not in self._store:
+            oldest_key = next(iter(self._store))
+            self._store.pop(oldest_key, None)
+        expires_at = (time.monotonic() + ttl) if ttl is not None else float("inf")
+        self._store.pop(key, None)
+        self._store[key] = (value, expires_at)
+        return True
+
+    async def delete(self, key: str) -> bool:
+        return self._store.pop(key, None) is not None
+
+    async def exists(self, key: str) -> bool:
+        return (await self.get(key)) is not None
+
+    async def clear_pattern(self, pattern: str) -> int:
+        keys = [k for k in list(self._store.keys()) if fnmatch.fnmatch(k, pattern)]
+        for k in keys:
+            self._store.pop(k, None)
+        return len(keys)
+
+
 class CacheManager:
     """Gestor de cache con fallback automático."""
 
@@ -179,11 +231,17 @@ class CacheManager:
         self._backend: CacheBackend | None = None
         self._use_redis = False
 
+    @property
+    def use_redis(self) -> bool:
+        """Indica si el backend activo es Redis."""
+        return self._use_redis
+
     async def initialize(self) -> None:
-        """Inicializa el backend preferido (Redis) con fallback inmediato a memoria/diskcache."""
+        """Inicializa el backend preferido (Redis) con fallback inmediato a memoria."""
         if not settings.cache_enabled:
             logger.info("Cache deshabilitado por configuración")
-            self._backend = DiskCacheBackend()  # Dummy que no hace nada
+            self._backend = MemoryCacheBackend(max_entries=0)
+            self._use_redis = False
             return
 
         # Intentar Redis primero con un solo ping rápido (sin health_check con set/get/delete)
@@ -204,9 +262,41 @@ class CacheManager:
                     await redis_backend.close()
                 except Exception:
                     pass
-            logger.warning("Redis no disponible, usando diskcache/memoria como fallback", error=str(e))
-            self._backend = DiskCacheBackend(max_size_mb=settings.cache_max_size_mb)
+            logger.warning("Redis no disponible, usando cache en memoria como fallback", error=str(e))
+            self._backend = MemoryCacheBackend()
             self._use_redis = False
+
+    async def reconnect_redis(self) -> bool:
+        """Reintenta conectar a Redis y cambia el backend activo si tiene éxito."""
+        if not settings.cache_enabled:
+            return False
+
+        redis_backend: RedisCache | None = None
+        try:
+            redis_backend = RedisCache(
+                settings.redis_url,
+                max_connections=settings.redis_max_connections,
+            )
+            connect_timeout = float(getattr(settings, "redis_socket_connect_timeout", 0.5) or 0.5)
+            await asyncio.wait_for(redis_backend.client.ping(), timeout=connect_timeout)
+            old_backend = self._backend
+            self._backend = redis_backend
+            self._use_redis = True
+            if old_backend is not None and old_backend is not redis_backend:
+                try:
+                    await old_backend.close()
+                except Exception:
+                    pass
+            logger.info("Cache reconectado a Redis")
+            return True
+        except Exception as e:
+            if redis_backend is not None:
+                try:
+                    await redis_backend.close()
+                except Exception:
+                    pass
+            logger.warning("Reconexión a Redis fallida, manteniendo fallback", error=str(e))
+            return False
 
     @property
     def backend(self) -> CacheBackend:
@@ -218,7 +308,8 @@ class CacheManager:
         return await self.backend.get(key)
 
     async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
-        ttl = ttl or settings.cache_ttl_seconds
+        if ttl is None:
+            ttl = settings.memory_cache_ttl_seconds if not self._use_redis else settings.cache_ttl_seconds
         return await self.backend.set(key, value, ttl)
 
     async def delete(self, key: str) -> bool:

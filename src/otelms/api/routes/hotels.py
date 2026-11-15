@@ -7,10 +7,12 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from otelms.api.dependencies import (
+    get_cache,
     get_dealer_repo,
     get_hotel_repo,
     get_payment_method_repo,
     get_property_service_repo,
+    live_rate_limit,
     verify_api_key,
 )
 from otelms.api.mappers import (
@@ -189,29 +191,50 @@ async def sync_hotel_setup(hotel_id: str) -> dict:
     return await sync_svc.sync_all()
 
 
-@router.get("/{hotel_id}/status", response_model=FrontDeskStatusResponse)
+@router.get(
+    "/{hotel_id}/status",
+    response_model=FrontDeskStatusResponse,
+    dependencies=[Depends(live_rate_limit("hotels.status"))],
+)
 async def get_frontdesk_status(hotel_id: str) -> FrontDeskStatusResponse:
     """Obtiene el estado en vivo de Front Desk desde /reservation_c2/status."""
+    cache = await get_cache()
+    cache_key = f"live:status:{hotel_id}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return FrontDeskStatusResponse(**cached)
+
     async with SetupExtractor(hotel_id=hotel_id) as extractor:
         status_data = await extractor.fetch_status()
-    return FrontDeskStatusResponse(
-        hotel_id=hotel_id,
-        status_date=status_data.get("status_date", ""),
-        departures_today=status_data.get("departures_today", 0),
-        arrivals_today=status_data.get("arrivals_today", 0),
-        inhouse_today=status_data.get("inhouse_today", 0),
-    )
+    payload = {
+        "hotel_id": hotel_id,
+        "status_date": status_data.get("status_date", ""),
+        "departures_today": status_data.get("departures_today", 0),
+        "arrivals_today": status_data.get("arrivals_today", 0),
+        "inhouse_today": status_data.get("inhouse_today", 0),
+    }
+    await cache.set(cache_key, payload, ttl=60)
+    return FrontDeskStatusResponse(**payload)
 
 
-@router.get("/{hotel_id}/price-calendar", response_model=list[PriceCalendarCellResponse])
+@router.get(
+    "/{hotel_id}/price-calendar",
+    response_model=list[PriceCalendarCellResponse],
+    dependencies=[Depends(live_rate_limit("hotels.price_calendar"))],
+)
 async def get_price_calendar(
     hotel_id: str,
     dealer_id: str | None = None,
     category_id: str | None = None,
 ) -> list[PriceCalendarCellResponse]:
     """Consulta la matriz de precios por canal de venta desde /reservation_c2/price_calendar."""
-    async with SetupExtractor(hotel_id=hotel_id) as extractor:
-        cells = await extractor.fetch_price_calendar()
+    cache = await get_cache()
+    cache_key = f"live:price_calendar:{hotel_id}"
+    cells = await cache.get(cache_key)
+    if cells is None:
+        async with SetupExtractor(hotel_id=hotel_id) as extractor:
+            cells = await extractor.fetch_price_calendar()
+        await cache.set(cache_key, cells, ttl=60)
 
     results = []
     for c in cells:

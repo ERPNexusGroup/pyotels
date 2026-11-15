@@ -368,6 +368,13 @@ class RateLimiter:
             "backend": "memory" if isinstance(bucket, MemoryTokenBucket) else "redis",
         }
 
+    async def reset_circuit_breaker(self) -> bool:
+        """Resetea el circuit breaker de Redis y reintenta la conexión."""
+        self._redis_available = None
+        self._redis_checked_at = 0.0
+        self._buckets.clear()
+        return await self._ensure_redis_available()
+
     async def close(self) -> None:
         if self._client:
             await self._client.close()
